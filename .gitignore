@@ -1,0 +1,5 @@
+.DS_Store
+*.log
+__pycache__/
+# dumps from your own FH-2, for the optional round-trip tests
+test/local/

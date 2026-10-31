@@ -1,0 +1,3 @@
+[submodule "vendor/lilypad"]
+	path = vendor/lilypad
+	url = https://github.com/plentyofnames/lilypad.git
