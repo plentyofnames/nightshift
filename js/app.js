@@ -6,7 +6,7 @@ import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
 import { parseDump, buildDump, splitSysex, commandOf, DUMPS } from './fh2/sysex.js';
 import { derive } from './patch/derive.js';
 import { examplePatch } from './patch/example.js';
-import { DEFAULT_HARDWARE } from './patch/hardware.js';
+import { DEFAULT_HARDWARE, validHardware, blockName } from './patch/hardware.js';
 import { colorsFor } from './ui/look.js';
 import { renderStage } from './ui/rack.js';
 import { renderInspector } from './ui/inspector.js';
@@ -29,10 +29,10 @@ const state = {
 
 function loadHardware() {
   try {
-    const hw = JSON.parse(localStorage.getItem(HW_KEY));
-    if (hw && Array.isArray(hw.cv) && Array.isArray(hw.gt)) return { esx: [], ...hw };
-  } catch {}
-  return DEFAULT_HARDWARE;
+    return validHardware(JSON.parse(localStorage.getItem(HW_KEY))) ?? DEFAULT_HARDWARE;
+  } catch {
+    return DEFAULT_HARDWARE;
+  }
 }
 
 function saveHardware(hw) {
@@ -131,16 +131,19 @@ async function editHardware() {
     if (e.target.checked && i < 0) list.push(a);
     if (!e.target.checked && i >= 0) list.splice(i, 1);
   } });
-  const body = h('div', { class: 'hw-grid' },
-    h('span', {}, 'FHX-8CV'), [1, 2, 3, 4, 5, 6, 7].map((a) => h('label', {}, box(hw.cv, a), String(a))),
-    h('span', {}, 'FHX-8GT'), [0, 1, 2, 3].map((a) => h('label', {}, box(hw.gt, a), String(a))), h('span'), h('span'), h('span'),
-    h('span', {}, '+ ESX-8GT'), [0, 1, 2, 3].map((a) => h('label', {}, box(hw.esx, a), String(a))), h('span'), h('span'), h('span'));
+  const body = h('div', { class: 'hw-list' },
+    h('b', {}, 'FHX-8CV expanders, by jumper address'),
+    h('div', { class: 'hw-row' }, [1, 2, 3, 4, 5, 6, 7].map((a) => h('label', {}, box(hw.cv, a), `${a}/1–8`))),
+    h('b', {}, 'Gate modules, by the outputs they give'),
+    h('div', { class: 'hw-row' }, [0, 1, 2, 3, 4, 5, 6, 7].map((b) => h('label', {}, box(hw.gt, b), `${blockName(b)} (${b & 1 ? 'ESX-8GT' : 'FHX-8GT'})`))));
   const ok = await modal($('dialog'), {
     title: 'Your rack',
-    body: [h('p', { class: 'note' }, 'Which expanders are connected, by the address set on their jumpers.'), body],
+    body: [h('p', { class: 'note' }, 'Tick what is connected. In the rack they are called CV1, CV2… and GT1, GT2… in this order. An FHX-8GT gives the first 8 outputs of its jumper address (GT0/1–8 for address 0); an ESX-8GT on its “To ESX-8GT” header gives the other 8 (GT0/9–16).'), body],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Use this', value: true, primary: true }],
   });
   if (!ok) return;
+  hw.cv.sort((a, b) => a - b);
+  hw.gt.sort((a, b) => a - b);
   state.hardware = hw;
   saveHardware(hw);
   update();

@@ -10,7 +10,7 @@ Milestone **M1**, read only: open a config and preset (from `.syx` files or pull
 
 **Try it:** [plentyofnam.es/nightshift](https://plentyofnam.es/nightshift/) (Chrome or Edge for Web MIDI), or the [example patch](https://plentyofnam.es/nightshift/?example).
 
-The plan, the design notes and the facts about the module are in [docs/](docs/).
+The plan, the design notes and the facts about the module are in [docs/](docs/). [docs/fh2-components.md](docs/fh2-components.md) lists what every part of the FH-2 takes and gives, and what Night Shift assumes about it.
 
 Plain HTML, CSS and JS modules, no build step and no dependencies, like [Lilypad](https://github.com/plentyofnames/lilypad), which is included as a submodule (`vendor/lilypad`). Clone with `--recurse-submodules`.
 

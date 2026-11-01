@@ -12,7 +12,7 @@ const HEAD = 26;
 const RX = 360;
 const RY = 40;
 const PANEL_H = 707;
-const W = { fh2: 224, cv: 112, gt: 112, esx: 112 };
+const W = { fh2: 224, cv: 112, gt: 112 };
 
 const GROUPS = [
   ['Notes', ['voice', 'triggers']],
@@ -62,13 +62,13 @@ export function renderStage(view, colors, selected, onSelect) {
   let x = RX;
   const rackW = modules.reduce((w, m) => w + W[m.kind] + 4, -4);
   nodes.push(h('div', { class: 'stage-title', style: `left:${RX}px;width:${rackW}px` },
-    h('span', {}, 'Rack ', h('small', {}, '· ' + modules.map((m) => m.tag).join(' + ')))));
+    h('span', {}, 'Rack ', h('small', {}, '· ' + modules.map((m) => m.name).join(' + ')))));
   for (const m of modules) {
     const w = W[m.kind];
     nodes.push(modulePanel(m, x, w, view));
     m.outputs.forEach((out, j) => {
       const p = m.kind === 'fh2' ? FH2_OUT(j) : EXP_OUT(j);
-      jackPos.set(out, { x: x + p.x, y: RY + p.y, num: m.kind === 'fh2' ? String(j + 1) : String(j + 1 + (m.kind === 'esx' ? 8 : 0)) });
+      jackPos.set(out, { x: x + p.x, y: RY + p.y, num: String(j + 1) });
     });
     if (m.kind === 'fh2') nodes.push(...fh2Inputs(x, view, colors, selected));
     x += w + 4;
@@ -152,7 +152,8 @@ export function renderStage(view, colors, selected, onSelect) {
 }
 
 function modulePanel(m, x, w, view) {
-  const titles = { fh2: ['FH-2', '', 'FACTOTUM'], cv: ['FHX-8CV', m.tag, 'CV'], gt: ['FHX-8GT', m.tag, 'GATE'], esx: ['ESX-8GT', m.tag, 'GATE'] };
+  // Gate blocks 1–8 of an address are an FHX-8GT, 9–16 the ESX-8GT attached to it.
+  const titles = { fh2: ['FH-2', '', 'FACTOTUM'], cv: ['FHX-8CV', m.name, m.internal], gt: [m.block & 1 ? 'ESX-8GT' : 'FHX-8GT', m.name, m.internal] };
   const [title, tag, foot] = titles[m.kind];
   const parts = [
     h('span', { class: 'screw', style: 'left:6px;top:6px' }),

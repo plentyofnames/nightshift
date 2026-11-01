@@ -3,7 +3,7 @@
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, noteName } from '../patch/tables.js';
-import { outputNumber } from '../patch/hardware.js';
+import { outputNumber, internalName } from '../patch/hardware.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -121,7 +121,7 @@ function settingsOf(s) {
 function jackInspector(view, colors, o, onSelect) {
   const parts = [
     h('div', { class: 'ins-head' }, h('div', {}, h('h2', {}, `Jack ${o.jack}`),
-      h('span', { class: 'kind' }, `FH-2 output ${outputNumber(o.index)} · ${o.gate ? 'gate expander' : 'CV'}${o.present ? '' : ' · not in your rack'}`))),
+      h('span', { class: 'kind' }, `${o.gate ? 'Gate' : 'CV'} · ${internalName(o.index)} in the FH-2 app · output ${outputNumber(o.index)} in its menus${o.present ? '' : ' · not in your rack'}`))),
   ];
   parts.push(section('Comes out of', o.ports.length
     ? o.ports.map((p) => {

@@ -5,7 +5,7 @@ import { test, assert, eq } from './harness.js';
 import { derive } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
-import { jackName, rack, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
+import { jackName, internalName, rack, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
 import { buildDump, parseDump } from '../js/fh2/sysex.js';
 import * as O from './official.js';
 
@@ -16,9 +16,14 @@ const exampleView = () => {
 };
 const portsOf = (view, id) => view.sources.find((s) => s.id === id).ports.map((p) => [p.name, p.jack]);
 
-test('jack names follow the expander addresses', () => {
-  eq([0, 7, 8, 13, 63, 64, 71, 72, 85, 127].map(jackName), ['1', '8', 'C1·1', 'C1·6', 'C7·8', 'G0·1', 'G0·8', 'G0·9', 'G1·6', 'G3·16']);
-  eq(rack(DEFAULT_HARDWARE).map((m) => m.tag), ['FH-2', 'C1', 'C2', 'G0', 'G1']);
+test('jacks are named after the modules in the rack', () => {
+  const hw = DEFAULT_HARDWARE;
+  eq([0, 7, 8, 13, 16, 64, 71, 72, 79].map((o) => jackName(o, hw)), ['1', '8', 'CV1·1', 'CV1·6', 'CV2·1', 'GT1·1', 'GT1·8', 'GT2·1', 'GT2·8']);
+  eq([24, 63, 80, 127].map((o) => jackName(o, hw)), ['3/1', '7/8', 'GT1/1', 'GT3/16'], 'outputs outside the rack keep their internal names');
+  eq(rack(hw).map((m) => `${m.name}=${m.internal}`), ['FH-2=1–8', 'CV1=1/1–8', 'CV2=2/1–8', 'GT1=GT0/1–8', 'GT2=GT0/9–16']);
+  const chained = { ...hw, gt: [0, 2] }; // two FHX-8GTs, jumpered to addresses 0 and 1
+  eq([64, 80].map((o) => jackName(o, chained)), ['GT1·1', 'GT2·1']);
+  eq(internalName(75), 'GT0/12');
 });
 
 test('blank dumps decode as empty', () => {
@@ -37,19 +42,19 @@ test('the example patch survives a trip through bytes', () => {
 test('example: voices come out where the mockup shows them', () => {
   const v = exampleView();
   eq(portsOf(v, 'converter:0'), [['Pitch', '1'], ['Gate', '2'], ['Velocity', '3'], ['Envelope', '4']], 'Lead');
-  eq(portsOf(v, 'converter:1'), [['Pitch 1', 'C1·6'], ['Pitch 2', 'C1·7'], ['Pitch 3', 'C1·8'], ['Gate 1', 'G1·6'], ['Gate 2', 'G1·7'], ['Gate 3', 'G1·8']], 'Pad');
-  eq(portsOf(v, 'converter:2'), [['Pitch', 'C1·1'], ['Velocity', 'C1·2'], ['Gate', 'G0·1']], 'Bass');
+  eq(portsOf(v, 'converter:1'), [['Pitch 1', 'CV1·6'], ['Pitch 2', 'CV1·7'], ['Pitch 3', 'CV1·8'], ['Gate 1', 'GT2·6'], ['Gate 2', 'GT2·7'], ['Gate 3', 'GT2·8']], 'Pad');
+  eq(portsOf(v, 'converter:2'), [['Pitch', 'CV1·1'], ['Velocity', 'CV1·2'], ['Gate', 'GT1·1']], 'Bass');
   eq(v.sources.find((s) => s.id === 'converter:1').mode, 'poly');
 });
 
 test('example: timing, triggers, Euclid and random', () => {
   const v = exampleView();
-  eq(portsOf(v, 'clocks'), [['Clock 1/16', 'G0·7'], ['Run gate', 'G0·8'], ['Clock 1 bar', 'G1·1']], 'clocks');
-  eq(portsOf(v, 'triggers:14').map((p) => p[1]), ['G0·2', 'G0·3', 'G0·4', 'G0·5', 'G0·6'], 'drum triggers');
+  eq(portsOf(v, 'clocks'), [['Clock 1/16', 'GT1·7'], ['Run gate', 'GT1·8'], ['Clock 1 bar', 'GT2·1']], 'clocks');
+  eq(portsOf(v, 'triggers:14').map((p) => p[1]), ['GT1·2', 'GT1·3', 'GT1·4', 'GT1·5', 'GT1·6'], 'drum triggers');
   eq(portsOf(v, 'triggers:14')[0][0], 'C2 (36)', 'kick note');
-  eq(portsOf(v, 'euclid:0'), [['Pulses', 'G1·2']], 'euclid');
+  eq(portsOf(v, 'euclid:0'), [['Pulses', 'GT2·2']], 'euclid');
   eq(v.sources.find((s) => s.id === 'euclid:0').pattern.pulses, 5);
-  eq(portsOf(v, 'srr:0'), [['CV', 'C1·5'], ['Change', 'G1·4'], ['Trigger', 'G1·5']], 'random');
+  eq(portsOf(v, 'srr:0'), [['CV', 'CV1·5'], ['Change', 'GT2·4'], ['Trigger', 'GT2·5']], 'random');
 });
 
 test('example: LFOs, knobs and stored levels', () => {
@@ -58,8 +63,8 @@ test('example: LFOs, knobs and stored levels', () => {
   eq(v.sources.find((s) => s.id === 'lfo:4').lfo.rate, '1 bar');
   eq(portsOf(v, 'lfo:5'), [['LFO', '6']], 'drift');
   assert(v.outputs[0].lfo && !v.outputs[0].lfo.alone, 'vibrato should be a layer on jack 1');
-  eq(portsOf(v, 'knobs:1'), [['CC 12', 'C2·1'], ['CC 13', 'C2·2'], ['CC 14', 'C2·3'], ['CC 15', 'C2·4']], 'knobs');
-  eq(portsOf(v, 'levels'), [['Level 12288', 'C2·8']], 'stored level');
+  eq(portsOf(v, 'knobs:1'), [['CC 12', 'CV2·1'], ['CC 13', 'CV2·2'], ['CC 14', 'CV2·3'], ['CC 15', 'CV2·4']], 'knobs');
+  eq(portsOf(v, 'levels'), [['Level 12288', 'CV2·8']], 'stored level');
   eq(v.outputs[23].range, '±5 V');
 });
 
@@ -86,9 +91,9 @@ test('converter outputs follow the manual (poly, stride, shared, MPE, bend)', ()
     cvOut: 1, pressureOut: 1, triggerOut: 1, baseGate: 64 });
   const v = derive(c, null);
   eq(portsOf(v, 'converter:0').map((p) => p.join('@')),
-    ['Pitch 1@1', 'Gate 1@2', 'Pitch 2@4', 'Gate 2@5', 'Aftertouch@7', 'Para gate@8', 'Bend up@C1·1', 'Bend down@C1·2'], 'poly with stride');
+    ['Pitch 1@1', 'Gate 1@2', 'Pitch 2@4', 'Gate 2@5', 'Aftertouch@7', 'Para gate@8', 'Bend up@CV1·1', 'Bend down@CV1·2'], 'poly with stride');
   eq(portsOf(v, 'converter:1').map((p) => p.join('@')),
-    ['Pitch 1@C2·1', 'Pressure 1@C2·2', 'MPE Y 1@C2·3', 'Pitch 2@C2·4', 'Pressure 2@C2·5', 'MPE Y 2@C2·6', 'Trigger 1@G0·1', 'Trigger 2@G0·2'], 'MPE with gates on the expander');
+    ['Pitch 1@CV2·1', 'Pressure 1@CV2·2', 'MPE Y 1@CV2·3', 'Pitch 2@CV2·4', 'Pressure 2@CV2·5', 'MPE Y 2@CV2·6', 'Trigger 1@GT1·1', 'Trigger 2@GT1·2'], 'MPE with gates on the expander');
   eq(v.sources.find((s) => s.id === 'converter:1').channels, [1, 2, 3, 4], 'MPE channels');
 });
 

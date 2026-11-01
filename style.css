@@ -157,5 +157,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .modal-buttons button { border: 1px solid var(--line2); background: transparent; border-radius: 8px; padding: 7px 12px; cursor: pointer; }
 .modal-buttons button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.hw-grid { display: grid; grid-template-columns: auto repeat(7, auto); gap: 6px 10px; align-items: center; font-size: 13px; }
-.hw-grid label { display: inline-flex; align-items: center; gap: 4px; }
+.hw-list { display: flex; flex-direction: column; gap: 8px; font-size: 13px; max-width: 560px; }
+.hw-row { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.hw-row label { display: inline-flex; align-items: center; gap: 5px; }
+.modal .note { max-width: 560px; }

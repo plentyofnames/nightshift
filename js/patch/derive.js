@@ -13,7 +13,7 @@ import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYP
 export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
   const outputs = Array.from({ length: 128 }, (_, i) => ({
     index: i,
-    jack: jackName(i),
+    jack: jackName(i, hardware),
     gate: isGate(i),
     present: isPresent(hardware, i),
     range: i < 64 ? RANGES[config.outputRange[i].value] ?? `range ${config.outputRange[i].value}` : null,
@@ -37,7 +37,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
         problems.push({ kind: 'range', source: s.id, message: `${s.name}: ${p.name} points past the last output` });
         continue;
       }
-      p.jack = jackName(p.output);
+      p.jack = jackName(p.output, hardware);
       p.present = outputs[p.output].present;
       outputs[p.output].ports.push({ source: s.id, name: p.name, layer: !!s.layer });
     }
