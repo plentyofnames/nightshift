@@ -279,7 +279,7 @@ function gateFriendly(sources, p) {
   if (!s) return true;
   if (s.kind === 'clock' || s.kind === 'triggers' || s.kind === 'euclid' || s.kind === 'hid') return true;
   if (s.kind === 'random') return p.name !== 'CV';
-  if (s.kind === 'voice') return /Gate|Trigger/.test(p.name);
+  if (s.kind === 'voice') return /^(Gate|Trigger|Para gate)( \d+)?$/.test(p.name); // not Velocity gate: gate outputs are always 10 V
   return false;
 }
 

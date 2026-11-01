@@ -97,6 +97,17 @@ test('converter outputs follow the manual (poly, stride, shared, MPE, bend)', ()
   eq(v.sources.find((s) => s.id === 'converter:1').channels, [1, 2, 3, 4], 'MPE channels');
 });
 
+test('with a base gate, trigger-like outputs go to the gates and the CV-like ones close up', () => {
+  const c = blankConfig().values;
+  Object.assign(c.converter[0], { enable: 1, type: 1, voices: 2, baseOutput: 0, baseGate: 64, cvOut: 1, gateOut: 1,
+    velocityOut: 1, triggerOut: 1, envelopeOut: 1, aftertouchOut: 1, paraGateOut: 1 });
+  const v = derive(c, null);
+  eq(portsOf(v, 'converter:0').map((p) => p.join('@')),
+    ['Pitch 1@1', 'Velocity 1@2', 'Envelope 1@3', 'Pitch 2@4', 'Velocity 2@5', 'Envelope 2@6', 'Aftertouch@7',
+      'Gate 1@GT1·1', 'Trigger 1@GT1·2', 'Gate 2@GT1·3', 'Trigger 2@GT1·4', 'Para gate@GT1·5']);
+  eq(v.problems, [], 'problems');
+});
+
 test('collisions and gate-only outputs are reported', () => {
   const c = blankConfig().values;
   Object.assign(c.converter[0], { enable: 1, baseOutput: 0, cvOut: 1, gateOut: 1 });

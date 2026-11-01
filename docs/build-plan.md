@@ -131,6 +131,7 @@ None of these touch the page, so they work unchanged. That gives one implementat
   - a page template per source type, made when the source is added, plus the LIVE page;
   - the page editor (artboard 8) and the Controllers view (artboard 6).
 - **CCs:** allocated on ch 2. One FH-2 mapping per setting, shared by every page that shows it. Values below CC 32 are kept free for 14-bit pairs.
+- **Knob types:** direct levels, LFO speed and LFO level as 14-bit absolute with acceleration; the rest relative or 7-bit absolute (review item 9).
 - **Live link:**
   - SELECT, STATE and TOUCH;
   - value texts in FH-2 units, resent after every page change.
@@ -189,6 +190,36 @@ Each item is listed with the milestone that needs it.
 | 7 | Installing a config moves outputs (stuck notes or voltage jumps) | M2 | Warn, and offer "send on stop" |
 | 8 | The menus can be walked remotely and read back reliably: 43H/44H name every Settings item, and long-holding the left button always gets back to the overview | M3 | Show the checklist's settings as "check on the module" |
 | 9 | Setting a value remotely sticks and is stored with the settings (survives a power cycle) | M3 | Read only: Night Shift reports, you change it on the panel |
+| 10 | How an output combines (O5–O7): does a converter or clock replace the direct level? Is the LFO added on top of a generator? Is an LFO on its own centred on the direct level? **How:** patch the output into input X, turn X into CV→MIDI CC on a spare channel, and read the CC values while switching the parts on and off. X takes 0–5 V and the CC is 7-bit, so set the output to 0–5 V and use small levels | M2 | Treat the direct level as "only when nothing else is there", and the LFO as added |
+| 11 | Voice layout (V6–V8): stride 0 = back to back; shared outputs after the last voice; where Random goes; whether stride also spaces the gate outputs. The base-gate rule itself is settled (see the review section below). Quick to check | M2 | Keep the derived picture marked "assumed" for those cases |
+| 12 | ~~Relative CCs on 14-bit settings: how big is one step?~~ **Measured 2026-11-01** (fh2-notes.md): relative mappings are 7-bit, one step = 128 of 16383 | — | Decided: 14-bit absolute with acceleration (see the review section) |
+| 13 | Swing: does it shift the clocks, Euclid patterns and sequencers as the manual says, and at the internal 24 ppqn? You're practically certain it does | later | — (information only) |
+| 14 | LFO sync and restart (L2, L5): is a synced LFO only tempo-synced, or also locked to the beat? With a restart from a clock at the LFO's own rate, does a saw jump twice (once at the end of its cycle, again at the reset a few ms later)? Can a clock that aims at no real output still restart an LFO? Needs a scope: input X is far too slow for a few milliseconds | M2 | Night Shift notes the double-jump risk when a synced LFO is restarted by a clock; restart from a Euclid pattern instead |
+| 15 | Arpeggio notes keep the held note's velocity (A6); still unclear, low priority | later | — |
+
+## From your review of fh2-components.md (2026-11-01)
+
+What changes in Night Shift because of your answers:
+
+1. **Gate outputs are always 10 V** (O4). A velocity or accent level can't come out of GT1/GT2. Night Shift warns when a level-type output (velocity trigger/gate, accent level, Euclid accent, envelope, velocity) lands there, and the add flow offers CV jacks for those first.
+2. **"Clocked by" is a connection of its own** (T7, A2, R1, N4). With rate 0, an arpeggiator, a note sequencer or a shift register follows its clock source: the external clock or one of the 16 Euclid patterns. "Very useful", so it gets shown like a cable:
+   - `derive.js` reads `arpClock`, `noteSequencer.clock` and `srr.clock`;
+   - the inspector says "clocked by Euclid 3";
+   - the add flow lets you pick a Euclid as the clock.
+3. **Players can play external gear too** (N7, D4, B3). A sequencer or a shift register can send its MIDI out to TRS/DIN or USB as well as, or instead of, a voice inside the FH-2. Example: a Disting mk4 used as a sampler gets its sequence from an FH-2 sequencer.
+   - Night Shift models external instruments as destinations: a named device on a port and channel.
+   - A sequencer can then be "played into" the Disting just like into a voice.
+   - The add flow and the MIDI map need this; the mockups only showed internal routing.
+4. **Clock comes from MIDI, not input X** (I2). Your clock is Logic over USB C or the Analog Rytm over TRS MIDI. Input X is unused. The connection setups and the MIDI map should show which port the clock comes from, and that X is free for CV→MIDI.
+5. **Euclid accents on their own jack** (section 9). Idea: a second Euclid pattern linked to the first (same steps, rate and rotation; its pulses are the accents) gives a separate accent gate. Night Shift could offer this as one "Euclid with accents" source that sets up and keeps both patterns in step.
+6. **No "offset" on a generated jack**, unless check 10 says otherwise (O5–O7). Take it out of the jack-chain design for now.
+7. **USB gamepad and keyboard:** skipped for now (section 15).
+8. **Base gate (V4, V8), settled (2026-11-02):** the base gate can only point at a gate expander. When it is set, the trigger-like outputs (Gate and Trigger per voice, then Para gate) go to the gate outputs one after another from the base gate. The CV-like ones fill the CV outputs one after another from the base output, with no holes where the gates would have been. Without a base gate, everything sits on the CV outputs in V4's order. `derive.js` already works this way; check 11 covers the remaining details (stride, Random).
+9. **14-bit everywhere it exists, with acceleration** (check 12). Relative mappings are 7-bit (one step = 128), so they can't give 14-bit. Instead:
+   - Direct levels, LFO speed and LFO level are the only settings the FH-2 takes as 14-bit. On the EC4 they become **CC absolute 14-bit (CCAh) with acceleration**: fine steps when you turn slowly, fast sweeps when you turn quickly. CCAh only works on CC 0–31 (paired with n+32), which is why those CCs are kept free.
+   - Absolute knobs jump if the EC4 and the FH-2 disagree, so the live link must keep them in step: values written to controlfrog when a page opens, and on preset load ("Send CCs on preset ld", check 3).
+   - Everything else on the FH-2 is 7-bit anyway (Euclid pulses, sequencer settings and so on) and stays relative or 7-bit absolute, whichever suits the setting.
+10. **LFO restart from a clock** (check 14). If a synced LFO is only tempo-synced, a restart from a clock at its own rate can make a saw jump twice: once at the end of its cycle, then again at the reset a few ms later. Easy to avoid with the right rates, so Night Shift notes it in the inspector rather than forbidding it.
 
 ## The hard parts
 
