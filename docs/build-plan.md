@@ -30,12 +30,14 @@ Written 2026-10-28, after design rounds 1–3. The mockups are on a private desi
 index.html, style.css
 js/
   fh2/       FH-2 bytes and talking to the module
-    sysex.js          framing F0 00 21 27 2F <cmd>, 7-bit helpers (safe short, signed char)
-    schema-config.js  field table for config v11 (firmware 2.0), from makeSysEx/parseConfigDump
-    schema-preset.js  field table for presets, from the preset tool
-    codec.js          decode(bytes) → { fields, raw }; encode(fields, raw) → bytes
+    layout.js         field types and the codec: decode a dump body into named fields, write changed fields back
+    config.js         field table for config v11 (firmware 2.0), from makeSysEx/parseConfigDump
+    preset.js         field table for presets (v8), from the preset tool
+    sysex.js          framing F0 00 21 27 2F <cmd>, dump parsing and building
     client.js         one request at a time with timeouts: version 22H, dumps 21H/23H,
                       install 10H/13H, save to flash 18H/19H, screen text 41H, names 49H/4AH
+    menu.js           operating the FH-2's menus remotely (48H) and reading them back (41H/43H/44H),
+                      to read and set the settings that have no SysEx of their own
     (test/standin.js  a minimal FH-2 for the tests: holds a config and a preset, answers the same messages)
   patch/     the editor's own model (what you see on screen)
     derive.js         FH-2 fields → sources, jacks, layers, players, mappings;
@@ -137,6 +139,21 @@ None of these touch the page, so they work unchanged. That gives one implementat
   - With Logic: Night Shift's thru off.
   - Live: no computer.
 - **Pre-gig checklist** (artboard 9).
+- **FH-2 settings through the menus** (`menu.js`). The settings have no SysEx of their own, but the FH-2 can be operated like a person at the panel: `48H` presses and turns the controls, and `43H`/`44H`/`41H` read back where the menu is and what it shows (Expert Sleepers' accessibility tool works this way). Two steps:
+  1. **Read only first.** Walk to each setting the checklist needs, read its value, and walk back. The checklist then shows the real state:
+     - Send CCs on preset ld;
+     - 14 bit CC byte order;
+     - Startup config/preset;
+     - Local off and forwarding for USB A and USB C;
+     - Ignore clock per port.
+  2. **Then setting them**, once reading has worked on your FH-2:
+     - one setting at a time, after you confirm;
+     - checking the item name before every press and the value after;
+     - backing out with the left button at the first surprise.
+  - Rules for both:
+    - nothing runs while you could be touching the module;
+    - item names are matched by text, so a firmware with a different menu fails safely instead of pressing blindly;
+    - every step is logged.
 - **Hardware check H3:**
   - 14-bit order between the EC4 and the FH-2;
   - one setting on two pages;
@@ -170,6 +187,8 @@ Each item is listed with the milestone that needs it.
 | 5 | The overview screen text (42H) contains the last received MIDI message | M2 | Learn only from controllers on the Mac, or by declaring the channel/CC |
 | 6 | Logic: EC4 thru on ch 2, recording, controlfrog SysEx arriving at the FH-2 | M3 | Filter SysEx in Logic's input settings |
 | 7 | Installing a config moves outputs (stuck notes or voltage jumps) | M2 | Warn, and offer "send on stop" |
+| 8 | The menus can be walked remotely and read back reliably: 43H/44H name every Settings item, and long-holding the left button always gets back to the overview | M3 | Show the checklist's settings as "check on the module" |
+| 9 | Setting a value remotely sticks and is stored with the settings (survives a power cycle) | M3 | Read only: Night Shift reports, you change it on the panel |
 
 ## The hard parts
 
@@ -177,11 +196,11 @@ Each item is listed with the milestone that needs it.
 - **`alloc.js`:** voice blocks in a fixed output order, collision checks, internal channels and CCs.
 - **Install behaviour on the real module:** item 7 above.
 
-## Decisions for you
+## Decided
 
-1. **Name and repo:**
-   - is "Night Shift" the name, or do you have a better one?
-   - repo `plentyofnames/<name>`, public, served at `plentyofnam.es/<name>`?
-2. **Lilypad:** share it as a submodule (recommended), or copy the four modules in?
-3. **Where to build:** this folder as the repo? It currently holds only `docs/`.
-4. **v0.1 scope:** M0 to M2 as above, with the EC4 coming in v0.2. Or should the EC4 pages come earlier, with fewer source types?
+- **Name:** Night Shift. Repo `plentyofnames/nightshift`, public, served at plentyofnam.es/nightshift.
+- **Lilypad:** a git submodule (`vendor/lilypad`).
+- **Mock FH-2:** none; recorded dumps plus a small stand-in for the tests.
+- **v0.1 scope:** M0 to M2, with the EC4 in v0.2.
+- **Rack names:** CV1, CV2… and GT1, GT2… in rack order. Each gate module maps to a block of 8 internal outputs (an FHX-8GT with an ESX-8GT = GT0/1–8 and GT0/9–16).
+- **FH-2 settings:** read them through the menus first, set them only after that works (M3).

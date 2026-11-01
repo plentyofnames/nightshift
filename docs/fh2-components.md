@@ -247,4 +247,5 @@ Lines marked **(NS)** are things Night Shift's code already relies on.
 - [ ] **S2** [manual] Program change can load presets (channel set in the config) and configs (channel set in the settings).
 - [ ] **S3** [manual] At startup the FH-2 can load a given config and preset, or the last ones used.
 - [ ] **S4** [manual] Installing over SysEx changes only RAM. Saving to a flash slot is separate (18H/19H).
-- [ ] **S5** [manual] The settings (forwarding, local off, send CCs on preset load, 14-bit order, startup, …) can't be set over SysEx, only on the module.
+- [ ] **S5** [manual] There is no SysEx message for the settings (forwarding, local off, send CCs on preset load, 14-bit order, startup, …), and they are in neither the config nor the preset.
+- [ ] **S6** [manual] [tool] A program can still operate the menus like a person: `48H` presses and turns the controls, and `43H`/`44H`/`41H` read back the current item's name and value and the screen. Expert Sleepers' accessibility tool (`fh2_access.html`) works this way. Night Shift could use it to read, and carefully set, the few settings that matter, checking every step.
