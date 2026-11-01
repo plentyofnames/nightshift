@@ -3,3 +3,5 @@
 __pycache__/
 # dumps from your own FH-2, for the optional round-trip tests
 test/local/
+# local editor and preview settings
+.claude/

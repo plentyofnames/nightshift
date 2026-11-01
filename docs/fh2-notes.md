@@ -1,7 +1,7 @@
 # FH-2 output-first editor: working notes
 
 Written 2026-10-28 while researching round 1 of the design.
-Mockups: https://claude.ai/artifact/TB5bu5hZkNGuxcySwEAdtF
+The design mockups live on a private design canvas.
 
 ## Sources reviewed
 
@@ -156,7 +156,7 @@ The controllers plug into the FH-2's USB A port; the editor talks to the FH-2 ov
 ## Round 3: controlfrog + Lilypad, one EC4 page per source (2026-10-28)
 
 The user already runs **controlfrog**, their own custom EC4 firmware, together with **Lilypad**, a Web MIDI editor (MIT; github.com/plentyofnames/lilypad, live at plentyofnam.es/lilypad).
-- Source: `~/Documents/Claude Code/Faderfox EC4/ec4-fw`, with `editor/` = Lilypad as a submodule.
+- Source: the controlfrog firmware repo (private), with Lilypad as its `editor/` submodule.
 - Protocol: `docs/protocol.md` there. Controller behaviour: `docs/control.md`. Profiles draft: `docs/profiles.md`.
 - The stock-EC4 SysEx notes above are superseded for this user.
 - The BCR32 is left out for now; it is months away.

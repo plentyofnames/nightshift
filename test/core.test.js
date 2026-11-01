@@ -1,6 +1,5 @@
 // Core tests: the byte layouts against Expert Sleepers' own encoders, dump round trips, and
-// the client against a stand-in FH-2. Runs in Deno (test/run.js) and in the browser
-// (test/index.html). To also check dumps from your own FH-2, put them in test/local/
+// the client against a stand-in FH-2. To also check dumps from your own FH-2, put them in test/local/
 // (tools/fh2dump.py writes config.syx and preset.syx there).
 
 import { u7, s7, u14, s14, u28, name16, bits, decode, encode, getPath } from '../js/fh2/layout.js';
@@ -10,16 +9,8 @@ import { CMD, parseDump, buildDump, bodyOf, message } from '../js/fh2/sysex.js';
 import { Fh2, TimeoutError } from '../js/fh2/client.js';
 import { Fh2StandIn } from './standin.js';
 import * as O from './official.js';
+import { test, assert, eqBytes } from './harness.js';
 
-const tests = [];
-const test = (name, fn) => tests.push({ name, fn });
-function assert(cond, msg = 'assertion failed') {
-  if (!cond) throw new Error(msg);
-}
-function eqBytes(a, b, what = 'bytes') {
-  if (a.length !== b.length) throw new Error(`${what}: length ${a.length} != ${b.length}`);
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) throw new Error(`${what}: differ at ${i}: ${a[i]} != ${b[i]}`);
-}
 const text = (bytes) => new TextDecoder().decode(bytes);
 
 // ---------------------------------------------------------------- field types
@@ -214,18 +205,3 @@ test('client ignores other MIDI', async (load) => {
   port.onmessage(message(0x40, [1, 0]));
   assert((await pending) === 'v2.0', 'version');
 });
-
-export async function runTests(load, print = console.log) {
-  let failed = 0;
-  for (const t of tests) {
-    try {
-      const note = await t.fn(load);
-      print(`ok   ${t.name}${typeof note === 'string' ? ` (${note})` : ''}`);
-    } catch (e) {
-      failed++;
-      print(`FAIL ${t.name}: ${e.message}`);
-    }
-  }
-  print(failed ? `${failed} of ${tests.length} failed` : `all ${tests.length} passed`);
-  return failed;
-}

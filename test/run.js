@@ -1,5 +1,7 @@
 // deno run --allow-read test/run.js
-import { runTests } from './core.test.js';
+import { runTests } from './harness.js';
+import './core.test.js';
+import './patch.test.js';
 
 const root = new URL('../', import.meta.url);
 const failed = await runTests((path) => Deno.readFile(new URL(path, root)).catch(() => null));

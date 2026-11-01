@@ -64,6 +64,20 @@ export const DUMPS = {
   [CMD.INSTALL_PRESET]: { kind: 'preset', layout: preset, version: PRESET_VERSION },
 };
 
+// A .syx file may hold several messages; returns each F0…F7 run.
+export function splitSysex(bytes) {
+  const out = [];
+  let start = -1;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0xF0) start = i;
+    else if (bytes[i] === 0xF7 && start >= 0) {
+      out.push(bytes.slice(start, i + 1));
+      start = -1;
+    }
+  }
+  return out;
+}
+
 export function bodyOf(msg) {
   return msg.slice(8, msg.length - 1);
 }

@@ -11,7 +11,7 @@ Pulling only asks the module for data: nothing on it changes. Installing replace
 current config or preset in RAM (not in flash), so it asks first unless --yes is given.
 The default port is the first one whose name contains "FH-2".
 
-Run with:  conda run --no-capture-output -n claude python tools/fh2dump.py pull
+Needs python-rtmidi (pip install python-rtmidi).
 """
 import os
 import sys

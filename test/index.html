@@ -12,7 +12,9 @@
   <h3>Night Shift core tests</h3>
   <pre id="out">running…</pre>
   <script type="module">
-    import { runTests } from './core.test.js';
+    import { runTests } from './harness.js';
+    import './core.test.js';
+    import './patch.test.js';
     const out = document.getElementById('out');
     out.textContent = '';
     const load = async (path) => {

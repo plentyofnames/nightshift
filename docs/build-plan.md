@@ -1,6 +1,6 @@
 # Night Shift: build plan
 
-Written 2026-10-28, after design rounds 1–3. Mockups: https://claude.ai/artifact/TB5bu5hZkNGuxcySwEAdtF. Facts about the module, the EC4 and the existing tools: [fh2-notes.md](fh2-notes.md).
+Written 2026-10-28, after design rounds 1–3. The mockups are on a private design canvas. Facts about the module, the EC4 and the existing tools: [fh2-notes.md](fh2-notes.md).
 
 ## Principles
 
@@ -183,5 +183,5 @@ Each item is listed with the milestone that needs it.
    - is "Night Shift" the name, or do you have a better one?
    - repo `plentyofnames/<name>`, public, served at `plentyofnam.es/<name>`?
 2. **Lilypad:** share it as a submodule (recommended), or copy the four modules in?
-3. **Where to build:** this folder (`~/Documents/Claude Code/FH-2`) as the repo? It currently holds only `docs/`.
+3. **Where to build:** this folder as the repo? It currently holds only `docs/`.
 4. **v0.1 scope:** M0 to M2 as above, with the EC4 coming in v0.2. Or should the EC4 pages come earlier, with fewer source types?
