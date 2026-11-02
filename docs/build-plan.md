@@ -174,6 +174,9 @@ None of these touch the page, so they work unchanged. That gives one implementat
 - MiniLab 3 profile; BCR32 when it arrives.
 - Sequencer bank import/export.
 - FH-2 screen shown in the status bar.
+- **Graphical LFOs and envelopes** (your idea, 2026-11-02): draw what the settings make, and redraw it as you turn a knob.
+  - LFO: one cycle of the shape mix (sine, square with its pulse width, triangle, saw, random, noise), with level, phase and fade-in.
+  - Envelope: the ADSR curve with its shapes, range and depth.
 
 ## What has to be tested on hardware
 
@@ -196,6 +199,7 @@ Each item is listed with the milestone that needs it.
 | 13 | Swing: does it shift the clocks, Euclid patterns and sequencers as the manual says, and at the internal 24 ppqn? You're practically certain it does | later | — (information only) |
 | 14 | LFO sync and restart (L2, L5): is a synced LFO only tempo-synced, or also locked to the beat? With a restart from a clock at the LFO's own rate, does a saw jump twice (once at the end of its cycle, again at the reset a few ms later)? Can a clock that aims at no real output still restart an LFO? Needs a scope: input X is far too slow for a few milliseconds | M2 | Night Shift notes the double-jump risk when a synced LFO is restarted by a clock; restart from a Euclid pattern instead |
 | 15 | Arpeggio notes keep the held note's velocity (A6); still unclear, low priority | later | — |
+| 16 | Gamepad and keyboard entries with Usage/Type "--" do nothing on their output, whatever output is set. (The official tool's "None" for these outputs sends `0xFF` inside the SysEx; see fh2-notes.md, "The existing tools") | M2 | Night Shift never writes None there: it switches an entry off through Usage/Type, and keeps every byte 7-bit |
 
 ## From your review of fh2-components.md (2026-11-01)
 

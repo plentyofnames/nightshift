@@ -76,6 +76,12 @@ The design mockups live on a private design canvas.
 - Config and preset are two separate apps.
 - The only output-centric part is the "Output Configurator", and it only maps CCs to LFOs and direct levels.
 
+**"None" for an output, and a bug with the gamepad and keyboard** (found 2026-11-02, after the user couldn't set their outputs to None)
+- The tool's output menus give "None" the value −1.
+- **Euclid patterns** (and the shift register's change and trigger outputs) store it masked to 7 bits, so the byte is 127. That alone would mean GT3/16, so a high bit in the addendum tells them apart: 127 with the bit set is None, 127 without it is GT3/16.
+- **Gamepad and keyboard** outputs are written without masking (`arr[c+1] = …_output.value`). "None" goes into the SysEx as `0xFF`, a status byte that has no place there. Checked by running the tool's own `makeSysEx`: gamepad 1 → byte 2957 = `0xFF`, keyboard 1 → byte 3213 = `0xFF`, Euclid 1's off output → `0x7F`. Their records also have no high bit, so None can't be stored there at all. The module then refuses or garbles the config and keeps the old output, which matches what the user saw.
+- **The way to switch an entry off** is its Usage (gamepad) or Type (keyboard) set to "--". The output doesn't matter then. Night Shift already reads those entries as unused.
+
 **FH2Edit**
 - A list of output rows, each with icons for its sources, plus an editor panel on the right.
 - Merges config and preset into one view.
