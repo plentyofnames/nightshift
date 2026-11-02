@@ -14,6 +14,18 @@ export const CVMIDI_TYPES = ['CC', 'Trigger', 'Note', 'Program change', 'Afterto
 export const TAP_TYPES = ['', 'Note', 'CC'];
 export const START_STOP_TYPES = ['', 'Note toggle', 'CC toggle', 'Note gate', 'CC gate', 'Y toggle', 'Y gate'];
 
+// USB gamepad usages and keyboard keys, as the official tool names them (HID usage codes).
+const GAMEPAD_AXES = { 20: 'X', 21: 'Y', 22: 'Z', 23: 'Rx', 24: 'Ry', 25: 'Rz', 26: 'Slider', 27: 'Dial', 28: 'Wheel',
+  29: 'Hat', 30: 'Hat up', 31: 'Hat down', 32: 'Hat left', 33: 'Hat right' };
+export const gamepadUsage = (u) => GAMEPAD_AXES[u] ?? (u >= 1 && u <= 19 ? `Button ${u}` : `usage ${u}`);
+const KEYS = { 40: 'Return', 41: 'Escape', 42: 'Delete', 43: 'Tab', 44: 'Space', 79: 'Right', 80: 'Left', 81: 'Down', 82: 'Up' };
+export function keyName(k) {
+  if (k >= 4 && k <= 29) return String.fromCharCode(61 + k); // A–Z
+  if (k >= 30 && k <= 39) return String((k - 29) % 10); // 1–9, 0
+  if (k >= 58 && k <= 69) return `F${k - 57}`;
+  return KEYS[k] ?? `key ${k}`;
+}
+
 // Mapping targets, as encoded in the config's mapping slots (see mappings.js).
 export const OUTPUT_TARGETS_LOW = ['directLevel', 'lfoSpeed', 'lfoLevel', 'lfoSine', 'lfoSquare', 'lfoTriangle', 'lfoPulseWidth', 'lfoTempoBase', 'lfoTempoMultiplier'];
 export const OUTPUT_TARGETS_HIGH = { 3: 'lfoSaw', 4: 'lfoRandom', 5: 'lfoNoise', 6: 'smoothing', 7: 'lfoPhase', 8: 'lfoFade' };

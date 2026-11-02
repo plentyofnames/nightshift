@@ -17,16 +17,18 @@ export function renderInspector(view, colors, selected, onSelect) {
     if (s) return sourceInspector(view, colors, s, onSelect);
   }
   if (selected?.output != null) return jackInspector(view, colors, view.outputs[selected.output], onSelect);
+  if (selected?.parked) return parkedInspector(view, colors, onSelect);
   return overview(view);
 }
 
 function overview(view) {
   const g = view.globals;
+  const parked = view.sources.filter((s) => s.parked).length;
   return [
     h('div', {}, h('h2', { style: 'font-size:18px' }, g.name || 'Untitled config'),
       h('span', { class: 'kind' }, g.presetName ? `Preset “${g.presetName}”` : 'No preset loaded: open one to see levels, LFOs and patterns')),
     section('Patch',
-      row('Sources', String(view.sources.length)),
+      row('Sources', `${view.sources.length - parked}${parked ? ` (+ ${parked} outside your rack)` : ''}`),
       row('Tempo', g.tempo ? `${g.tempo.toFixed(1)} BPM` : '—'),
       row('Trigger length', `${g.triggerLength} ms`),
       row('Soft takeover', yes(g.softTakeover)),
@@ -66,6 +68,7 @@ function sourceInspector(view, colors, s, onSelect) {
 
   parts.push(section('Comes out of', s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))));
   if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed-out jacks are on expanders that aren’t in your rack (set it under Rack…). Clocks there often only restart LFOs.'));
+  if (s.standby) parts.push(h('p', { class: 'note' }, `Only does something while a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} is plugged into USB A; then it sets these jacks on top of what else is there. The FH-2’s Init config sets these up. To switch one off, set its ${s.id === 'gamepad' ? 'Usage' : 'Type'} to “--”: setting its output to None in Expert Sleepers’ config tool doesn’t work.`));
 
   const settings = settingsOf(s);
   if (settings.length) parts.push(section('Settings', settings));
@@ -118,17 +121,33 @@ function settingsOf(s) {
   return r;
 }
 
+function parkedInspector(view, colors, onSelect) {
+  const parked = view.sources.filter((s) => s.parked);
+  return [
+    h('div', { class: 'ins-head' }, h('div', {}, h('h2', {}, 'Outside your rack'),
+      h('span', { class: 'kind' }, `${parked.length} ${parked.length === 1 ? 'source' : 'sources'} on jacks you don’t have`))),
+    section('Sources', parked.map((s) => row(
+      h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name),
+      [...new Set(s.ports.map((p) => p.jack))].map((j) => chip(j, colors.get(s.id), true))))),
+    h('p', { class: 'note' }, 'Their outputs are on expanders that aren’t in your rack (set it under Rack…), so nothing comes out. The FH-2’s Init config parks its unused Euclid patterns on GT3/16 this way. They can still restart an LFO, or clock an arpeggiator, sequencer or shift register.'),
+  ];
+}
+
 function jackInspector(view, colors, o, onSelect) {
   const parts = [
     h('div', { class: 'ins-head' }, h('div', {}, h('h2', {}, `Jack ${o.jack}`),
       h('span', { class: 'kind' }, `${o.gate ? 'Gate' : 'CV'} · ${internalName(o.index)} in the FH-2 app · output ${outputNumber(o.index)} in its menus${o.present ? '' : ' · not in your rack'}`))),
   ];
-  parts.push(section('Comes out of', o.ports.length
-    ? o.ports.map((p) => {
-      const s = view.sources.find((x) => x.id === p.source);
-      return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(p.name, colors.get(s.id)));
-    })
+  const portRow = (p) => {
+    const s = view.sources.find((x) => x.id === p.source);
+    return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(p.name, colors.get(s.id)));
+  };
+  const active = o.ports.filter((p) => !p.standby);
+  const standby = o.ports.filter((p) => p.standby);
+  parts.push(section('Comes out of', active.length
+    ? active.map(portRow)
     : h('p', { class: 'note' }, o.lfo?.alone ? 'An LFO on its own (see Sources).' : 'Nothing: this jack is free.')));
+  if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
   if (o.lfo && !o.lfo.alone) parts.push(section('LFO on top', row('Rate', o.lfo.rate), row('Depth', String(o.lfo.level))));
   if (!o.gate) {
     parts.push(section('Jack settings',

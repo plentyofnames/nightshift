@@ -4,7 +4,7 @@
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { rack } from '../patch/hardware.js';
-import { icon, subline, shortLabel } from './look.js';
+import { icon, subline, shortLabel, sourceList } from './look.js';
 
 const CARD_W = 290;
 const CARD_STEP = 64; // 56 + 8
@@ -34,7 +34,7 @@ export function renderStage(view, colors, selected, onSelect) {
   let y = 40;
   nodes.push(h('div', { class: 'stage-title', style: `left:0;width:${CARD_W}px` }, h('span', {}, 'Sources')));
   for (const [title, kinds] of GROUPS) {
-    const list = view.sources.filter((s) => kinds.includes(s.kind));
+    const list = view.sources.filter((s) => kinds.includes(s.kind) && !s.parked);
     if (!list.length) continue;
     nodes.push(h('div', { class: 'group-title', style: `top:${y}px` }, title));
     y += HEAD;
@@ -43,7 +43,7 @@ export function renderStage(view, colors, selected, onSelect) {
       const color = colors.get(s.id);
       anchors.set(s.id, { x: CARD_W + 1, y: y + 28 });
       nodes.push(h('button', {
-        type: 'button', class: 'card' + (s.idle ? ' idle' : ''), 'aria-pressed': on ? 'true' : 'false',
+        type: 'button', class: 'card' + (s.idle || s.standby ? ' idle' : ''), 'aria-pressed': on ? 'true' : 'false',
         style: `top:${y}px;--src:${color}`, onclick: () => onSelect({ source: s.id }),
       },
       h('span', { class: 'icon' }, icon(s.kind)),
@@ -53,6 +53,21 @@ export function renderStage(view, colors, selected, onSelect) {
       y += CARD_STEP;
     }
     y += 10;
+  }
+  const parked = view.sources.filter((s) => s.parked);
+  if (parked.length) {
+    const on = selected?.parked || parked.some((s) => s.id === selected?.source);
+    const jacks = [...new Set(parked.flatMap((s) => s.ports.map((p) => p.jack)))];
+    nodes.push(h('div', { class: 'group-title', style: `top:${y}px` }, 'Outside your rack'));
+    y += HEAD;
+    nodes.push(h('button', {
+      type: 'button', class: 'card idle', 'aria-pressed': on ? 'true' : 'false',
+      style: `top:${y}px;--src:var(--faint)`, onclick: () => onSelect({ parked: true }),
+    },
+    h('span', { class: 'icon' }, icon(parked[0].kind)),
+    h('span', { class: 'txt' }, h('span', { class: 'name' }, sourceList(parked)), h('span', { class: 'sub' }, `on ${jacks.join(', ')}`)),
+    h('span', { class: 'count' }, `${parked.length} ${parked.length === 1 ? 'source' : 'sources'}`)));
+    y += CARD_STEP + 10;
   }
   const cardsBottom = y;
 
@@ -84,7 +99,7 @@ export function renderStage(view, colors, selected, onSelect) {
   for (const [out, pos] of jackPos) {
     const o = view.outputs[out];
     const gens = o.ports.filter((p) => !p.layer);
-    const shown = gens[0] ?? o.ports[0];
+    const shown = gens[0] ?? o.ports.find((p) => !p.standby);
     const src = shown && view.sources.find((s) => s.id === shown.source);
     const color = src ? colors.get(src.id) : null;
     const on = selectedOutputs.has(out);

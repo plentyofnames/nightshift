@@ -56,8 +56,31 @@ export function subline(s) {
     case 'lfo': return `${s.lfo.synced ? 'synced ' : ''}${s.lfo.rate}`;
     case 'euclid': return s.pattern ? `${s.pattern.pulses} of ${s.pattern.steps}${s.idle ? ' · off' : ''}` : 'pattern is in the preset';
     case 'knobs': return `MIDI ch ${s.channel + 1}`;
+    case 'hid': return `only with a ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} on USB A`;
     default: return KIND_NAMES[s.kind] ?? s.kind;
   }
+}
+
+// Several sources in a few words: "Euclid 1–16, Random 3".
+export function sourceList(sources) {
+  const byName = new Map();
+  for (const s of sources) {
+    const [, base, n] = s.name.match(/^(.*?) (\d+)$/) ?? [null, s.name, null];
+    if (!byName.has(base)) byName.set(base, []);
+    if (n) byName.get(base).push(+n);
+  }
+  return [...byName].map(([base, nums]) => (nums.length ? `${base} ${ranges(nums)}` : base)).join(', ');
+}
+
+function ranges(nums) {
+  const out = [];
+  for (let i = 0; i < nums.length; i++) {
+    let j = i;
+    while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+    out.push(j > i ? `${nums[i]}–${nums[j]}` : String(nums[i]));
+    i = j;
+  }
+  return out.join(', ');
 }
 
 // A short label for a port, for the jack it comes out of.

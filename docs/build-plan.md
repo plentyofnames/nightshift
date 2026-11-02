@@ -87,6 +87,17 @@ None of these touch the page, so they work unchanged. That gives one implementat
 
 **Done when** your real dumps round-trip byte for byte.
 
+**H0 done (2026-11-03)** with your FH-2 (firmware v2.0.0, config and preset "Init"), using `tools/fh2dump.py`:
+- Both dumps rebuild byte for byte from the decoded values alone, starting from zeros (config 4144 bytes, preset 4436). The layouts account for every byte.
+- Installing each one unchanged and reading it back gave identical bytes, and pulling both once more afterwards did too: installing one doesn't touch the other.
+- What showed up in the Init config:
+  - All 16 Euclid patterns have their Pulses output at 127 *without* the high bit, which reads as GT3/16. Their Off-steps outputs are None (127 with the bit). The official tool reads it the same way, and the module's own menu says GT3/16 too (you checked). So the Init config parks unused Euclids there.
+  - 23 gamepad entries and 8 keyboard keys (1–8) sit on outputs: the firmware's defaults, active only with a USB gamepad or keyboard on USB A.
+- What Night Shift does about it:
+  - A source whose jacks are all outside your rack goes into one "Outside your rack" card, and collisions there aren't reported. It isn't hidden completely: a parked Euclid or clock can still restart an LFO or clock a sequencer.
+  - The gamepad and keyboard are dimmed "only with a … on USB A" sources. They aren't drawn on the jacks; a jack's inspector lists them under "With a USB device on USB A". Usages and keys have names now (Y, Button 5, Key 1).
+  - Still to do in M2: a parked Euclid counts as free when the add flow looks for one (the pill still says Euclid 16/16, the FH-2's slots in use).
+
 ### M1: see your FH-2 (read only)
 - Hardware setup: FH-2, CV expanders 1 and 2, gate expanders 0 and 1. Rack drawing with a label at every jack.
 - `derive.js` turns the config into the things you see:
@@ -184,7 +195,7 @@ Each item is listed with the milestone that needs it.
 
 | # | question | needed for | fallback |
 |---|---|---|---|
-| 1 | Config and preset round-trip byte-identical; installing while running causes no glitches | M0 | Install only when the transport is stopped |
+| 1 | Config and preset round-trip byte-identical (**done 2026-11-03**, see H0); installing while running causes no glitches | M0 | Install only when the transport is stopped |
 | 2 | Two mappings on the same channel/CC both work (macro knob) | M3 | One mapping per CC; pages share CCs instead (already planned) |
 | 3 | "Send CCs on preset ld" reaches devices on USB A | M3 | Live mode without value sync; a snapshot from the EC4 instead |
 | 4 | 14-bit order: the EC4 sends MSB then LSB, but the FH-2 defaults to LSB first | M3 | Set FH-2 Settings › "14 bit CC byte order" to MSB first (added to the checklist), or use 7-bit |

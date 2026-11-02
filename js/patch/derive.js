@@ -8,7 +8,7 @@
 import { mappingsOf } from './mappings.js';
 import { jackName, isPresent, isGate, DEFAULT_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
-  CVMIDI_TYPES, noteName, durationName, lfoHz } from './tables.js';
+  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName } from './tables.js';
 
 export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
   const outputs = Array.from({ length: 128 }, (_, i) => ({
@@ -39,7 +39,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
       }
       p.jack = jackName(p.output, hardware);
       p.present = outputs[p.output].present;
-      outputs[p.output].ports.push({ source: s.id, name: p.name, layer: !!s.layer });
+      outputs[p.output].ports.push({ source: s.id, name: p.name, layer: !!s.layer, standby: !!s.standby });
     }
     return s;
   };
@@ -119,11 +119,13 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
       settings: preset ? { ...preset.srr[i] } : null });
   });
 
-  // ---- USB gamepad and keyboard: they write levels directly, usually on top of something else
-  const pads = config.gamepad.map((g, i) => (g.usage ? { name: `Gamepad ${g.usage}`, output: g.output, slot: i } : null)).filter(Boolean);
-  if (pads.length) addSource({ id: 'gamepad', kind: 'hid', layer: true, name: 'USB gamepad', ports: pads, controls: [] });
-  const keys = config.keyboard.map((k, i) => (k.type ? { name: `Key ${k.key}`, output: k.output, slot: i } : null)).filter(Boolean);
-  if (keys.length) addSource({ id: 'keyboard', kind: 'hid', layer: true, name: 'USB keyboard', ports: keys, controls: [] });
+  // ---- USB gamepad and keyboard: they write levels directly, on top of whatever else is
+  // there, but only while such a device is plugged into USB A. The Init config has both on
+  // the first outputs, so they are kept apart as "standby" and not drawn on the jacks.
+  const pads = config.gamepad.map((g, i) => (g.usage ? { name: gamepadUsage(g.usage), output: g.output, slot: i } : null)).filter(Boolean);
+  if (pads.length) addSource({ id: 'gamepad', kind: 'hid', layer: true, standby: true, name: 'USB gamepad', ports: pads, controls: [] });
+  const keys = config.keyboard.map((k, i) => (k.type ? { name: `Key ${keyName(k.key)}`, output: k.output, slot: i } : null)).filter(Boolean);
+  if (keys.length) addSource({ id: 'keyboard', kind: 'hid', layer: true, standby: true, name: 'USB keyboard', ports: keys, controls: [] });
 
   // ---- mappings onto outputs, LFOs on outputs
   for (const m of mappings) {
@@ -168,8 +170,13 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
     if (s) s.controls.push(m);
   }
 
-  // ---- collisions
+  // ---- parked sources: every jack they use is outside the rack (the Init config puts its
+  // unused Euclid patterns on GT3/16). They may still restart LFOs or clock other things.
+  for (const s of sources) s.parked = s.ports.length > 0 && s.ports.every((p) => p.present === false);
+
+  // ---- collisions, on the jacks you have
   for (const o of outputs) {
+    if (!o.present) continue;
     const gens = o.ports.filter((p) => !p.layer);
     if (gens.length > 1) {
       problems.push({ kind: 'collision', output: o.index, message: `${o.jack}: ${gens.map((p) => `${nameOf(sources, p.source)} ${p.name}`).join(' and ')} share this output` });

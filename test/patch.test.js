@@ -108,6 +108,19 @@ test('with a base gate, trigger-like outputs go to the gates and the CV-like one
   eq(v.problems, [], 'problems');
 });
 
+test('the Init config: Euclids parked on GT3/16, gamepad and keyboard on standby', () => {
+  const c = blankConfig().values;
+  for (const i of [0, 1]) Object.assign(c.euclid[i], { output: 127, outputHigh: 0 }); // GT3/16, as on the module
+  Object.assign(c.gamepad[1], { usage: 21, output: 1 });
+  Object.assign(c.keyboard[0], { type: 1, key: 30, output: 0 });
+  const v = derive(c, null);
+  eq(v.sources.filter((s) => s.parked).map((s) => s.id), ['euclid:0', 'euclid:1'], 'parked');
+  eq(v.problems, [], 'no collision on a jack outside the rack');
+  eq(portsOf(v, 'gamepad'), [['Y', '2']]);
+  eq(portsOf(v, 'keyboard'), [['Key 1', '1']]);
+  assert(v.outputs[1].ports.every((p) => p.standby), 'the gamepad waits on jack 2');
+});
+
 test('collisions and gate-only outputs are reported', () => {
   const c = blankConfig().values;
   Object.assign(c.converter[0], { enable: 1, baseOutput: 0, cvOut: 1, gateOut: 1 });
