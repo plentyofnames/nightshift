@@ -164,10 +164,20 @@ function parkedInspector(view, colors, onSelect) {
   ];
 }
 
-// `driver`: the name of what drives the jack instead of its stored level (a voice, clock, trigger,
-// Euclid, random), or null. The FH-2 puts the stored level only on a jack nothing else drives;
-// with its setting "Always load direct" on (`loadDirect`, as last read), also on the others when
-// a preset loads, until what drives them sends something.
+// Outputs of the gate kind: their voltage comes from the jack's gate levels.
+function gateFriendly(s, port) {
+  if (['clock', 'triggers', 'euclid', 'hid'].includes(s.kind)) return true;
+  if (s.kind === 'random') return port !== 'CV';
+  if (s.kind === 'voice') return /^(Gate|Trigger|Velocity gate|Para gate)( \d+)?$/.test(port);
+  return false;
+}
+
+// `driver`: what drives the jack besides its stored level, or null: { name, replaces } where
+// `replaces` says the stored level isn't used there. A voice's pitch replaces it, and gate-type
+// outputs have their gate levels instead; to the others (envelope, velocity, pressure, a random
+// CV…) it is added, as to an LFO: an offset (your tests, 2026-11-03: pitch and envelope; check 22).
+// With the FH-2's "Always load direct" on (`loadDirect`, as last read), a preset load puts it on
+// the others too, until what drives the jack sends something.
 function jackSettings(o, edit, ec4, { driver = null, loadDirect = false } = {}) {
   const r = o.rangeIndex;
   const where = `jack ${o.jack}`;
@@ -176,9 +186,11 @@ function jackSettings(o, edit, ec4, { driver = null, loadDirect = false } = {}) 
   const preset = o.directLevel != null;
   const rows = [
     row('Range', rangeSelect),
-    // on a driven jack it would only last until the next note, so it's offered only with "Always load direct"
-    (!driver || loadDirect) && perScene(row(ec4Label('Stored level', `output:${o.index}:directLevel`, ec4), preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
-      driver ? h('span', { class: 'unused', title: 'With the FH-2’s “Always load direct” on, a preset load puts the stored level on this jack too.' }, `until ${driver} sends`)
+    // where it's replaced it would only last until the next note, so it's offered only with "Always load direct"
+    (!driver?.replaces || loadDirect) && perScene(row(ec4Label(driver && !driver.replaces ? 'Offset' : 'Stored level', `output:${o.index}:directLevel`, ec4),
+      preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`${driver && !driver.replaces ? 'Offset' : 'Stored level'} of ${where}`, setDirectLevel(o.index, v))) : '—',
+      driver?.replaces ? h('span', { class: 'unused', title: 'With the FH-2’s “Always load direct” on, a preset load puts the stored level on this jack too.' }, `until ${driver.name} sends`)
+        : driver ? h('span', { class: 'dim', title: 'The jack’s stored level, added to what comes out' }, `+ ${driver.name}`)
         : preset ? `code ${o.directLevel}` : null)),
     perScene(row(ec4Label('Smoothing', `output:${o.index}:smoothing`, ec4), preset ? numberInput(`Smoothing of ${where}`, o.smoothing, { min: 0, max: 127 }, (v) => edit(`Smoothing of ${where}: ${v}`, setSmoothing(o.index, v))) : '—')),
     row('Gate low', voltsInput(`Gate low level of ${where}`, o.gateLevels.low, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, v, o.gateLevels.high)))),
@@ -219,9 +231,11 @@ function jackInspector(view, colors, o, onSelect, act) {
     parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',
       onclick: () => act.edit(`LFO on top of jack ${o.jack}`, addLfo(o.index, { shape: 'sine', rate: { hz: 5 }, depth: 0.05 })) }, 'Add an LFO on top')));
   }
-  // what drives the jack instead of its stored level (a knob or an LFO on its own uses it)
-  const driver = active.map((p) => view.sources.find((x) => x.id === p.source)).find((s) => s && !['level', 'knobs', 'lfo'].includes(s.kind));
-  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: driver?.name ?? null, loadDirect: act.loadDirect }));
+  // what drives the jack besides its stored level (a knob or an LFO on its own uses it), and whether
+  // it replaces the stored level: a voice's pitch does, gate-type outputs have their gate levels
+  const d = active.map((p) => ({ p, s: view.sources.find((x) => x.id === p.source) })).find(({ s }) => s && !['level', 'knobs', 'lfo'].includes(s.kind));
+  const replaces = !!d && ((d.s.kind === 'voice' && /^Pitch( \d+)?$/.test(d.p.name)) || gateFriendly(d.s, d.p.name));
+  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: d ? { name: d.s.name, replaces } : null, loadDirect: act.loadDirect }));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;
 }
