@@ -2,7 +2,8 @@
 // that nothing uses yet. Reads config values only; edit.js does the writing.
 
 import { isUsed, mappingsOf } from './mappings.js';
-import { isPresent } from './hardware.js';
+import { isPresent, isGate, jackName } from './hardware.js';
+import { converterPorts } from './derive.js';
 
 const LFO_RESET_CLOCK = 6;
 const LFO_RESET_EUCLID = 7;
@@ -50,4 +51,62 @@ export function freeCcs(config, channel) {
 export function suggestCc(config, channel) {
   const free = freeCcs(config, channel);
   return (free.find((c) => c.fine) ?? free[0])?.cc ?? null;
+}
+
+// ---- voices
+
+export const freeConverter = (config) => config.converter.findIndex((c) => !c.enable);
+
+// A MIDI channel (0–15) for a new voice: one nothing listens to, else one no voice or drum
+// trigger listens to (CC mappings don't mind notes), preferring `from` onwards.
+export function suggestChannel(config, from = 0) {
+  const ccs = new Set(mappingsOf(config).map((m) => m.channel));
+  const used = new Set();
+  config.converter.forEach((c) => {
+    if (!c.enable) return;
+    used.add(c.channel);
+    if (c.type === 2) for (let ch = Math.min(c.channel, c.lastMpeChannel); ch <= Math.max(c.channel, c.lastMpeChannel); ch++) used.add(ch);
+  });
+  config.trigger.forEach((t) => t.type && used.add(t.channel));
+  const order = Array.from({ length: 16 }, (_, k) => (from + k) % 16);
+  return order.find((ch) => !used.has(ch) && !ccs.has(ch)) ?? order.find((ch) => !used.has(ch)) ?? from;
+}
+
+// The first CV jack from which converter settings `cv` fit with nothing in the way.
+export function suggestStart(view, cv, own = -1) {
+  for (let o = 0; o < 64; o++) {
+    if (!view.outputs[o].present) continue;
+    if (!voicePlan(view, { ...cv, baseOutput: o }, own).problems.length) return o;
+  }
+  return null;
+}
+
+// Where converter settings `cv` would put each output, and what is in the way: jacks outside
+// the rack, or taken by another source (converter `own`, being edited, doesn't count).
+// `view` is derive()'s result for the current patch.
+export function voicePlan(view, cv, own = -1) {
+  const problems = [];
+  const ports = converterPorts(cv, problems, own).map((p) => {
+    const out = p.output >= 0 && p.output < 128 ? view.outputs[p.output] : null;
+    const taken = out ? out.ports.filter((x) => !x.standby && x.source !== `converter:${own}`).map((x) => view.sources.find((s) => s.id === x.source)?.name ?? x.source) : [];
+    return { ...p, jack: out ? jackName(p.output, view.hardware) : '—', present: !!out?.present, taken: [...new Set(taken)] };
+  });
+  for (const p of ports) {
+    const cvType = !/^(Gate|Trigger|Para gate)$/.test(p.role);
+    if (p.output > 127 || (cvType && isGate(p.output))) problems.push({ message: `${p.name} would land past the last CV output` });
+    else if (!p.present) problems.push({ message: `${p.name} would land on ${p.jack}, which isn’t in your rack` });
+    else if (p.taken.length) problems.push({ message: `${p.name} would land on ${p.jack}, which ${p.taken.join(' and ')} already uses` });
+  }
+  return { ports, problems };
+}
+
+// The first gate jack in the rack from which `count` gate jacks in a row are free.
+export function suggestBaseGate(view, count, own = -1) {
+  const free = (o) => view.outputs[o]?.present && !view.outputs[o].ports.some((x) => !x.standby && x.source !== `converter:${own}`);
+  for (let o = 64; o + count <= 128; o++) {
+    let ok = true;
+    for (let k = 0; k < count && ok; k++) ok = free(o + k);
+    if (ok) return o;
+  }
+  return null;
 }

@@ -49,3 +49,28 @@ export function euclidPattern(pulses, steps, rotation = 0) {
   const base = Array.from({ length: steps }, (_, i) => (i * p) % steps < p);
   return base.map((_, i) => base[(i + rotation) % steps]);
 }
+
+// One note's envelope as [x, y] points, x in 0–1 across attack, decay, a held sustain and
+// release, y in −1–1 (depth is bipolar around 64). The times are drawn in proportion to their
+// settings; the FH-2's time range and curves aren't documented, so this is the shape only.
+// Shapes at 64 are straight lines; below bends one way, above the other.
+export function envelopePoints(env, n = 24) {
+  const width = (v) => 0.15 + v / 127;
+  const a = width(env.attack), d = width(env.decay), hold = 0.8, r = width(env.release);
+  const total = a + d + hold + r;
+  const s = env.sustain / 127;
+  const pts = [[0, 0]];
+  const ramp = (x0, w, y0, y1, shape = 64) => {
+    const e = Math.pow(2, (64 - shape) / 32);
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      pts.push([(x0 + w * t) / total, y0 + (y1 - y0) * Math.pow(t, e)]);
+    }
+  };
+  ramp(0, a, 0, 1, env.attackShape);
+  ramp(a, d, 1, s, env.decayShape);
+  pts.push([(a + d + hold) / total, s]);
+  ramp(a + d + hold, r, s, 0, env.releaseShape);
+  const depth = Math.max(-1, Math.min(1, (env.depth - 64) / 63));
+  return pts.map(([x, y]) => [x, y * depth]);
+}

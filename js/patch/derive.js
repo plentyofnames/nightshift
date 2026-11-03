@@ -49,7 +49,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
   config.converter.forEach((cv, i) => {
     if (!cv.enable) return;
     const s = {
-      id: `converter:${i}`, kind: 'voice', index: i, name: `Voice ${i + 1}`,
+      id: `converter:${i}`, kind: 'voice', index: i, name: `Voice ${i + 1}`, raw: { ...cv },
       mode: CONVERTER_TYPES[cv.type] ?? `type ${cv.type}`,
       voices: cv.type === 0 ? 1 : Math.max(1, cv.voices),
       channel: cv.channel,
@@ -207,7 +207,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
 // Trigger (per voice) and Para gate move to the gate expander in the same order.
 // Assumed: Random comes last per voice (the manual's list predates it), and the shared
 // outputs follow the voices at base + voices × stride.
-function converterPorts(cv, problems, i) {
+export function converterPorts(cv, problems = [], i = 0) {
   const perVoice = [];
   if (cv.cvOut) perVoice.push('Pitch');
   if (cv.gateOut) perVoice.push('Gate');
@@ -261,7 +261,8 @@ function converterPreset(p) {
   return {
     arp: p.arpMode > 10 ? { mode: p.arpMode, range: p.arpRange, gate: p.arpGate, latch: p.arpLatch, rate: p.arpRate ? durationName(p.arpRate) : 'external clock', reset: p.arpReset } : null,
     portamento: p.portamento, transpose: p.transpose,
-    envelope: { attack: p.envAttack, decay: p.envDecay, sustain: p.envSustain, release: p.envRelease, range: p.envRange, depth: p.envDepth, velocityDepth: p.envVelocityDepth },
+    envelope: { attack: p.envAttack, decay: p.envDecay, sustain: p.envSustain, release: p.envRelease, range: p.envRange, depth: p.envDepth, velocityDepth: p.envVelocityDepth,
+      attackShape: p.envAttackShape, decayShape: p.envDecayShape, releaseShape: p.envReleaseShape },
     randomDepth: p.randomDepth,
     scala: p.scalaEnable ? { enable: p.scalaEnable, scl: p.scalaScl, kbm: p.scalaKbm } : null,
   };

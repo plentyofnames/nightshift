@@ -104,7 +104,7 @@ function edit(label, changes) {
 // The "+ add" dialog for an empty jack.
 async function addTo(output) {
   try {
-    const r = await addToJack(values(), state.hardware, state.view.outputs[output]);
+    const r = await addToJack(state.view, values(), state.view.outputs[output]);
     if (r) edit(r.label, r.changes);
   } catch (e) {
     status(`Couldn’t add that: ${e.message}`, true);

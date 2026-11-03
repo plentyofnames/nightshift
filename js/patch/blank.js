@@ -33,7 +33,9 @@ export function blankPreset(name = 'Empty') {
     output: n(64, () => ({ directLevel: 0, lfoLevel: 16383, lfoSpeed: 8192, lfoTempoBase: 24, lfoTempoMultiplier: 1,
       lfoPulseWidth: 64, lfoSaw: 64 })),
     euclid: n(16, () => ({ pulses: 0, steps: 16, rate: 6, gate: 64 })),
-    converter: n(16, () => ({ envSustain: 127, envDepth: 127, envVelocityDepth: 64 })),
+    // as in the FH-2's Init preset: 64 is the middle (no transpose, linear shapes)
+    converter: n(16, () => ({ transpose: 64, envAttack: 64, envDecay: 64, envSustain: 64, envRelease: 64, envRange: 2, envDepth: 127,
+      envVelocityDepth: 64, envAttackShape: 64, envDecayShape: 64, envReleaseShape: 64, randomDepth: 127 })),
   };
   return parseDump(dumpMessage(CMD.INSTALL_PRESET, encode(preset, values, new Uint8Array(BODY_SIZE + 340))));
 }

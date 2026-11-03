@@ -151,8 +151,15 @@ None of these touch the page, so they work unchanged. That gives one implementat
        - Clocks and transport: signal, rate, pulse, shift per clock.
        - Knobs: channel, CC (free ones, 14-bit marked), relative, the current level.
        - Stored levels: in volts.
-     - Still to do for M2a: hardware check H2 (build part of the example on the module and send it).
+     - Hardware check H2: you tried it on the module (2026-11-03): "looks fine". **M2a done.**
 - **M2b:** voices (poly, stride, base gate), triggers, players (sequencers, external gear like the Disting, "clocked by"), scenes A/B/C, project files with names, learning a knob.
+  - **Voices done 2026-11-03:**
+    - "Pitch & gate" in the add dialog: mono or poly, voices, a MIDI channel nothing else uses (CC channels last), outputs per voice and shared, gates on CV jacks or on the gate expander (the first free run long enough).
+    - A preview shows every jack the voice would use and what is in the way. Add stays disabled until it fits, and offers a start jack where it does.
+    - The voice editor: mode, voices, allocation, stealing; channel (and MPE range), note range, who else is on the channel; output switches, start jack, gates, gap; the layout per voice with clashes; bend, transpose, glide, sustain pedal, retrigger, legato gate; the envelope drawn (shape only) with A/D/S/R, depth, velocity depth, shapes, time range.
+    - New voices write the gap between voices explicitly, as the Init config does, instead of relying on stride 0 (check 11); while the gap is "back to back" it follows the outputs.
+    - Fixed: the blank preset had transpose 0 (64 semitones down) and envelope settings unlike Init's; it now uses Init's (64 = middle).
+    - Fixed: in the add dialog, choosing a "No"/"off" option (knob Relative, gates on CV jacks) actually set it to yes.
 
 ### M3: EC4 pages and live link (v0.2)
 - Lilypad submodule and EC4 connection.

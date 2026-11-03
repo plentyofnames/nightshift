@@ -211,3 +211,16 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .steps .off { fill: none; stroke: var(--line2); stroke-width: 1.5; }
 .subbox { padding: 8px 10px; margin-top: 8px; background: var(--panel2); border-radius: 8px; }
 .subbox h4 { margin-top: 2px; }
+.tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: min(860px, 86vw); }
+.field.wide { grid-column: 1 / -1; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.check { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line2); border-radius: 7px; font-size: 12.5px; color: var(--text); }
+.plan .chip.clash { color: var(--warn); border-color: var(--warn); }
+.field small.warn { color: var(--warn); }
+@media (max-width: 760px) { .tiles { grid-template-columns: 1fr; } }
+.layout { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.layout-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 12px; }
+.layout-row .k { color: var(--dim); }
+.chip.clash { color: var(--warn); border-color: var(--warn); }
+.checks + .checks, .checks + .erows { margin-top: 6px; }
+.section .checks select { padding: 4px 6px; border: 1px solid var(--line2); border-radius: 7px; background: var(--bg); font-size: 12.5px; }

@@ -2,10 +2,10 @@
 
 import { test, assert, eq } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
-  removePort, removeSource } from '../js/patch/edit.js';
-import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc } from '../js/patch/alloc.js';
+  removePort, removeSource, addVoice } from '../js/patch/edit.js';
+import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc, suggestChannel, suggestBaseGate, voicePlan } from '../js/patch/alloc.js';
 import { DEFAULT_HARDWARE } from '../js/patch/hardware.js';
-import { lfoSamples, euclidPattern } from '../js/patch/shapes.js';
+import { lfoSamples, euclidPattern, envelopePoints } from '../js/patch/shapes.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
 import { derive } from '../js/patch/derive.js';
@@ -96,6 +96,7 @@ test('levels and volts', () => {
 // ---- alloc.js and adding/removing sources
 
 const values = (p) => ({ config: p.config.values, preset: p.preset?.values ?? null });
+const portsOf = (view, id) => view.sources.find((s) => s.id === id).ports.map((x) => [x.name, x.jack]);
 const sourcesAt = (p, output) => derive(p.config.values, p.preset?.values ?? null).outputs[output].ports.map((x) => `${x.source} ${x.name}`);
 
 test('free slots: a parked Euclid counts as free unless an LFO restarts from it', () => {
@@ -196,4 +197,65 @@ test('LFO drawings follow the shape mix and depth', () => {
   const falling = lfoSamples({ ...raw, lfoSine: 0, lfoSaw: 0 }, 100, 1);
   assert(falling[0] > 0.9 && falling[99] < -0.9, 'a saw below 64 falls');
   eq(lfoSamples({ ...raw, lfoSine: 0 }, 10).every((x) => x === 0), true, 'no shape, no wave');
+});
+
+// ---- voices
+
+test('a voice can be added, laid out and checked before it lands', () => {
+  const p = patch();
+  const hw = DEFAULT_HARDWARE;
+  apply(p, addClock(values(p), 65)); // something on GT1·2
+  let v = derive(p.config.values, p.preset.values);
+  eq(suggestChannel(p.config.values), 0);
+  eq(suggestBaseGate(v, 3), 66, 'GT1·1 is free but GT1·2 is not, so three in a row start at GT1·3');
+
+  // a three-voice poly with gates on the expander, previewed first
+  const cv = { type: 1, voices: 3, baseOutput: 4, baseGate: 64, stride: 0, cvOut: 1, gateOut: 1, velocityOut: 1 };
+  const plan = voicePlan(v, cv);
+  eq(plan.ports.map((x) => `${x.name}@${x.jack}`), ['Pitch 1@5', 'Velocity 1@6', 'Pitch 2@7', 'Velocity 2@8', 'Pitch 3@CV1·1', 'Velocity 3@CV1·2',
+    'Gate 1@GT1·1', 'Gate 2@GT1·2', 'Gate 3@GT1·3']);
+  eq(plan.problems.map((x) => x.message), ['Gate 2 would land on GT1·2, which Clock & transport already uses']);
+
+  apply(p, addVoice(values(p), { output: 4, channel: 0, type: 1, voices: 3, outs: { cvOut: 1, gateOut: 1 }, baseGate: 66 }));
+  v = derive(p.config.values, p.preset.values);
+  eq(portsOf(v, 'converter:0').map((x) => x.join('@')), ['Pitch 1@5', 'Pitch 2@6', 'Pitch 3@7', 'Gate 1@GT1·3', 'Gate 2@GT1·4', 'Gate 3@GT1·5']);
+  eq(v.problems, []);
+  eq(suggestChannel(p.config.values), 1, 'channel 1 is taken now');
+  eq(voicePlan(v, p.config.values.converter[0], 0).problems, [], 'a voice doesn’t collide with itself');
+});
+
+test('a voice’s outputs come off one switch at a time, and the voice can go', () => {
+  const p = patch();
+  apply(p, addVoice(values(p), { output: 0, channel: 2, outs: { cvOut: 1, gateOut: 1, velocityOut: 2, bendOut: 2 } }));
+  let v = derive(p.config.values, p.preset.values);
+  const s = v.sources.find((x) => x.id === 'converter:0');
+  eq(s.ports.map((x) => x.name), ['Pitch', 'Gate', 'Velocity (inverted)', 'Bend up', 'Bend down']);
+  apply(p, removePort(values(p), s, s.ports[2])); // inverted velocity off
+  apply(p, removePort(values(p), s, s.ports[4])); // bend down: both bend outputs go
+  v = derive(p.config.values, p.preset.values);
+  eq(portsOf(v, 'converter:0').map((x) => x.join('@')), ['Pitch@1', 'Gate@2']);
+  apply(p, removeSource(values(p), v.sources.find((x) => x.id === 'converter:0')));
+  eq(derive(p.config.values, p.preset.values).sources, []);
+  eq(p.config.values.converter[0].cvOut, 1, 'its settings stay for next time');
+});
+
+test('a voice past the last CV jack, or outside the rack, is caught', () => {
+  const p = patch();
+  const v = derive(p.config.values, p.preset.values);
+  const far = voicePlan(v, { type: 1, voices: 4, baseOutput: 62, baseGate: 0, stride: 0, cvOut: 1, gateOut: 1 });
+  assert(far.problems.some((x) => x.message === 'Pitch 2 would land past the last CV output'), JSON.stringify(far.problems));
+  const away = voicePlan(v, { type: 0, voices: 1, baseOutput: 40, baseGate: 0, stride: 0, cvOut: 1 });
+  eq(away.problems.map((x) => x.message), ['Pitch would land on 5/1, which isn’t in your rack']);
+});
+
+test('envelope drawings rise, fall to sustain, and release', () => {
+  const env = { attack: 0, decay: 64, sustain: 64, release: 127, depth: 127, attackShape: 64, decayShape: 64, releaseShape: 64 };
+  const pts = envelopePoints(env, 10);
+  eq(pts[0], [0, 0]);
+  eq(Math.max(...pts.map(([, y]) => y)), 1, 'peaks at full depth');
+  eq(pts.at(-1)[1], 0, 'ends at zero');
+  assert(Math.abs(pts[20][1] - 64 / 127) < 1e-9, 'decays to the sustain level');
+  assert(pts.at(-1)[0] === 1, 'fills the width');
+  const inverted = envelopePoints({ ...env, depth: 1 }, 10);
+  eq(Math.min(...inverted.map(([, y]) => y)), -1, 'depth below 64 turns it upside down');
 });

@@ -7,7 +7,7 @@
 
 import { getPath, setPath } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
-import { freeClock, freeEuclid, freeMapping } from './alloc.js';
+import { freeClock, freeEuclid, freeMapping, freeConverter } from './alloc.js';
 import { isUsed, targetOf } from './mappings.js';
 import { hzToLfo } from './tables.js';
 
@@ -189,12 +189,20 @@ export function removePort(values, source, port) {
       const k = port.name === 'Pulses' ? 'output' : 'offOutput';
       return [config(['euclid', source.index, k], 127), config(['euclid', source.index, k + 'High'], 1)];
     }
+    case 'voice': {
+      // A voice's outputs come as a set: turning one off moves the ones after it up.
+      const k = outputSwitch(port.role);
+      if (!k) throw new Error(`can’t turn off ${port.name}`);
+      return setConverter(source.index, { [k]: 0 });
+    }
     default:
       throw new Error(`removing a ${source.kind} isn’t possible yet`);
   }
 }
 
-export const removeSource = (values, source) => source.ports.flatMap((p) => removePort(values, source, p));
+export const removeSource = (values, source) => (source.kind === 'voice'
+  ? setConverter(source.index, { enable: 0 }) // its settings stay, for when it comes back
+  : source.ports.flatMap((p) => removePort(values, source, p)));
 
 // ---- changing a source's settings
 
@@ -212,3 +220,42 @@ export const setLfoRestart = (output, { type, channel = 0, number = 0 }) => fiel
 export const setKnob = (slot, { channel, cc, relative }) => fields('config', ['mapping', slot], {
   status: 0x30 | channel, cc, target: relative ? 32 : 0,
 });
+
+// ---- voices (MIDI/CV converters)
+
+// The converter's output switches, and the derive() port roles they make.
+export const VOICE_OUTPUTS = [
+  ['cvOut', 'Pitch'], ['gateOut', 'Gate'], ['velGateOut', 'Velocity gate'], ['velocityOut', 'Velocity'],
+  ['releaseVelocityOut', 'Release velocity'], ['triggerOut', 'Trigger'], ['pressureOut', 'Pressure'],
+  ['envelopeOut', 'Envelope'], ['randomOut', 'Random'],
+];
+export const SHARED_OUTPUTS = [['aftertouchOut', 'Aftertouch'], ['paraGateOut', 'Para gate'], ['bendOut', 'Bend']];
+const ALL_OUTPUTS = [...VOICE_OUTPUTS, ...SHARED_OUTPUTS, ['mpeYcc', 'MPE Y']];
+
+export const setConverter = (i, obj) => fields('config', ['converter', i], obj);
+export const setConverterPreset = (i, obj) => fields('preset', ['converter', i], obj);
+
+// A new voice from `output` (a CV jack). `outs` holds the output switches to turn on
+// (e.g. { cvOut: 1, gateOut: 1 }); all others are turned off. `baseGate` 0 keeps gates on CV
+// jacks, otherwise it is the first gate output.
+export function addVoice(values, { output, channel, type = 0, voices = 1, outs = { cvOut: 1, gateOut: 1 }, baseGate = 0, minNote = 0, maxNote = 127 }) {
+  const i = freeConverter(values.config);
+  if (i < 0) throw noRoom('16 MIDI/CV converters');
+  const switches = Object.fromEntries(ALL_OUTPUTS.map(([k]) => [k, outs[k] ?? 0]));
+  return setConverter(i, { enable: 1, channel, type, voices, minNote, maxNote, baseOutput: output, baseGate, stride: cvPerVoice(switches, baseGate), ...switches });
+}
+
+// How many CV jacks one voice takes: its per-voice outputs, less Gate and Trigger when they go
+// to a gate expander. Written as the stride, so voices sit back to back without relying on
+// stride 0 meaning that (hardware check 11); the Init config does the same.
+export function cvPerVoice(cv, baseGate = cv.baseGate) {
+  const onGates = baseGate >= 64;
+  return Math.max(1, VOICE_OUTPUTS.filter(([k]) => cv[k] && !(onGates && (k === 'gateOut' || k === 'triggerOut'))).length
+    + (cv.type === 2 && cv.mpeYcc ? 1 : 0));
+}
+
+// The switch behind a voice port's role ('Velocity (inverted)' → velocityOut, 'Bend up' → bendOut).
+export function outputSwitch(role) {
+  const r = role.replace(/ \(inverted\)$/, '').replace(/^Bend (up|down)$/, 'Bend');
+  return ALL_OUTPUTS.find(([, name]) => name === r)?.[0] ?? null;
+}

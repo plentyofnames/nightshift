@@ -4,10 +4,10 @@
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider } from './controls.js';
-import { lfoSamples, euclidPattern } from '../patch/shapes.js';
-import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, lfoHz, hzToLfo, durationName } from '../patch/tables.js';
-import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel } from '../patch/edit.js';
-import { freeCcs } from '../patch/alloc.js';
+import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
+import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
+import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, VOICE_OUTPUTS } from '../patch/edit.js';
+import { freeCcs, voicePlan } from '../patch/alloc.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const field = (label, ...control) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control));
@@ -184,4 +184,127 @@ export function levelEditor(view, s, act) {
     const o = view.outputs[p.output];
     return field(p.jack, voltsInput(`Level of ${p.jack}`, o.directLevel, o.rangeIndex, (v) => act.edit(`Level of ${p.jack}`, setDirectLevel(p.output, v))));
   }));
+}
+
+// ---- voices (MIDI/CV converters)
+
+const NOTES = Array.from({ length: 128 }, (_, n) => [n, `${noteName(n)} (${n})`]);
+const pct = (v) => `${Math.round((v / 127) * 100)}%`;
+const bipolar = (v) => `${v >= 64 ? '+' : '−'}${Math.round((Math.abs(v - 64) / 63) * 100)}%`;
+
+function envelopeSvg(env, color) {
+  const svg = document.createElementNS(SVG, 'svg');
+  const h0 = 90;
+  svg.setAttribute('viewBox', `0 0 ${W} ${h0}`);
+  svg.setAttribute('class', 'wave');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'The envelope of one note: attack, decay, sustain, release');
+  const draw = (e) => {
+    const pts = envelopePoints(e);
+    const base = e.depth >= 64 ? h0 - 8 : 8;
+    const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'} ${(x * W).toFixed(1)} ${(base - y * (h0 - 16)).toFixed(1)}`).join(' ');
+    svg.innerHTML = `<path d="M 0 ${base} H ${W}" class="centre"/><path class="trace" stroke="${color}" d="${d}"/>`;
+  };
+  draw(env);
+  svg.redraw = draw;
+  return svg;
+}
+
+export function voiceEditor(view, s, act, color) {
+  const cv = s.raw;
+  const set = (what, obj) => act.edit(`${what} of ${s.name}`, setConverter(s.index, obj));
+  const parts = [];
+  // the gap between voices follows the outputs while it is "back to back"
+  const autoStride = !cv.stride || cv.stride === cvPerVoice(cv);
+  const relayout = (obj) => {
+    const next = { ...cv, ...obj };
+    return autoStride ? { ...obj, stride: cvPerVoice(next) } : obj; // kept up to date in mono too, for when it turns poly
+  };
+
+  // mode and voices
+  const mode = [field('Mode', selectInput(`Mode of ${s.name}`, cv.type, [[0, 'Mono'], [1, 'Poly'], [2, 'MPE']], (v) => set('Mode', relayout({ type: v, voices: v ? Math.max(2, cv.voices) : cv.voices }))))];
+  if (cv.type) {
+    mode.push(
+      field('Voices', numberInput(`Voices of ${s.name}`, cv.voices, { min: 1, max: 16 }, (v) => set('Voices', { voices: v }))),
+      field('Allocation', selectInput(`Allocation of ${s.name}`, cv.allocation, ALLOCATIONS.map((n, i) => [i, n]), (v) => set('Allocation', { allocation: v }))),
+      field('Steal voices', selectInput(`Voice stealing of ${s.name}`, cv.noStealing, [[0, 'Yes'], [1, 'No: ignore extra notes']], (v) => set('Voice stealing', { noStealing: v }))));
+  }
+  parts.push(h('div', { class: 'erows' }, mode));
+
+  // what it listens to
+  const listens = [
+    field(cv.type === 2 ? 'Global channel' : 'MIDI channel', selectInput(`Channel of ${s.name}`, cv.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => set('Channel', { channel: v }))),
+  ];
+  if (cv.type === 2) listens.push(field('Last channel', selectInput(`Last MPE channel of ${s.name}`, cv.lastMpeChannel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => set('Last MPE channel', { lastMpeChannel: v }))));
+  listens.push(
+    field('Lowest note', selectInput(`Lowest note of ${s.name}`, cv.minNote, NOTES, (v) => set('Lowest note', { minNote: v }))),
+    field('Highest note', selectInput(`Highest note of ${s.name}`, cv.maxNote, NOTES, (v) => set('Highest note', { maxNote: v }))));
+  const others = (view.channels[cv.channel]?.listeners ?? []).filter((l) => l.name !== s.name && !l.name.startsWith(`${s.name} `)).map((l) => l.name);
+  parts.push(h('h4', {}, 'Listens to'), h('div', { class: 'erows' }, listens),
+    others.length ? h('p', { class: 'note' }, `Also on this channel: ${[...new Set(others)].join(', ')}. Different note ranges make a keyboard split.`) : null);
+
+  // outputs and where they go
+  const toggle = (k, name) => h('label', { class: 'check' }, h('input', {
+    type: 'checkbox', checked: !!cv[k], 'data-key': `${s.name} ${k}`,
+    onchange: (e) => set(`${name} output`, relayout({ [k]: e.target.checked ? 1 : 0 })),
+  }), name);
+  const triple = (k, name) => selectInput(`${name} output of ${s.name}`, cv[k], [[0, `${name}: off`], [1, name], [2, `${name}, inverted`]], (v) => set(`${name} output`, relayout({ [k]: v })));
+  const cvJacks = view.outputs.slice(0, 64).filter((o) => o.present).map((o) => [o.index, o.jack]);
+  const gateJacks = view.outputs.slice(64).filter((o) => o.present).map((o) => [o.index, `gate expander, from ${o.jack}`]);
+  parts.push(h('h4', {}, 'Outputs'),
+    h('div', { class: 'checks' }, VOICE_OUTPUTS.filter(([k]) => k !== 'velocityOut' && k !== 'releaseVelocityOut').map(([k, n]) => toggle(k, n))),
+    h('div', { class: 'checks' }, triple('velocityOut', 'Velocity'), triple('releaseVelocityOut', 'Release velocity')),
+    h('div', { class: 'checks' }, toggle('aftertouchOut', 'Aftertouch'), toggle('paraGateOut', 'Para gate'),
+      selectInput(`Bend output of ${s.name}`, cv.bendOut, [[0, 'Bend: off'], [1, 'Bend'], [2, 'Bend up and down']], (v) => set('Bend output', { bendOut: v }))),
+    h('div', { class: 'erows' },
+      field('Starts at', selectInput(`Start jack of ${s.name}`, cv.baseOutput, cvJacks, (v) => set('Start jack', { baseOutput: v }))),
+      field('Gates go to', selectInput(`Gates of ${s.name}`, cv.baseGate >= 64 ? cv.baseGate : 0, [[0, 'CV jacks, after the pitch'], ...gateJacks],
+        (v) => set('Gates', relayout({ baseGate: v })))),
+      cv.type ? field('Gap', selectInput(`Gap between voices of ${s.name}`, autoStride ? 0 : cv.stride, [[0, `Back to back (${cvPerVoice(cv)})`], ...Array.from({ length: 16 }, (_, i) => [i + 1, `${i + 1} jacks`])],
+        (v) => set('Gap between voices', { stride: v || cvPerVoice(cv) }))) : null));
+  const plan = voicePlan(view, cv, s.index);
+  const byVoice = new Map();
+  for (const p of plan.ports) {
+    const k = p.voice == null ? 'Shared' : `Voice ${p.voice + 1}`;
+    if (!byVoice.has(k)) byVoice.set(k, []);
+    byVoice.get(k).push(p);
+  }
+  parts.push(h('div', { class: 'layout' }, [...byVoice].map(([k, ps]) => h('div', { class: 'layout-row' }, h('span', { class: 'k' }, cv.type ? k : ''),
+    h('span', { class: 'checks' }, ps.map((p) => h('span', { class: 'chip' + (p.taken.length || !p.present ? ' clash' : ''), style: `--src:${color}` }, `${p.jack} ${p.role.replace(/ \(inverted\)$/, ' inv.')}`)))))),
+  plan.problems.map((x) => h('p', { class: 'problem' }, x.message)));
+
+  // pitch and switches (config), performance (preset)
+  const pf = s.performance;
+  const pset = (what, obj) => act.edit(`${what} of ${s.name}`, setConverterPreset(s.index, obj));
+  parts.push(h('h4', {}, 'Pitch'), h('div', { class: 'erows' },
+    field('Bend range', numberInput(`Bend range of ${s.name}`, cv.bendRange, { min: 0, max: 48 }, (v) => set('Bend range', { bendRange: v })), ' semitones'),
+    field('Bend down', selectInput(`Bend down of ${s.name}`, cv.bendDown, [[0, 'Same as up'], ...Array.from({ length: 48 }, (_, i) => [i + 2, `${i + 1} semitones`])], (v) => set('Bend down', { bendDown: v }))),
+    pf && field('Transpose', numberInput(`Transpose of ${s.name}`, pf.transpose - 64, { min: -64, max: 63 }, (v) => pset('Transpose', { transpose: v + 64 })), ' semitones'),
+    pf && field('Glide', slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),
+    field('Sustain pedal', selectInput(`Sustain of ${s.name}`, cv.sustain, SUSTAIN.map((n, i) => [i, n]), (v) => set('Sustain pedal', { sustain: v }))),
+    field('Retrigger', selectInput(`Mono retrigger of ${s.name}`, cv.monoRetrigger, [[0, 'No'], [1, 'Yes: each new note']], (v) => set('Retrigger', { monoRetrigger: v }))),
+    field('Legato gate', selectInput(`Interrupt gate of ${s.name}`, cv.interruptGate, [[0, 'Stays high'], [1, 'Short dip for each note']], (v) => set('Legato gate', { interruptGate: v })))));
+
+  // the envelope
+  if (pf) {
+    const e = pf.envelope;
+    const svg = envelopeSvg(e, color);
+    const preview = (key) => (v) => svg.redraw({ ...e, [key]: v });
+    const env = (label, key, field2, show = pct) => field(label, slider(`${label} of ${s.name}`, e[key], { min: 0, max: 127, show, preview: preview(key) }, (v) => pset(label, { [field2]: v })));
+    parts.push(h('h4', {}, 'Envelope'), h('div', { class: 'wave-box' }, svg, h('span', { class: 'wave-cap' }, cv.envelopeOut ? 'Shape only, times approximate' : 'Turn on the Envelope output to use it')),
+      h('div', { class: 'erows' },
+        env('Attack', 'attack', 'envAttack', String),
+        env('Decay', 'decay', 'envDecay', String),
+        env('Sustain', 'sustain', 'envSustain'),
+        env('Release', 'release', 'envRelease', String),
+        env('Depth', 'depth', 'envDepth', bipolar),
+        env('Velocity depth', 'velocityDepth', 'envVelocityDepth', bipolar),
+        env('Attack shape', 'attackShape', 'envAttackShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
+        env('Decay shape', 'decayShape', 'envDecayShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
+        env('Release shape', 'releaseShape', 'envReleaseShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
+        field('Time range', numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v })))));
+  } else {
+    parts.push(h('p', { class: 'note' }, 'Glide, transpose and the envelope live in the preset: open or pull one to edit them.'));
+  }
+  return parts;
 }

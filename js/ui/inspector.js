@@ -7,7 +7,7 @@ import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel 
 import { outputNumber, internalName } from '../patch/hardware.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
 import { numberInput, voltsInput } from './controls.js';
-import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor } from './editors.js';
+import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor } from './editors.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -16,7 +16,7 @@ const param = (p) => PARAM_NAMES[p] ?? p;
 const yes = (b) => (b ? 'on' : 'off');
 
 // Sources that can be removed so far (M2a).
-const REMOVABLE = new Set(['level', 'knobs', 'lfo', 'clock', 'euclid']);
+const REMOVABLE = new Set(['voice', 'level', 'knobs', 'lfo', 'clock', 'euclid']);
 
 // `act` is { edit(label, changes), add(output), remove(source, port?) }; each changes the
 // patch through edit.js and redraws.
@@ -91,7 +91,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
   }
   if (REMOVABLE.has(s.kind)) {
     parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.remove(s) },
-      s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
+      s.kind === 'voice' ? 'Remove this voice' : s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
   }
   return parts;
 }
@@ -99,6 +99,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
 // The editable sources (M2a); the others keep the read-only settings below.
 function editorOf(view, s, act, color) {
   switch (s.kind) {
+    case 'voice': return voiceEditor(view, s, act, color);
     case 'lfo': return lfoEditor(view, view.outputs[s.index], act, color);
     case 'euclid': return euclidEditor(s, act, color);
     case 'clock': return clockEditor(s, act);
@@ -193,7 +194,8 @@ function jackInspector(view, colors, o, onSelect, act) {
     const s = view.sources.find((x) => x.id === p.source);
     const port = s.ports.find((x) => x.output === o.index && x.name === p.name);
     const remove = !p.standby && REMOVABLE.has(s.kind) && port
-      && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${p.name} from jack ${o.jack}`, title: 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
+      && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${p.name} from jack ${o.jack}`,
+        title: s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
     return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), [chip(p.name, colors.get(s.id)), remove]);
   };
   const active = o.ports.filter((p) => !p.standby);
