@@ -51,10 +51,11 @@ function overview(view) {
   ];
 }
 
-function header(s, color) {
+function header(s, color, act) {
   return h('div', { class: 'ins-head', style: `--src:${color}` },
     h('span', { class: 'icon' }, icon(s.kind, 22)),
-    h('div', {}, h('h2', {}, s.name), h('span', { class: 'kind' }, kindLine(s))));
+    h('div', { class: 'grow' }, h('h2', {}, s.name), h('span', { class: 'kind' }, kindLine(s))),
+    act && h('button', { type: 'button', class: 'btn small', onclick: () => act.rename(s.id, s.name, s.defaultName) }, 'Rename…'));
 }
 
 function kindLine(s) {
@@ -65,7 +66,7 @@ function kindLine(s) {
 
 function sourceInspector(view, colors, s, onSelect, act) {
   const color = colors.get(s.id);
-  const parts = [header(s, color)];
+  const parts = [header(s, color, act)];
 
   if (s.kind === 'voice' || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors));
 

@@ -177,6 +177,12 @@ None of these touch the page, so they work unchanged. That gives one implementat
     - The voice editor has an Arpeggiator section (manual: "Arpeggiators"): mode (the preset stores ranges; Night Shift writes each range's start), range in octaves, rate, clock source at rate Ext, gate (0 = trigger), latch, reset, and MIDI out (channel, USB C, USB A, DIN). With MIDI out on, the arp also shows as a player.
     - The blank preset now has Init's arp (range 1, gate 64, rate 1/8) and sequencer rates (1/4, 1/16, 1/8, 1/4); it had 0s, which meant range 0 and every sequencer on Ext.
     - The shift register as a source of its own (random CV, change and trigger outputs, its settings) stays in M4.
+  - **Names, project files, scenes and learning done 2026-11-03 (M2 complete):**
+    - Names beside the bytes: sources and players can be renamed, and the gear on a port and channel named ("Disting mk4" on DIN ch 5, shown in the player's line). Renaming is an edit like any other, so it undoes.
+    - Project files (`.nightshift.json`): the config, every scene and the names, with the dumps kept as the FH-2's own bytes, plus the rack. Open… takes a project or `.syx` dumps; several presets in `.syx` files become scenes.
+    - Scenes: one config, several presets, as tabs in the bar. + copies the scene in view, − removes it (after asking), clicking the active tab renames it (the preset's own 16-character name). Edits, Send and Save .syx work on the scene in view; undo first goes back to the scene a step was made in. The mark says when another scene is the one on the FH-2.
+    - Learning a knob: "Learn" in the add dialog and in the knob editor takes the next CC from any controller connected to this computer. A controller on the FH-2's USB A waits for hardware check 5.
+    - Not tried on the module yet: learning with the EC4 on the Mac (needs Chrome), and a scene sent and saved. Saving each scene to its own flash slot isn't offered yet: send a scene, then save, which uses the slot last loaded or saved.
   - **USB gamepad and keyboard entries can be switched off** (your request, 2026-11-03): one at a time with the × on a jack, or all at once from the source. It sets Usage or Type to "--" and leaves the output alone, so the official tool's `0xFF` bug can't happen. Sending that to the module is hardware check 16.
 
 ### Next UI round (your ideas, stashed 2026-11-03)

@@ -58,7 +58,8 @@ export const KIND_NAMES = { sequencer: 'Note sequencer', drums: 'Drum sequencer'
 
 // Where a player sends, in a few words: "ch 3 → FH-2, DIN".
 export function playerLine(p) {
-  const to = [p.internal && 'FH-2', p.usbC && 'USB C', p.usbA && 'USB A', p.din && 'DIN', p.select && 'Select'].filter(Boolean);
+  const dev = (d, name) => (p[d] ? (p.devices?.[d] ? `${p.devices[d]} (${name})` : name) : null);
+  const to = [p.internal && 'FH-2', dev('usbC', 'USB C'), dev('usbA', 'USB A'), dev('din', 'DIN'), dev('select', 'Select')].filter(Boolean);
   const clock = p.rate === 0 ? (p.clock ? ` · clocked by Euclid ${p.clock}` : ' · external clock') : '';
   return `ch ${p.channel + 1} → ${to.join(', ') || 'nowhere'}${clock}`;
 }

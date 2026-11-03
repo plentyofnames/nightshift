@@ -61,3 +61,34 @@ export function saveToFlash(pair, log) {
     await client.savePresetToFlash(0);
   });
 }
+
+// ---- learning a knob: the next CC from any MIDI input of this computer
+
+// { channel 0–15, cc, value } for a control change, or null (channel mode messages 120–127
+// aren't knobs).
+export function ccOf(bytes) {
+  if (!bytes || bytes.length < 3 || (bytes[0] & 0xf0) !== 0xb0 || bytes[1] >= 120) return null;
+  return { channel: bytes[0] & 15, cc: bytes[1], value: bytes[2] };
+}
+
+// Waits for the next CC on any input and says where it came from. A controller plugged into
+// the FH-2's USB A can't be heard here; for those, set the channel and CC by hand (or wait
+// for hardware check 5, reading them from the FH-2's screen).
+export async function learnCc(timeoutMs = 15000) {
+  const acc = await midiAccess();
+  const inputs = [...acc.inputs.values()].filter((i) => i.state !== 'disconnected');
+  if (!inputs.length) throw new Error('no MIDI inputs on this computer');
+  return new Promise((resolve, reject) => {
+    const done = (v, err) => {
+      clearTimeout(timer);
+      for (const i of inputs) i.removeEventListener('midimessage', on);
+      err ? reject(err) : resolve(v);
+    };
+    const on = (e) => {
+      const cc = ccOf(e.data);
+      if (cc) done({ ...cc, port: e.target.name });
+    };
+    const timer = setTimeout(() => done(null, new Error('no knob turned')), timeoutMs);
+    for (const i of inputs) i.addEventListener('midimessage', on);
+  });
+}

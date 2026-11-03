@@ -1,9 +1,11 @@
-// Edits to a patch. A patch is { config, preset }, each a parsed dump (sysex.js parseDump)
-// whose values are the truth; edits change those values in place and derive() redraws.
+// Edits to a patch. A patch is { config, preset, names }: two parsed dumps (sysex.js
+// parseDump) whose values are the truth, and Night Shift's own names beside them (sources,
+// players, the gear on a port and channel), which the FH-2 has no room for. Edits change them
+// in place and derive() redraws.
 //
-// An edit is a list of field changes, { dump: 'config' | 'preset', path, value }. Applying
-// one checks every change against the dump's layout first, then returns the changes that
-// undo it, so undo and redo need nothing else.
+// An edit is a list of field changes, { dump: 'config' | 'preset', path, value }, or for a
+// name { dump: 'names', path: [key], value: text or null }. Applying one checks every change
+// first, then returns the changes that undo it, so undo and redo need nothing else.
 
 import { getPath, setPath } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
@@ -29,22 +31,35 @@ function check(patch, c) {
   } else if (!Number.isInteger(c.value) || c.value < t.min || c.value > t.max) {
     throw new Error(`${c.path.join('.')} takes a whole number from ${t.min} to ${t.max}, not ${c.value}`);
   }
-  return d;
+  return d.values;
+}
+
+function checkName(patch, c) {
+  if (!patch.names) throw new Error('no names in this patch');
+  if (c.path.length !== 1 || typeof c.path[0] !== 'string') throw new Error('a name takes one key');
+  if (c.value !== null && typeof c.value !== 'string') throw new Error('a name is text');
+  return patch.names;
 }
 
 // Applies `changes` and returns the changes that undo them. Nothing changes if one is invalid.
 export function apply(patch, changes) {
-  const dumps = changes.map((c) => check(patch, c));
+  const targets = changes.map((c) => (c.dump === 'names' ? checkName(patch, c) : check(patch, c)));
   const undo = [];
   changes.forEach((c, i) => {
-    const values = dumps[i].values;
-    const old = getPath(values, c.path);
+    const values = targets[i];
+    const old = getPath(values, c.path) ?? (c.dump === 'names' ? null : undefined);
     if (old === c.value) return;
     undo.unshift({ dump: c.dump, path: c.path, value: old });
-    setPath(values, c.path, c.value);
+    if (c.dump === 'names' && c.value === null) delete values[c.path[0]];
+    else setPath(values, c.path, c.value);
   });
   return undo;
 }
+
+// A name for a source or player id ('converter:2'), or for the gear on a port and channel
+// (deviceKey('din', 4)); empty clears it.
+export const setName = (key, name) => [{ dump: 'names', path: [key], value: name?.trim() ? name.trim() : null }];
+export const deviceKey = (port, channel) => `device:${port}:${channel}`;
 
 // Undo and redo over apply(). Each step has a label for the status line.
 export class History {
@@ -53,13 +68,17 @@ export class History {
     this.undone = [];
   }
 
-  do(patch, label, changes) {
+  // `meta` travels with the step (app.js keeps the scene it was made in there).
+  do(patch, label, changes, meta = {}) {
     const undo = apply(patch, changes);
     if (!undo.length) return false;
-    this.done.push({ label, changes, undo });
+    this.done.push({ label, changes, undo, meta });
     this.undone = [];
     return true;
   }
+
+  get nextUndo() { return this.done.at(-1) ?? null; }
+  get nextRedo() { return this.undone.at(-1) ?? null; }
 
   undo(patch) {
     const step = this.done.pop();

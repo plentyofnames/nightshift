@@ -3,6 +3,7 @@
 
 import { h, $, replace, modal } from '../../vendor/lilypad/js/dom.js';
 import { icon } from './look.js';
+import { learnCc } from './connect.js';
 import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, TRIGGER_TYPES, voltsToLevel, noteName } from '../patch/tables.js';
 import { freeCcs, suggestCc, suggestChannel, suggestBaseGate, suggestStart, voicePlan, suggestTriggerChannel, suggestNote, jacksInTheWay } from '../patch/alloc.js';
 import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, addTrigger, VOICE_OUTPUTS, SHARED_OUTPUTS, LEVEL_TRIGGER_TYPES, isAccentType } from '../patch/edit.js';
@@ -138,6 +139,23 @@ const pick = (f, key, options, redraw) => h('select', {
 }, options.map(([value, label]) => h('option', { value: String(value), selected: String(value) === String(f[key]) }, label)));
 const divisions = DIVISIONS.map(([p, name]) => [p, name]);
 
+// Learn: the next knob turned on any controller connected to this computer sets channel and CC.
+async function learnInto(f, values, redraw) {
+  f.learning = true;
+  f.learnNote = 'Turn a knob on a controller connected to this computer…';
+  redraw();
+  try {
+    const r = await learnCc();
+    const free = freeCcs(values.config, r.channel).some((c) => c.cc === r.cc);
+    if (free) Object.assign(f, { channel: r.channel, cc: r.cc });
+    f.learnNote = free ? `Learned CC ${r.cc} on ch ${r.channel + 1} from ${r.port}.` : `CC ${r.cc} on ch ${r.channel + 1} (from ${r.port}) is already used on that channel: pick another knob or set it by hand.`;
+  } catch (e) {
+    f.learnNote = /permission|SecurityError|NotAllowed/i.test(`${e.name} ${e.message}`) ? 'This browser didn’t allow MIDI access, so it can’t listen for a knob.' : `Nothing learned: ${e.message}.`;
+  }
+  f.learning = false;
+  redraw();
+}
+
 function fieldsFor(f, values, o, redraw, view) {
   switch (f.kind) {
     case 'voice':
@@ -153,8 +171,9 @@ function fieldsFor(f, values, o, redraw, view) {
       if (!ccs.some((c) => c.cc === f.cc)) f.cc = suggestCc(values.config, f.channel);
       return [
         field('MIDI channel', pick(f, 'channel', Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), redraw)),
-        field('CC', pick(f, 'cc', ccs.map((c) => [c.cc, `${c.cc}${c.fine ? ` (14-bit with ${c.cc + 32})` : ''}`])),
-          'Only CCs nothing else uses on this channel. Below 32, the FH-2 takes CC n + 32 as the fine half, for 14-bit control.'),
+        field('CC', [pick(f, 'cc', ccs.map((c) => [c.cc, `${c.cc}${c.fine ? ` (14-bit with ${c.cc + 32})` : ''}`])),
+          h('button', { type: 'button', class: 'btn small', onclick: () => learnInto(f, values, redraw) }, f.learning ? 'Turn a knob…' : 'Learn')],
+          f.learnNote ?? 'Only CCs nothing else uses on this channel. Below 32, the FH-2 takes CC n + 32 as the fine half, for 14-bit control. Learn: turn a knob on a controller connected to this computer.'),
         field('Relative', pick(f, 'relative', [[false, 'No: absolute'], [true, 'Yes: an endless encoder']]), 'Relative CCs move in 7-bit steps (128 per step).'),
       ];
     }

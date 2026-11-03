@@ -236,3 +236,11 @@ details.more[open] summary { margin-bottom: 4px; }
 .cables .midi.on { stroke-width: 3; opacity: 1; }
 .cables .midi-end { opacity: 0.6; }
 .cables .midi-end.on { opacity: 1; }
+.ins-head .grow { flex: 1 1 auto; min-width: 0; }
+.btn.small { padding: 4px 9px; font-size: 12px; }
+input.text { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 7px; background: var(--bg); color: var(--text); font-size: 13px; }
+.erow .v input.text { width: 100%; }
+.scenes { display: flex; align-items: center; gap: 4px; }
+.scenes button { border: 1px solid var(--line2); background: transparent; color: var(--dim); border-radius: 7px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
+.scenes button[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.scenes .scene-add { padding: 4px 8px; }

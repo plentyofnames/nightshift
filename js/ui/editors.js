@@ -9,6 +9,7 @@ import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
   setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES } from '../patch/edit.js';
 import { freeCcs, voicePlan } from '../patch/alloc.js';
+import { learnCc } from './connect.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const field = (label, ...control) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control));
@@ -167,13 +168,25 @@ export function knobEditor(view, s, act) {
   return s.ports.map((p) => {
     const set = (what, obj) => act.edit(`${what} of the knob on ${p.jack}`, setKnob(p.slot, { channel: p.channel, cc: p.cc, relative: p.relative, ...obj }));
     const ccs = [{ cc: p.cc, fine: false }, ...freeCcs(config, p.channel)].sort((a, b) => a.cc - b.cc);
+    const learn = async () => {
+      act.status('Turn a knob on a controller connected to this computer…');
+      try {
+        const r = await learnCc();
+        const taken = r.channel !== p.channel || r.cc !== p.cc ? !freeCcs(config, r.channel).some((c) => c.cc === r.cc) : false;
+        if (taken) return act.status(`CC ${r.cc} on ch ${r.channel + 1} is already used on that channel`, true);
+        act.edit(`The knob on ${p.jack} learned CC ${r.cc} on ch ${r.channel + 1} (${r.port})`, setKnob(p.slot, { channel: r.channel, cc: r.cc, relative: p.relative }));
+      } catch (e) {
+        act.status(/permission|SecurityError|NotAllowed/i.test(`${e.name} ${e.message}`) ? 'This browser didn’t allow MIDI access, so it can’t listen for a knob.' : `Nothing learned: ${e.message}`, true);
+      }
+    };
     return h('div', { class: 'subbox' }, h('h4', {}, `${p.jack}`), h('div', { class: 'erows' },
       field('Channel', selectInput(`Channel of the knob on ${p.jack}`, p.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => {
         const free = freeCcs(config, v);
         const cc = free.some((c) => c.cc === p.cc) ? p.cc : (free.find((c) => c.fine) ?? free[0])?.cc;
         if (cc != null) set('Channel', { channel: v, cc });
       })),
-      field('CC', selectInput(`CC of the knob on ${p.jack}`, p.cc, ccs.map((c) => [c.cc, `${c.cc}${c.fine ? ' (14-bit)' : ''}`]), (v) => set('CC', { cc: v }))),
+      field('CC', selectInput(`CC of the knob on ${p.jack}`, p.cc, ccs.map((c) => [c.cc, `${c.cc}${c.fine ? ' (14-bit)' : ''}`]), (v) => set('CC', { cc: v })),
+        h('button', { type: 'button', class: 'btn small', onclick: learn, title: 'Turn a knob on a controller connected to this computer' }, 'Learn')),
       field('Relative', selectInput(`Relative knob on ${p.jack}`, p.relative ? 1 : 0, [[0, 'No: absolute'], [1, 'Yes: endless encoder']], (v) => set('Relative', { relative: !!v }))),
       field('Now at', voltsInput(`Level of ${p.jack}`, view.outputs[p.output].directLevel ?? 0, view.outputs[p.output].rangeIndex,
         (v) => act.edit(`Level of ${p.jack}`, setDirectLevel(p.output, v))))));

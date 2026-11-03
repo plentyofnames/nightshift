@@ -8,14 +8,14 @@ import { selectInput } from './controls.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
 import { suggestChannel } from '../patch/alloc.js';
-import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, moveToChannel, setLaneNote } from '../patch/edit.js';
+import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, moveToChannel, setLaneNote, setName, deviceKey } from '../patch/edit.js';
 
 const DEST_NAMES = { internal: 'FH-2 (internal)', usbC: 'USB C', usbA: 'USB A', din: 'DIN', select: 'Select bus' };
 const CHANNELS = Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]);
 const NOTES = Array.from({ length: 128 }, (_, n) => [n, `${noteName(n)} (${n})`]);
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const field = (label, ...control) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control));
-const allPlayers = (values) => playersOf(values.config, values.preset, { all: true });
+const allPlayers = (values) => playersOf(values.config, values.preset, { all: true, names: values.names });
 
 // ---- the inspector of one player
 
@@ -26,16 +26,23 @@ export function playerInspector(view, colors, id, onSelect, act) {
   const set = (what, obj) => act.edit(`${what} of ${p.name}`, setPlayer(p.id, obj));
   const parts = [h('div', { class: 'ins-head', style: `--src:${colors.get(p.id) ?? 'var(--faint)'}` },
     h('span', { class: 'icon' }, icon(p.kind, 22)),
-    h('div', {}, h('h2', {}, p.name), h('span', { class: 'kind' }, `${KIND_NAMES[p.kind] ?? 'Player'} · makes MIDI, not voltage`)))];
+    h('div', { class: 'grow' }, h('h2', {}, p.name), h('span', { class: 'kind' }, `${KIND_NAMES[p.kind] ?? 'Player'} · makes MIDI, not voltage`)),
+    h('button', { type: 'button', class: 'btn small', onclick: () => act.rename(p.id, p.name, p.defaultName) }, 'Rename…'))];
 
   // channel and where it sends
   const box = (d) => h('label', { class: 'check' }, h('input', {
     type: 'checkbox', checked: !!p[d], 'data-key': `${p.id} ${d}`,
     onchange: (e) => set(`Sending to ${DEST_NAMES[d]}`, { dests: { [d]: e.target.checked } }),
   }), DEST_NAMES[d]);
+  // the gear on each port it sends to, by name ("Disting mk4"), kept beside the dumps
+  const gear = ['usbC', 'usbA', 'din', 'select'].filter((d) => p[d]).map((d) => field(`On ${DEST_NAMES[d]}`, h('input', {
+    type: 'text', class: 'text', placeholder: 'what’s there? (e.g. Disting mk4)', value: p.devices?.[d] ?? '', 'aria-label': `Gear on ${DEST_NAMES[d]} ch ${p.channel + 1}`, 'data-key': `gear ${d}`,
+    onchange: (e) => act.edit(`Gear on ${DEST_NAMES[d]} ch ${p.channel + 1}: ${e.target.value.trim() || 'none'}`, setName(deviceKey(d, p.channel), e.target.value)),
+  })));
   parts.push(section('Sends',
     h('div', { class: 'erows' }, field('MIDI channel', selectInput(`Channel of ${p.name}`, p.channel, CHANNELS, (v) => set('Channel', { channel: v })))),
-    h('div', { class: 'checks' }, Object.keys(f.dests).map(box))));
+    h('div', { class: 'checks' }, Object.keys(f.dests).map(box)),
+    gear.length ? h('div', { class: 'erows' }, gear) : null));
 
   // what it plays inside the FH-2
   const plays = (p.kind === 'arp' ? [`converter:${p.index}`] : p.plays).map((sid) => view.sources.find((s) => s.id === sid)).filter(Boolean); // an arp plays its own voice

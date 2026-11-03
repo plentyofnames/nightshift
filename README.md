@@ -6,13 +6,15 @@ A patch editor for the **Expert Sleepers FH-2** that works from the output side:
 
 ## Status
 
-Working towards v0.1 (milestone **M2**). What works now:
-- Open a config and preset (from `.syx` files, or pulled from the FH-2 over Web MIDI) and see your rack, what comes out of every jack, who plays each voice, and which CCs control what.
-- Change a jack's range, stored level, smoothing and gate levels.
-- Click a free jack to add a fixed voltage, a MIDI knob, an LFO, a clock, a transport signal or a Euclidean rhythm; remove sources from jacks. Undo and redo all of it.
-- Send the result to the FH-2 (it's read back and compared), and save it to the module's flash.
+Version 0.1 (milestones M0–M2). What it does:
+- Open a config and its presets (`.syx` files, a Night Shift project, or pulled from the FH-2 over Web MIDI) and see your rack, what comes out of every jack, who plays each voice, and which CCs control what.
+- Click a free jack to add a voice (mono or poly, gates on the expander or not), a trigger, a fixed voltage, a MIDI knob, an LFO, a clock, a transport signal or a Euclidean rhythm. Night Shift finds room in the FH-2 and won't put anything on top of another source.
+- Edit every one of them: LFOs and envelopes drawn as you change them, Euclid patterns, voice outputs and layout, arpeggiators, trigger notes and types, knob CCs (or learn them from a controller on the computer).
+- Players: note and drum sequencers, shift-register notes, inputs: wire them to voices and trigger kits, send them out to other gear, clock them from the tempo, the external clock or a Euclid pattern.
+- Scenes: several presets for one config. Names for everything, and for the gear on each port, kept in a project file.
+- Undo and redo everything. Send the result to the FH-2 (it's read back and compared) and save it to the module's flash.
 
-Still to come in v0.1: editors for each source's settings, voices, sequencers and other players, and scenes. Changes go into the FH-2's RAM until you save to flash; Save .syx keeps a copy on your computer.
+Changes go into the FH-2's RAM until you save to flash. Save project keeps everything on your computer; Save .syx keeps the config and the scene in view, for the FH-2 or Expert Sleepers' tools. Next (v0.2): pages for the Faderfox EC4 and a live link.
 
 **Try it:** [plentyofnam.es/nightshift](https://plentyofnam.es/nightshift/) (Chrome or Edge for Web MIDI), or the [example patch](https://plentyofnam.es/nightshift/?example).
 
@@ -47,9 +49,11 @@ python3 tools/fh2dump.py pull   # needs: pip install python-rtmidi
 | `js/fh2/client.js` | talks to an FH-2 over a MIDI transport, one request at a time |
 | `js/patch/derive.js` | turns a config and preset into sources, jacks, players, mappings and problems |
 | `js/patch/edit.js` | edits as lists of field changes, checked and undoable; adding and removing sources |
-| `js/patch/alloc.js` | finds free FH-2 slots and CCs for new sources |
+| `js/patch/alloc.js` | finds free FH-2 slots and CCs for new sources, plans voice layouts |
+| `js/patch/shapes.js` | the LFO, envelope and Euclid drawings, as numbers |
+| `js/patch/project.js` | project files: config, scenes, names and rack in one JSON file |
 | `js/patch/example.js` | the example patch from the mockups, built as a real config and preset |
-| `js/ui/`, `js/app.js` | the patch view, jack editing, the "+ add" dialog, the MIDI map, talking to the FH-2 |
+| `js/ui/`, `js/app.js` | the patch view, the "+ add" dialog, the editors, players, scenes, the MIDI map, talking to the FH-2 |
 | `test/` | Deno/browser tests, the official tools as fixtures, a stand-in FH-2 |
 | `tools/fh2dump.py` | pulls dumps from the real module and sends them back (hardware check H0) |
 

@@ -10,7 +10,9 @@ import { jackName, isPresent, isGate, DEFAULT_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
   CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName } from './tables.js';
 
-export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
+// `names` are Night Shift's own names beside the dumps (edit.js setName): for sources and players
+// by id, and for the gear on a port and channel.
+export function derive(config, preset = null, hardware = DEFAULT_HARDWARE, names = {}) {
   const outputs = Array.from({ length: 128 }, (_, i) => ({
     index: i,
     jack: jackName(i, hardware),
@@ -31,6 +33,10 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
   const mappings = mappingsOf(config);
 
   const addSource = (s) => {
+    if (names[s.id]) {
+      s.defaultName = s.name;
+      s.name = names[s.id];
+    }
     sources.push(s);
     for (const p of s.ports) {
       if (p.output == null) continue;
@@ -189,7 +195,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
     }
   }
 
-  const players = playersOf(config, preset);
+  const players = playersOf(config, preset, { names });
   for (const s of sources) {
     if (!s.channels) continue;
     s.players = players.filter((p) => p.internal && s.channels.includes(p.channel));
@@ -317,7 +323,7 @@ const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
 // USB A, DIN and Select. Sequencers, shift registers and arps step at `rate` (24 ppqn pulses, from
 // the preset); at rate 0 they follow `clock`: 0 the external clock, n Euclid pattern n.
 // Players that send nowhere are left out (`all: true` lists every slot, for picking one).
-export function playersOf(config, preset, { all = false } = {}) {
+export function playersOf(config, preset, { all = false, names = {} } = {}) {
   const players = [];
   const dests = (x) => ({ internal: !!x.toInternal, usbC: !!x.toUsbC, usbA: !!x.toUsbA, din: !!x.toDin, select: !!x.toSelect });
   const used = (d) => all || Object.values(d).some(Boolean);
@@ -353,6 +359,14 @@ export function playersOf(config, preset, { all = false } = {}) {
     players.push({ id: `cvMidi:${i}`, kind: 'input', index: i, name: `Input ${'XY'[i]} → ${what}${c.type === 0 ? ` ${c.number}` : ''}`,
       channel: c.channel, type: what, number: c.number, ...dests(c) });
   });
+  // given names, and the gear named on each port the player sends to
+  for (const p of players) {
+    if (names[p.id]) {
+      p.defaultName = p.name;
+      p.name = names[p.id];
+    }
+    p.devices = Object.fromEntries(['usbC', 'usbA', 'din', 'select'].filter((d) => p[d] && names[`device:${d}:${p.channel}`]).map((d) => [d, names[`device:${d}:${p.channel}`]]));
+  }
   return players;
 }
 

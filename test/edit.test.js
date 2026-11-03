@@ -1,9 +1,12 @@
 // Tests for edit.js: field changes, their checks, undo and redo, and what reaches the bytes.
 
-import { test, assert, eq } from './harness.js';
+import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey } from '../js/patch/edit.js';
+import { projectToJson, projectFromJson } from '../js/patch/project.js';
+import { playerLine } from '../js/ui/look.js';
+import { ccOf } from '../js/ui/connect.js';
 import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc, suggestChannel, suggestBaseGate, voicePlan,
   suggestTriggerChannel, suggestNote, jacksInTheWay } from '../js/patch/alloc.js';
 import { DEFAULT_HARDWARE } from '../js/patch/hardware.js';
@@ -370,4 +373,58 @@ test('shift-register notes and an input in note mode can play a voice too', () =
   apply(p, wirePlayer('cvMidi:0', 4));
   const v = derive(p.config.values, p.preset.values);
   eq(v.sources.find((s) => s.id === 'converter:0').players.map((x) => x.name), ['Random 3 notes', 'Input X → Note']);
+});
+
+// ---- names and project files
+
+test('names sit beside the dumps, show up in derive, and undo like any edit', () => {
+  const p = { ...patch(), names: {} };
+  apply(p, addVoice(values(p), { output: 0, channel: 0 }));
+  apply(p, setPlayer('noteSequencer:0', { channel: 4, dests: { din: true } }));
+  const h = new History();
+  h.do(p, 'Rename', [...setName('converter:0', '  Bass  '), ...setName(deviceKey('din', 4), 'Disting mk4')]);
+  let v = derive(p.config.values, p.preset.values, DEFAULT_HARDWARE, p.names);
+  eq([v.sources[0].name, v.sources[0].defaultName], ['Bass', 'Voice 1']);
+  eq(v.players[0].devices, { din: 'Disting mk4' });
+  eq(playerLine(v.players[0]), 'ch 5 → Disting mk4 (DIN)');
+  h.undo(p);
+  eq(p.names, {}, 'undo takes the names away again');
+  apply(p, setName('converter:0', 'Lead'));
+  apply(p, setName('converter:0', ''));
+  eq(p.names, {}, 'an empty name clears it');
+  let threw = false;
+  try {
+    apply(p, [{ dump: 'names', path: ['x'], value: 5 }]);
+  } catch {
+    threw = true;
+  }
+  assert(threw, 'a name is text');
+});
+
+test('a project file holds the config, every scene, the names and the rack, byte for byte', () => {
+  const p = patch();
+  apply(p, addVoice(values(p), { output: 0, channel: 0 }));
+  const b = blankPreset('Chorus');
+  const hw = { ...DEFAULT_HARDWARE, cv: [1] };
+  const text = projectToJson({ config: p.config, scenes: [p.preset, b], scene: 1, names: { 'converter:0': 'Bass' }, hardware: hw });
+  const back = projectFromJson(text);
+  eqBytes(buildDump(back.config), buildDump(p.config), 'config');
+  eqBytes(buildDump(back.scenes[1]), buildDump(b), 'scene B');
+  eq([back.scenes.length, back.scene, back.names, back.hardware], [2, 1, { 'converter:0': 'Bass' }, hw]);
+  for (const bad of ['{', '{"x":1}', JSON.stringify({ nightshift: 99, config: '' })]) {
+    let threw = false;
+    try {
+      projectFromJson(bad);
+    } catch {
+      threw = true;
+    }
+    assert(threw, `refuses ${bad}`);
+  }
+});
+
+test('learning a knob reads control changes, not notes or mode messages', () => {
+  eq(ccOf(Uint8Array.of(0xb1, 20, 64)), { channel: 1, cc: 20, value: 64 });
+  eq(ccOf(Uint8Array.of(0x91, 60, 100)), null, 'a note');
+  eq(ccOf(Uint8Array.of(0xb0, 123, 0)), null, 'all notes off');
+  eq(ccOf(Uint8Array.of(0xb0, 7)), null, 'too short');
 });

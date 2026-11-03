@@ -1,13 +1,14 @@
-// Night Shift: open a config and preset from .syx files, pull them from an FH-2, or try the
-// example; see the rack and what comes out of every jack; edit, undo, and send the result
-// back to the module.
+// Night Shift: open a config and preset from .syx files or a project, pull them from an FH-2,
+// or try the example; see the rack and what comes out of every jack; edit, undo, keep several
+// scenes (presets) for one config, and send the result back to the module.
 
 import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
 import { parseDump, buildDump, splitSysex, commandOf, DUMPS } from './fh2/sysex.js';
 import { diff } from './fh2/layout.js';
 import { derive } from './patch/derive.js';
-import { History, removePort, removeSource } from './patch/edit.js';
+import { History, removePort, removeSource, setName } from './patch/edit.js';
 import { examplePatch } from './patch/example.js';
+import { projectToJson, projectFromJson, PROJECT_EXTENSION } from './patch/project.js';
 import { DEFAULT_HARDWARE, validHardware, blockName } from './patch/hardware.js';
 import { colorsFor } from './ui/look.js';
 import { renderStage } from './ui/rack.js';
@@ -20,7 +21,10 @@ import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash } from './u
 const HW_KEY = 'nightshift.hardware';
 const state = {
   config: null, // parsed dumps (sysex.js parseDump); their values are what gets edited
-  preset: null,
+  preset: null, // the scene in view: scenes[scene]
+  scenes: [], // parsed preset dumps, one per scene
+  scene: 0,
+  names: {}, // Night Shift's own names beside the dumps (edit.js setName)
   from: '',
   hardware: loadHardware(),
   history: new History(),
@@ -55,12 +59,14 @@ function status(text, warn = false) {
   render();
 }
 
-const patch = () => ({ config: state.config, preset: state.preset });
-const values = () => ({ config: state.config.values, preset: state.preset?.values ?? null });
-const snapshot = () => structuredClone({ config: state.config?.values ?? null, preset: state.preset?.values ?? null });
+const patch = () => ({ config: state.config, preset: state.preset, names: state.names });
+const values = () => ({ config: state.config.values, preset: state.preset?.values ?? null, names: state.names });
+const snapshot = () => structuredClone({ config: state.config?.values ?? null, preset: state.preset?.values ?? null, scene: state.scene });
+const sceneName = (i) => state.scenes[i]?.values.name.trim() || `Scene ${'ABCDEFGHIJKLMNOP'[i] ?? i + 1}`;
 
 function unsent() {
   if (!state.sent) return true;
+  if (state.preset && state.sent.scene !== state.scene) return true; // another scene is on the FH-2
   return ['config', 'preset'].some((k) => {
     const d = state[k];
     if (!d) return false;
@@ -69,16 +75,27 @@ function unsent() {
 }
 
 function update() {
-  state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware) : null;
+  state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware, state.names) : null;
   state.colors = state.view ? colorsFor([...state.view.sources, ...state.view.players], state.colors) : new Map();
   state.unsent = state.config ? unsent() : false;
   render();
 }
 
 // `sent`: whether these are what the FH-2 holds right now (true after a pull).
-function load({ config, preset }, from, sent = false) {
+// `presets` become the scenes (`scene` the one in view); a single `preset` is one scene.
+function load({ config, preset, presets, scene = 0, names, hardware }, from, sent = false) {
   if (config) state.config = config;
-  if (preset) state.preset = preset;
+  const scenes = presets?.length ? presets : preset ? [preset] : null;
+  if (scenes) {
+    state.scenes = scenes;
+    state.scene = Math.min(scene, scenes.length - 1);
+  }
+  state.preset = state.scenes[state.scene] ?? null;
+  if (hardware) {
+    state.hardware = hardware;
+    saveHardware(hardware);
+  }
+  state.names = names ?? (config ? {} : state.names);
   state.from = from;
   state.selected = null;
   state.colors = new Map(); // a new patch gets fresh colours
@@ -91,7 +108,7 @@ function load({ config, preset }, from, sent = false) {
 
 function edit(label, changes) {
   try {
-    if (state.history.do(patch(), label, changes)) {
+    if (state.history.do(patch(), label, changes, { scene: state.scene })) {
       state.status = label;
       state.warn = false;
     }
@@ -138,9 +155,33 @@ async function setUpPlayer() {
   }
 }
 
+// Renaming a source or player: Night Shift keeps the name beside the dumps.
+async function rename(id, now, original) {
+  const input = h('input', { type: 'text', class: 'text', value: now, maxlength: 40, 'aria-label': 'Name' });
+  const ok = modal($('dialog'), {
+    title: `Rename ${now}`,
+    body: [input, h('p', { class: 'note' }, `Leave it empty for the FH-2’s own name${original ? ` (${original})` : ''}. Names are kept in the project file, not on the module.`)],
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Rename', value: true, primary: true }],
+  });
+  input.focus();
+  input.select();
+  input.onkeydown = (e) => e.key === 'Enter' && $('dialog').querySelector('button.primary').click();
+  if (await ok) edit(input.value.trim() ? `Renamed ${now} to ${input.value.trim()}` : `${now} back to ${original ?? 'its own name'}`, setName(id, input.value));
+}
+
 const isFree = (o) => o.present && !o.ports.some((p) => !p.standby);
 
+// Undo and redo go back to the scene a step was made in first.
+function toStepScene(step) {
+  const i = step?.meta?.scene;
+  if (i != null && i !== state.scene && state.scenes[i]) {
+    state.scene = i;
+    state.preset = state.scenes[i];
+  }
+}
+
 function undo() {
+  toStepScene(state.history.nextUndo);
   const label = state.history.undo(patch());
   if (label) {
     state.status = `Undid: ${label}`;
@@ -150,6 +191,7 @@ function undo() {
 }
 
 function redo() {
+  toStepScene(state.history.nextRedo);
   const label = state.history.redo(patch());
   if (label) {
     state.status = `Redid: ${label}`;
@@ -158,12 +200,89 @@ function redo() {
   }
 }
 
-// ---- opening .syx files
+// ---- scenes: several presets for one config
+
+function setScene(i) {
+  if (!state.scenes[i] || i === state.scene) return;
+  state.scene = i;
+  state.preset = state.scenes[i];
+  state.status = `Scene ${sceneName(i)}`;
+  state.warn = false;
+  update();
+}
+
+// A new scene starts as a copy of the one in view.
+function addScene() {
+  if (!state.preset) return status('Open or pull a preset first: scenes are presets.', true);
+  const copy = structuredClone(state.preset);
+  const letter = 'ABCDEFGHIJKLMNOP'[state.scenes.length] ?? String(state.scenes.length + 1);
+  copy.values.name = `Scene ${letter}`;
+  state.scenes.splice(state.scene + 1, 0, copy);
+  shiftSteps(state.scene + 1, 1);
+  state.scene += 1;
+  state.preset = copy;
+  status(`Added scene ${letter}, a copy of ${sceneName(state.scene - 1)}`);
+  update();
+}
+
+async function removeScene() {
+  if (state.scenes.length < 2) return;
+  const name = sceneName(state.scene);
+  const ok = await modal($('dialog'), {
+    title: `Remove scene ${name}?`,
+    body: h('p', { class: 'note' }, 'Its levels, LFOs, patterns and voice settings go with it. This can’t be undone.'),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }],
+  });
+  if (!ok) return;
+  const gone = state.scene;
+  state.scenes.splice(gone, 1);
+  // steps made in the removed scene can't be undone any more; later scenes move down one
+  state.history.done = state.history.done.filter((s) => s.meta?.scene !== gone);
+  state.history.undone = state.history.undone.filter((s) => s.meta?.scene !== gone);
+  shiftSteps(gone + 1, -1);
+  if (state.sent?.scene === gone) state.sent = null;
+  else if (state.sent?.scene > gone) state.sent.scene -= 1;
+  state.scene = Math.min(gone, state.scenes.length - 1);
+  state.preset = state.scenes[state.scene];
+  status(`Removed scene ${name}`);
+  update();
+}
+
+// Undo steps remember their scene by number; inserting or removing a scene renumbers them.
+function shiftSteps(from, by) {
+  for (const s of [...state.history.done, ...state.history.undone]) if (s.meta?.scene >= from) s.meta.scene += by;
+  if (state.sent?.scene >= from && by > 0) state.sent.scene += by;
+}
+
+async function renameScene() {
+  const input = h('input', { type: 'text', class: 'text', value: sceneName(state.scene), maxlength: 16, 'aria-label': 'Scene name' });
+  const ok = modal($('dialog'), {
+    title: 'Rename this scene',
+    body: [input, h('p', { class: 'note' }, 'It is the preset’s name on the FH-2 too (16 characters).')],
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Rename', value: true, primary: true }],
+  });
+  input.focus();
+  input.select();
+  input.onkeydown = (e) => e.key === 'Enter' && $('dialog').querySelector('button.primary').click();
+  if (await ok) edit(`Scene renamed to ${input.value.trim()}`, [{ dump: 'preset', path: ['name'], value: input.value.trim().slice(0, 16) }]);
+}
+
+// ---- opening files: .syx dumps (several presets become scenes) or a project
 
 async function openFiles(files) {
-  const found = {};
+  const found = { presets: [] };
   const notes = [];
   for (const f of files) {
+    if (/\.json$/i.test(f.name)) {
+      try {
+        const project = projectFromJson(await f.text());
+        if (!(await dropUnsent('Opening'))) return;
+        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware }, f.name);
+        return status(`Opened project ${f.name}: ${project.scenes.length} ${project.scenes.length === 1 ? 'scene' : 'scenes'}`);
+      } catch (e) {
+        return status(`${f.name}: ${e.message}`, true);
+      }
+    }
     const msgs = splitSysex(new Uint8Array(await f.arrayBuffer()));
     let used = 0;
     for (const m of msgs) {
@@ -171,7 +290,8 @@ async function openFiles(files) {
       try {
         const d = parseDump(m);
         if (!d.versionOk) notes.push(`${f.name}: ${d.kind} version ${d.values.version}, expected ${DUMPS[d.cmd].version}`);
-        found[d.kind] = d;
+        if (d.kind === 'preset') found.presets.push(d);
+        else found.config = d;
         used++;
       } catch (e) {
         notes.push(`${f.name}: ${e.message}`);
@@ -185,11 +305,18 @@ async function openFiles(files) {
   }
   if (!(await dropUnsent('Opening'))) return;
   load(found, [...files].map((f) => f.name).join(', '));
-  status(['Opened ' + Object.keys(found).join(' and '), ...notes].join(' · '), notes.length > 0);
+  const what = [found.config && 'config', found.presets.length && `${found.presets.length} ${found.presets.length === 1 ? 'preset' : 'presets (one scene each)'}`].filter(Boolean);
+  status(['Opened ' + what.join(' and '), ...notes].join(' · '), notes.length > 0);
+}
+
+function saveProject() {
+  const name = (state.view.globals.name || 'fh2').trim().replace(/[^\w.-]+/g, '_');
+  download(projectToJson({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware }), name + PROJECT_EXTENSION);
+  status(`Saved the project: config, ${state.scenes.length} ${state.scenes.length === 1 ? 'scene' : 'scenes'}, names`);
 }
 
 function pickFiles() {
-  const input = h('input', { type: 'file', accept: '.syx,application/octet-stream', multiple: true });
+  const input = h('input', { type: 'file', accept: '.syx,.json,application/json,application/octet-stream', multiple: true });
   input.onchange = () => openFiles(input.files);
   input.click();
 }
@@ -199,7 +326,7 @@ async function dropUnsent(what) {
   if (!state.history.canUndo || !state.unsent) return true;
   return modal($('dialog'), {
     title: 'Drop your changes?',
-    body: h('p', { class: 'note' }, `${what} replaces what you see, and your changes haven’t been sent to the FH-2. Save .syx first to keep them.`),
+    body: h('p', { class: 'note' }, `${what} replaces what you see, and your changes haven’t been sent to the FH-2. Save the project first to keep them.`),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Drop them', value: true, primary: true }],
   });
 }
@@ -324,10 +451,19 @@ function bar() {
   const v = state.view;
   const tab = (id, label) => h('button', { type: 'button', 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => { state.tab = id; render(); } }, label);
   const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : '') },
-    state.unsent ? (state.sent ? 'changed since sent' : 'not on the FH-2') : 'same as the FH-2');
+    !state.unsent ? 'same as the FH-2' : !state.sent ? 'not on the FH-2'
+      : state.preset && state.sent.scene !== state.scene ? `scene ${sceneName(state.sent.scene)} is on the FH-2` : 'changed since sent');
+  const scenes = v && state.scenes.length > 0 && h('div', { class: 'scenes', role: 'group', 'aria-label': 'Scenes' },
+    state.scenes.map((_, i) => h('button', {
+      type: 'button', 'aria-pressed': i === state.scene ? 'true' : 'false', title: i === state.scene ? 'Click to rename' : 'Show this scene',
+      onclick: () => (i === state.scene ? renameScene() : setScene(i)),
+    }, sceneName(i))),
+    h('button', { type: 'button', class: 'scene-add', title: 'Add a scene (a copy of this one)', 'aria-label': 'Add a scene', onclick: addScene }, '+'),
+    state.scenes.length > 1 && h('button', { type: 'button', class: 'scene-add', title: 'Remove this scene', 'aria-label': 'Remove this scene', onclick: removeScene }, '−'));
   return h('header', { class: 'bar' },
     h('div', { class: 'brand' }, jackIcon(), 'Night Shift'),
-    v && h('div', { class: 'patch-name' }, 'Config ', h('b', {}, v.globals.name || 'untitled'), v.globals.presetName ? [' · preset ', h('b', {}, v.globals.presetName)] : ''),
+    v && h('div', { class: 'patch-name' }, 'Config ', h('b', {}, v.globals.name || 'untitled')),
+    scenes,
     sync,
     v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('midi', 'MIDI map')),
     v && h('div', { class: 'undo' },
@@ -336,8 +472,9 @@ function bar() {
     h('div', { class: 'grow' }),
     state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status' }, state.status),
     h('button', { type: 'button', class: 'btn', onclick: editHardware }, 'Rack…'),
-    h('button', { type: 'button', class: 'btn', onclick: pickFiles }, 'Open .syx…'),
-    v && h('button', { type: 'button', class: 'btn', onclick: saveSyx }, 'Save .syx'),
+    h('button', { type: 'button', class: 'btn', onclick: pickFiles, title: 'A project, or .syx dumps (several presets become scenes)' }, 'Open…'),
+    v && h('button', { type: 'button', class: 'btn', onclick: saveProject, title: 'Config, every scene and your names, in one file' }, 'Save project'),
+    v && h('button', { type: 'button', class: 'btn', onclick: saveSyx, title: 'The config and this scene’s preset, for the FH-2 or Expert Sleepers’ tools' }, 'Save .syx'),
     h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: pull }, 'Pull from FH-2'),
     v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send }, 'Send to FH-2'),
     v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
@@ -388,7 +525,7 @@ function render() {
   else {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values })),
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status })),
     ];
   }
   replace($('#app'), bar(), h('main', {}, content));
