@@ -29,6 +29,10 @@ const PATHS = {
   clock: 'M8 2.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 1 0 0-11z M8 5v3.2l2.2 1.4',
   euclid: 'M8 2.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 1 0 0-11z M8 1v3 M13.6 10.6l-2.7-1.2 M2.4 10.6l2.7-1.2',
   hid: 'M3 3.5h10v9H3z M5.5 6.5v0.5 M10.5 6.5v0.5 M5.5 10h5',
+  sequencer: 'M2 3.5h12v9H2z M2 8h12 M6 3.5v9 M10 3.5v9',
+  drums: 'M2.5 6c0-1.6 2.5-2.8 5.5-2.8s5.5 1.2 5.5 2.8-2.5 2.8-5.5 2.8S2.5 7.6 2.5 6z M2.5 6v4.5c0 1.6 2.5 2.8 5.5 2.8s5.5-1.2 5.5-2.8V6',
+  arp: 'M2 12.5l3-3 3 3 3-6 3 3',
+  input: 'M8 2v7.5 M5 6.5l3 3 3-3 M3 13h10',
 };
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -48,8 +52,16 @@ export function icon(kind, size = 18) {
   return svg;
 }
 
-export const KIND_NAMES = { voice: 'Voice', triggers: 'Triggers', lfo: 'LFO', random: 'Random (shift register)', knobs: 'CC → CV',
+export const KIND_NAMES = { sequencer: 'Note sequencer', drums: 'Drum sequencer', arp: 'Arpeggiator out', input: 'CV → MIDI',
+  voice: 'Voice', triggers: 'Triggers', lfo: 'LFO', random: 'Random (shift register)', knobs: 'CC → CV',
   level: 'Stored levels', clock: 'Clock & transport', euclid: 'Euclidean rhythm', hid: 'USB device' };
+
+// Where a player sends, in a few words: "ch 3 → FH-2, DIN".
+export function playerLine(p) {
+  const to = [p.internal && 'FH-2', p.usbC && 'USB C', p.usbA && 'USB A', p.din && 'DIN', p.select && 'Select'].filter(Boolean);
+  const clock = p.rate === 0 ? (p.clock ? ` · clocked by Euclid ${p.clock}` : ' · external clock') : '';
+  return `ch ${p.channel + 1} → ${to.join(', ') || 'nowhere'}${clock}`;
+}
 
 // One line under the source's name.
 export function subline(s) {

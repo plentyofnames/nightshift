@@ -224,3 +224,8 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .chip.clash { color: var(--warn); border-color: var(--warn); }
 .checks + .checks, .checks + .erows { margin-top: 6px; }
 .section .checks select { padding: 4px 6px; border: 1px solid var(--line2); border-radius: 7px; background: var(--bg); font-size: 12.5px; }
+.card + .add-player, .add-player { position: absolute; left: 0; width: 290px; height: 40px; }
+.player-box { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-left: 3px solid var(--src); }
+.player-box .remove { width: 22px; height: 22px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--dim); cursor: pointer; }
+.lane-hit { font: 500 11.5px var(--mono); color: var(--dim); min-width: 64px; text-align: right; }
+.section .box + .box { margin-top: 6px; }

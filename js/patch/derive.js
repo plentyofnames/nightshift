@@ -194,6 +194,13 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
     if (!s.channels) continue;
     s.players = players.filter((p) => p.internal && s.channels.includes(p.channel));
   }
+  for (const p of players) {
+    p.plays = p.internal ? sources.filter((s) => s.channels?.includes(p.channel)).map((s) => s.id) : [];
+  }
+  // what each Euclid pattern clocks (players whose rate is 0 and clock source is that pattern)
+  for (const s of sources.filter((x) => x.kind === 'euclid')) {
+    s.clocks = players.filter((p) => p.clock === s.index + 1).map((p) => ({ id: p.id, name: p.name, now: p.rate === 0 }));
+  }
 
   return {
     hardware, outputs, sources, mappings, players, problems,
@@ -305,30 +312,44 @@ function gateFriendly(sources, p) {
 const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
 
 // Things inside the FH-2 that make MIDI.
-function playersOf(config, preset) {
+// Things inside the FH-2 that make MIDI. Each sends on one channel to some of internal, USB C,
+// USB A, DIN and Select. Sequencers, shift registers and arps step at `rate` (24 ppqn pulses, from
+// the preset); at rate 0 they follow `clock`: 0 the external clock, n Euclid pattern n.
+// Players that send nowhere are left out (`all: true` lists every slot, for picking one).
+export function playersOf(config, preset, { all = false } = {}) {
   const players = [];
   const dests = (x) => ({ internal: !!x.toInternal, usbC: !!x.toUsbC, usbA: !!x.toUsbA, din: !!x.toDin, select: !!x.toSelect });
+  const used = (d) => all || Object.values(d).some(Boolean);
   config.noteSequencer.forEach((q, j) => {
     const d = dests(q);
-    if (!Object.values(d).some(Boolean)) return;
-    players.push({ id: `noteSequencer:${j}`, kind: 'sequencer', name: `Note sequencer ${j + 1}`, channel: q.channel, ...d,
-      active: preset ? !!preset['noteSequencerActive' + j] : null });
+    if (!used(d)) return;
+    const p = preset?.noteSequencer[j];
+    players.push({ id: `noteSequencer:${j}`, kind: 'sequencer', index: j, name: `Note sequencer ${j + 1}`, channel: q.channel, ...d,
+      clock: q.clock, rate: p ? p.rate : null, active: preset ? !!preset['noteSequencerActive' + j] : null });
   });
   config.drumSequencer.forEach((q) => {
     const d = dests(q);
-    if (!Object.values(d).some(Boolean)) return;
-    players.push({ id: 'drumSequencer', kind: 'drums', name: 'Drum sequencer', channel: q.channel, ...d,
-      notes: q.laneNote.map((n) => n.value), active: preset ? !!preset.drumSequencerActive : null });
+    if (!used(d)) return;
+    players.push({ id: 'drumSequencer', kind: 'drums', index: 0, name: 'Drum sequencer', channel: q.channel, ...d,
+      notes: q.laneNote.map((n) => n.value), laneRates: preset ? preset.drumSequencer[0].lane.map((l) => l.rate) : null,
+      active: preset ? !!preset.drumSequencerActive : null });
   });
   config.srr.forEach((r, i) => {
     const d = dests(r);
-    if (!Object.values(d).some(Boolean)) return;
-    players.push({ id: `srrNotes:${i}`, kind: 'random', name: `Random ${i + 1} notes`, channel: r.channel, ...d });
+    if (!used(d)) return;
+    players.push({ id: `srrNotes:${i}`, kind: 'random', index: i, name: `Random ${i + 1} notes`, channel: r.channel, ...d,
+      clock: r.clock, rate: preset ? preset.srr[i].rate : null });
+  });
+  config.converter.forEach((cv, i) => {
+    if (!cv.enable || !(cv.arpToUsbC || cv.arpToUsbA || cv.arpToDin)) return;
+    players.push({ id: `arp:${i}`, kind: 'arp', index: i, name: `Voice ${i + 1}’s arpeggiator`, channel: cv.arpChannel,
+      internal: false, usbC: !!cv.arpToUsbC, usbA: !!cv.arpToUsbA, din: !!cv.arpToDin, select: false,
+      clock: cv.arpClock, rate: preset ? preset.converter[i].arpRate : null });
   });
   config.cvMidi.forEach((c, i) => {
     if (!c.enable) return;
     const what = CVMIDI_TYPES[c.type] ?? `type ${c.type}`;
-    players.push({ id: `cvMidi:${i}`, kind: 'input', name: `Input ${'XY'[i]} → ${what}${c.type === 0 ? ` ${c.number}` : ''}`,
+    players.push({ id: `cvMidi:${i}`, kind: 'input', index: i, name: `Input ${'XY'[i]} → ${what}${c.type === 0 ? ` ${c.number}` : ''}`,
       channel: c.channel, type: what, number: c.number, ...dests(c) });
   });
   return players;

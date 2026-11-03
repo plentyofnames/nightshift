@@ -14,6 +14,7 @@ import { renderStage } from './ui/rack.js';
 import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
+import { setUpPlayerDialog } from './ui/players.js';
 import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash } from './ui/connect.js';
 
 const HW_KEY = 'nightshift.hardware';
@@ -69,7 +70,7 @@ function unsent() {
 
 function update() {
   state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware) : null;
-  state.colors = state.view ? colorsFor(state.view.sources, state.colors) : new Map();
+  state.colors = state.view ? colorsFor([...state.view.sources, ...state.view.players], state.colors) : new Map();
   state.unsent = state.config ? unsent() : false;
   render();
 }
@@ -121,6 +122,19 @@ function remove(source, port) {
     render();
   } catch (e) {
     status(`Couldn’t remove that: ${e.message}`, true);
+  }
+}
+
+// A player that sends somewhere, picked from the FH-2's unused ones (see ui/players.js).
+async function setUpPlayer() {
+  try {
+    const r = await setUpPlayerDialog(state.view, values());
+    if (!r) return;
+    edit(r.label, r.changes);
+    state.selected = { player: r.id };
+    render();
+  } catch (e) {
+    status(`Couldn’t set that up: ${e.message}`, true);
   }
 }
 
@@ -298,7 +312,8 @@ async function editHardware() {
 // ---- rendering
 
 function select(sel) {
-  const same = sel && state.selected && sel.source === state.selected.source && sel.output === state.selected.output;
+  if (sel?.addPlayer) return setUpPlayer();
+  const same = sel && state.selected && sel.source === state.selected.source && sel.output === state.selected.output && sel.player === state.selected.player;
   state.selected = same ? null : sel;
   render();
   // clicking a free jack asks what should come out of it

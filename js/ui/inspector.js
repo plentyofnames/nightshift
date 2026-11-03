@@ -8,6 +8,7 @@ import { outputNumber, internalName } from '../patch/hardware.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
 import { numberInput, voltsInput } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
+import { playerInspector, playedBy, euclidClocks } from './players.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -27,6 +28,7 @@ export function renderInspector(view, colors, selected, onSelect, act) {
   }
   if (selected?.output != null) return jackInspector(view, colors, view.outputs[selected.output], onSelect, act);
   if (selected?.parked) return parkedInspector(view, colors, onSelect);
+  if (selected?.player) return playerInspector(view, colors, selected.player, onSelect, act);
   return overview(view);
 }
 
@@ -65,20 +67,13 @@ function sourceInspector(view, colors, s, onSelect, act) {
   const color = colors.get(s.id);
   const parts = [header(s, color)];
 
-  if (s.kind === 'voice' || s.kind === 'triggers') {
-    const ch = s.channels.length > 1 ? `ch ${s.channels[0] + 1} (MPE ${s.channels[1] + 1}–${s.channels[s.channels.length - 1] + 1})` : `ch ${s.channel + 1}`;
-    const internal = s.players.map((p) => h('div', { class: 'box' }, p.name, h('div', { class: 'sub' }, `internal MIDI ${ch}${p.din || p.usbA || p.usbC ? ' · also sent out' : ''}`)));
-    parts.push(section('Played by',
-      internal,
-      h('div', { class: 'box' }, `MIDI ${ch} from outside`, h('div', { class: 'sub' },
-        s.kind === 'voice' ? `notes ${noteName(s.notes[0])}–${noteName(s.notes[1])} · USB A, USB C, DIN or Select Bus` : 'USB A, USB C, DIN or Select Bus'))));
-    if (s.players.length) parts.push(h('p', { class: 'note' }, 'An internal player makes MIDI, not voltage: it reaches this source over the FH-2’s own MIDI on the channel above.'));
-  }
+  if (s.kind === 'voice' || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors));
 
   parts.push(section('Comes out of', s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))));
   if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed-out jacks are on expanders that aren’t in your rack (set it under Rack…). Clocks there often only restart LFOs.'));
   if (s.standby) parts.push(h('p', { class: 'note' }, `Only does something while a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} is plugged into USB A; then it sets these jacks on top of what else is there. The FH-2’s Init config sets these up. Switching one off here sets its ${s.id === 'gamepad' ? 'Usage' : 'Type'} to “--” (setting its output to None in Expert Sleepers’ config tool doesn’t work).`));
 
+  if (s.kind === 'euclid') parts.push(euclidClocks(s, onSelect));
   const editor = editorOf(view, s, act, color);
   if (editor) parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), editor));
   else {

@@ -284,3 +284,61 @@ export function addTrigger(values, { output, channel, note = 36, type = 1, envSe
 
 export const setTriggerNote = (i, note) => setTrigger(i, { note: note ?? 0, anyNote: note == null ? 1 : 0 });
 export const setTriggerEnvSet = (i, envSet) => setTrigger(i, { envSetHigh: envSet >> 1, envSetLow: envSet & 1 });
+
+// ---- players: the FH-2's own MIDI makers (see derive's playersOf)
+
+const DESTS = { internal: 'toInternal', usbC: 'toUsbC', usbA: 'toUsbA', din: 'toDin', select: 'toSelect' };
+
+// Where a player's settings live. `id` is a player id from derive ('noteSequencer:1', 'arp:3'…).
+export function playerFields(id) {
+  const [kind, n] = id.split(':');
+  const i = Number(n) || 0;
+  switch (kind) {
+    case 'noteSequencer': return { base: ['noteSequencer', i], channel: 'channel', dests: DESTS, clock: 'clock', rate: ['noteSequencer', i, 'rate'] };
+    case 'drumSequencer': return { base: ['drumSequencer', 0], channel: 'channel', dests: DESTS };
+    case 'srrNotes': return { base: ['srr', i], channel: 'channel', dests: DESTS, clock: 'clock', rate: ['srr', i, 'rate'] };
+    case 'arp': return { base: ['converter', i], channel: 'arpChannel', dests: { usbC: 'arpToUsbC', usbA: 'arpToUsbA', din: 'arpToDin' }, clock: 'arpClock', rate: ['converter', i, 'arpRate'] };
+    case 'cvMidi': return { base: ['cvMidi', i], channel: 'channel', dests: DESTS };
+    default: throw new Error(`no player ${id}`);
+  }
+}
+
+// Changes a player's channel, destinations ({ din: true, … }) and clock source (0 external,
+// n Euclid pattern n); whatever is left out stays as it is.
+export function setPlayer(id, { channel, dests = {}, clock } = {}) {
+  const f = playerFields(id);
+  const obj = {};
+  if (channel != null) obj[f.channel] = channel;
+  for (const [d, on] of Object.entries(dests)) {
+    if (!f.dests[d]) throw new Error(`${id} can’t send to ${d}`);
+    obj[f.dests[d]] = on ? 1 : 0;
+  }
+  if (clock != null) {
+    if (!f.clock) throw new Error(`${id} has no clock source`);
+    obj[f.clock] = clock;
+  }
+  return fields('config', f.base, obj);
+}
+
+// The rate in 24 ppqn pulses (preset); 0 hands the player to its clock source.
+export function setPlayerRate(id, rate) {
+  const f = playerFields(id);
+  if (!f.rate) throw new Error(`${id} has no rate`);
+  return [preset(f.rate, rate)];
+}
+
+// A player plays a voice or trigger kit inside the FH-2 when it sends to internal on their channel.
+export const wirePlayer = (id, channel) => setPlayer(id, { channel, dests: { internal: true } });
+export const unwirePlayer = (id) => setPlayer(id, { dests: { internal: false } });
+
+export const setLaneNote = (lane, note) => [config(['drumSequencer', 0, 'laneNote', lane, 'value'], note)];
+
+// Moves a voice or trigger kit (`source` from derive) and the players playing it to `channel`,
+// e.g. one nothing outside uses, so only the FH-2's own players reach it.
+export function moveToChannel(source, channel) {
+  const changes = source.kind === 'voice'
+    ? setConverter(source.index, { channel })
+    : source.ports.filter((p) => !p.accent).flatMap((p) => setTrigger(p.trigger, { channel }));
+  for (const p of source.players ?? []) changes.push(...setPlayer(p.id, { channel }));
+  return changes;
+}

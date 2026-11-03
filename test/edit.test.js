@@ -2,14 +2,15 @@
 
 import { test, assert, eq } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
-  removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet } from '../js/patch/edit.js';
+  removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
+  moveToChannel, setLaneNote } from '../js/patch/edit.js';
 import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc, suggestChannel, suggestBaseGate, voicePlan,
   suggestTriggerChannel, suggestNote, jacksInTheWay } from '../js/patch/alloc.js';
 import { DEFAULT_HARDWARE } from '../js/patch/hardware.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../js/patch/shapes.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
-import { derive } from '../js/patch/derive.js';
+import { derive, playersOf } from '../js/patch/derive.js';
 import { levelToVolts, voltsToLevel } from '../js/patch/tables.js';
 
 const patch = () => ({ config: blankConfig(), preset: blankPreset() });
@@ -304,4 +305,58 @@ test('triggers: a kit on one channel, notes in a row, accents on two jacks', () 
   apply(p, setTriggerEnvSet(kit.ports[3].trigger, 2));
   v = derive(c(), p.preset.values);
   eq(v.sources.find((s) => s.id === 'triggers:9').ports.map((x) => [x.name, x.envSet]), [['D2 (38)', 0], ['Any note', 2]]);
+});
+
+// ---- players
+
+test('players: wire a sequencer to a voice, give them their own channel, clock it from a Euclid', () => {
+  const p = patch();
+  apply(p, addVoice(values(p), { output: 0, channel: 2 }));
+  apply(p, addEuclid(values(p), DEFAULT_HARDWARE, 64));
+  let v = derive(p.config.values, p.preset.values);
+  eq(v.players, [], 'nothing plays yet');
+  eq(playersOf(p.config.values, p.preset.values, { all: true }).filter((x) => x.kind === 'sequencer').length, 4, 'four sequencers to pick from');
+
+  apply(p, wirePlayer('noteSequencer:1', 2));
+  v = derive(p.config.values, p.preset.values);
+  eq(v.sources.find((s) => s.id === 'converter:0').players.map((x) => x.name), ['Note sequencer 2']);
+  eq(v.players[0].plays, ['converter:0']);
+
+  // their own channel: the voice and its sequencer move together
+  apply(p, moveToChannel(v.sources.find((s) => s.id === 'converter:0'), 12));
+  v = derive(p.config.values, p.preset.values);
+  eq([p.config.values.converter[0].channel, v.players[0].channel], [12, 12]);
+  eq(v.sources.find((s) => s.id === 'converter:0').players.map((x) => x.name), ['Note sequencer 2'], 'still wired');
+
+  // also out to DIN for a Disting, clocked by Euclid 1 at rate 0
+  apply(p, setPlayer('noteSequencer:1', { dests: { din: true }, clock: 1 }));
+  apply(p, setPlayerRate('noteSequencer:1', 0));
+  v = derive(p.config.values, p.preset.values);
+  eq([v.players[0].din, v.players[0].clock, v.players[0].rate], [true, 1, 0]);
+  eq(v.sources.find((s) => s.id === 'euclid:0').clocks, [{ id: 'noteSequencer:1', name: 'Note sequencer 2', now: true }]);
+
+  apply(p, unwirePlayer('noteSequencer:1'));
+  v = derive(p.config.values, p.preset.values);
+  eq(v.sources.find((s) => s.id === 'converter:0').players, [], 'unwired');
+  eq(v.players.map((x) => [x.name, x.internal, x.din]), [['Note sequencer 2', false, true]], 'still sends to DIN');
+
+  let msg = '';
+  try {
+    setPlayer('drumSequencer', { clock: 1 });
+  } catch (e) {
+    msg = e.message;
+  }
+  eq(msg, 'drumSequencer has no clock source');
+});
+
+test('drum sequencer lanes play a trigger kit', () => {
+  const p = patch();
+  apply(p, addTrigger(values(p), { output: 64, channel: 9, note: 36 }));
+  apply(p, addTrigger(values(p), { output: 65, channel: 9, note: 38 }));
+  apply(p, wirePlayer('drumSequencer', 9));
+  apply(p, setLaneNote(0, 36));
+  apply(p, setLaneNote(1, 38));
+  const v = derive(p.config.values, p.preset.values);
+  eq(v.sources.find((s) => s.id === 'triggers:9').players.map((x) => x.name), ['Drum sequencer']);
+  eq(v.players[0].notes.slice(0, 2), [36, 38]);
 });

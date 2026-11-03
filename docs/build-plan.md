@@ -166,6 +166,12 @@ None of these touch the page, so they work unchanged. That gives one implementat
   - **Triggers done 2026-11-03** (called "Trigger", not "drum trigger": they serve any gate):
     - "Trigger" in the add dialog: the channel most triggers already use (else a quiet one), the next free note there (C2 for a new kit), any note, the type, and for Envelope the voice whose envelope settings it borrows. Gate jacks only offer gate-type triggers. Accent types take the next jack up too, and the preview marks the jack that's in the way.
     - The editor (one source per channel): the kit's channel (moves all its triggers), the global trigger length, and per trigger its note, type and envelope source. Removing an accent trigger frees both its jacks.
+    - You tried them on the module: they work.
+  - **Players done 2026-11-03** (no step editing; a graphical sequence editor can come later):
+    - A "Players" group on the stage: note sequencers, the drum sequencer, shift-register notes, arpeggiator out, CV→MIDI, each with its channel, where it sends and its clock.
+    - The player inspector: channel, destinations (FH-2, USB C, USB A, DIN, Select), what it plays inside the FH-2, rate and clock source (at rate Ext: the external clock or a Euclid), the drum sequencer's lane notes with the trigger jacks they hit, "Stop sending".
+    - "Played by" on a voice or trigger kit: pick a sequencer to play it (the list says which are free and what the others play now); a drum sequencer's lanes take the kit's notes if they don't match; × unwires; "Keep it to the FH-2: move to ch N" moves the source and its players to a channel nothing else uses.
+    - A Euclid's inspector lists what it clocks. "Set up a player…" makes a free sequencer send somewhere, e.g. to a Disting on DIN; naming that gear comes with project files.
   - **USB gamepad and keyboard entries can be switched off** (your request, 2026-11-03): one at a time with the × on a jack, or all at once from the source. It sets Usage or Type to "--" and leaves the output alone, so the official tool's `0xFF` bug can't happen. Sending that to the module is hardware check 16.
 
 ### Next UI round (your ideas, stashed 2026-11-03)
@@ -224,6 +230,7 @@ None of these touch the page, so they work unchanged. That gives one implementat
 - Calibrations per jack.
 - MiniLab 3 profile; BCR32 when it arrives.
 - Sequencer bank import/export.
+- A graphical editor for the note and drum sequencers' steps (your idea, 2026-11-03). The players in M2b leave the steps alone, so nothing there stands in its way.
 - FH-2 screen shown in the status bar.
 - **Graphical LFOs and envelopes** (your idea, 2026-11-02): draw what the settings make, and redraw it as you turn a knob.
   - LFO: one cycle of the shape mix (sine, square with its pulse width, triangle, saw, random, noise), with level, phase and fade-in.

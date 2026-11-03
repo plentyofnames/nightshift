@@ -4,7 +4,7 @@
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { rack } from '../patch/hardware.js';
-import { icon, subline, shortLabel, sourceList } from './look.js';
+import { icon, subline, shortLabel, sourceList, playerLine } from './look.js';
 
 const CARD_W = 290;
 const CARD_STEP = 64; // 56 + 8
@@ -54,6 +54,23 @@ export function renderStage(view, colors, selected, onSelect) {
     }
     y += 10;
   }
+  // ---- players: they make MIDI, not voltage, so they have no jacks
+  nodes.push(h('div', { class: 'group-title', style: `top:${y}px` }, 'Players'));
+  y += HEAD;
+  for (const p of view.players) {
+    const on = selected?.player === p.id;
+    nodes.push(h('button', {
+      type: 'button', class: 'card', 'aria-pressed': on ? 'true' : 'false',
+      style: `top:${y}px;--src:${colors.get(p.id) ?? 'var(--faint)'}`, onclick: () => onSelect({ player: p.id }),
+    },
+    h('span', { class: 'icon' }, icon(p.kind === 'random' ? 'random' : p.kind)),
+    h('span', { class: 'txt' }, h('span', { class: 'name' }, p.name), h('span', { class: 'sub' }, playerLine(p))),
+    h('span', { class: 'count' }, p.plays.length ? `plays ${p.plays.length}` : '')));
+    y += CARD_STEP;
+  }
+  nodes.push(h('button', { type: 'button', class: 'btn add-player', style: `top:${y}px`, onclick: () => onSelect({ addPlayer: true }) }, 'Set up a player…'));
+  y += 44 + 10;
+
   const parked = view.sources.filter((s) => s.parked);
   if (parked.length) {
     const on = selected?.parked || parked.some((s) => s.id === selected?.source);
