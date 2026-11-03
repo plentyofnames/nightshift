@@ -5,7 +5,9 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
 import { outputNumber, internalName } from '../patch/hardware.js';
-import { setRange, setDirectLevel, setSmoothing, setGateLevels } from '../patch/edit.js';
+import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
+import { numberInput, voltsInput } from './controls.js';
+import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor } from './editors.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -77,8 +79,12 @@ function sourceInspector(view, colors, s, onSelect, act) {
   if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed-out jacks are on expanders that aren’t in your rack (set it under Rack…). Clocks there often only restart LFOs.'));
   if (s.standby) parts.push(h('p', { class: 'note' }, `Only does something while a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} is plugged into USB A; then it sets these jacks on top of what else is there. The FH-2’s Init config sets these up. To switch one off, set its ${s.id === 'gamepad' ? 'Usage' : 'Type'} to “--”: setting its output to None in Expert Sleepers’ config tool doesn’t work.`));
 
-  const settings = settingsOf(s);
-  if (settings.length) parts.push(section('Settings', settings));
+  const editor = editorOf(view, s, act, color);
+  if (editor) parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), editor));
+  else {
+    const settings = settingsOf(s);
+    if (settings.length) parts.push(section('Settings', settings));
+  }
 
   if (s.controls.length) {
     parts.push(section('Controlled by MIDI', s.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
@@ -88,6 +94,18 @@ function sourceInspector(view, colors, s, onSelect, act) {
       s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
   }
   return parts;
+}
+
+// The editable sources (M2a); the others keep the read-only settings below.
+function editorOf(view, s, act, color) {
+  switch (s.kind) {
+    case 'lfo': return lfoEditor(view, view.outputs[s.index], act, color);
+    case 'euclid': return euclidEditor(s, act, color);
+    case 'clock': return clockEditor(s, act);
+    case 'knobs': return knobEditor(view, s, act);
+    case 'level': return levelEditor(view, s, act);
+    default: return null;
+  }
 }
 
 function portName(s, p) {
@@ -144,22 +162,6 @@ function parkedInspector(view, colors, onSelect) {
   ];
 }
 
-// Inputs that commit on change (Enter or leaving the field), not on every keystroke.
-function numberInput(label, value, { min, max, step = 1 }, commit) {
-  return h('input', {
-    type: 'number', class: 'num', 'aria-label': label, 'data-key': label, min, max, step, value,
-    onchange: (e) => {
-      const v = parseFloat(e.target.value);
-      if (Number.isFinite(v)) commit(Math.min(max, Math.max(min, v)));
-    },
-  });
-}
-
-function voltsInput(label, level, range, commit) {
-  const [lo, hi] = RANGE_VOLTS[range] ?? RANGE_VOLTS[0];
-  return [numberInput(label, levelToVolts(level, range).toFixed(3), { min: lo, max: hi, step: 0.001 }, (v) => commit(voltsToLevel(v, range))), ' V'];
-}
-
 function jackSettings(o, edit) {
   const r = o.rangeIndex;
   const where = `jack ${o.jack}`;
@@ -201,7 +203,13 @@ function jackInspector(view, colors, o, onSelect, act) {
     : [h('p', { class: 'note' }, 'Nothing: this jack is free.'),
       o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn primary', onclick: () => act.add(o.index) }, 'Add a source…'))]));
   if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
-  if (o.lfo && !o.lfo.alone) parts.push(section('LFO on top', row('Rate', o.lfo.rate), row('Depth', String(o.lfo.level))));
+  if (o.lfo && !o.lfo.alone) {
+    parts.push(h('section', { class: 'section' }, h('h3', {}, 'LFO on top'), lfoEditor(view, o, act, '#3DD6C6'),
+      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.edit(`Removed the LFO on jack ${o.jack}`, removeLfo(o.index)) }, 'Remove the LFO'))));
+  } else if (!o.lfo && !o.gate && active.length && o.lfoRaw) {
+    parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', title: 'Vibrato on a pitch, wobble on a level',
+      onclick: () => act.edit(`LFO on top of jack ${o.jack}`, addLfo(o.index, { shape: 'sine', rate: { hz: 5 }, depth: 0.05 })) }, 'Add an LFO on top')));
+  }
   if (!o.gate) parts.push(...jackSettings(o, act.edit));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;

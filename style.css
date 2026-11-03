@@ -190,3 +190,24 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .field small { font-size: 11.5px; line-height: 16px; color: var(--faint); }
 @media (max-width: 700px) { .tiles { grid-template-columns: 1fr; } }
 .field .with-unit { display: flex; align-items: center; gap: 6px; color: var(--text); }
+
+/* source editors */
+.section h4, .subbox h4 { margin: 10px 0 4px; font-size: 12px; font-weight: 600; color: var(--dim); }
+.erows { display: flex; flex-direction: column; }
+.erow { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.erow .k { color: var(--dim); }
+.erow .v { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.erow input.num { width: 76px; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg); font: 500 12.5px var(--mono); text-align: right; }
+.erow select { max-width: 100%; padding: 4px 6px; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg); font-size: 12.5px; }
+.slider { display: flex; align-items: center; gap: 8px; width: 100%; }
+.slider input { flex: 1 1 auto; min-width: 0; accent-color: var(--text); }
+.slider-value { flex: none; width: 78px; text-align: right; font: 500 11.5px var(--mono); color: var(--text); }
+.wave-box { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.wave { display: block; width: 100%; height: auto; }
+.wave .centre { stroke: var(--line2); stroke-dasharray: 4 4; fill: none; }
+.wave .trace { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
+.wave-cap { position: absolute; right: 8px; bottom: 4px; font-size: 10.5px; color: var(--faint); }
+.steps { display: block; width: 100%; height: auto; margin: 4px 0 6px; }
+.steps .off { fill: none; stroke: var(--line2); stroke-width: 1.5; }
+.subbox { padding: 8px 10px; margin-top: 8px; background: var(--panel2); border-radius: 8px; }
+.subbox h4 { margin-top: 2px; }

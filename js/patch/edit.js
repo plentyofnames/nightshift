@@ -159,6 +159,12 @@ export function addEuclid(values, hardware, output, { pulses = 4, steps = 16, ro
 
 // ---- removing what comes out of a jack
 
+// An LFO is off when no shape is turned up; its other settings stay for next time.
+export const removeLfo = (output) => [
+  ...Object.values(LFO_SHAPES).map((k) => preset(['output', output, k], 0)),
+  preset(['output', output, 'lfoSaw'], 64),
+];
+
 // The changes that take `port` of `source` (from derive) off its jack. Sources that span
 // several jacks (clocks, knobs on one channel) lose only that port.
 export function removePort(values, source, port) {
@@ -176,7 +182,7 @@ export function removePort(values, source, port) {
       return slots.map((n) => config(['mapping', n, 'status'], 0x7f));
     }
     case 'lfo':
-      return [...Object.values(LFO_SHAPES).map((k) => preset(['output', o, k], 0)), preset(['output', o, 'lfoSaw'], 64)];
+      return removeLfo(o);
     case 'clock':
       return [config(['clock', port.clock, 'type'], 0)];
     case 'euclid': {
@@ -189,3 +195,20 @@ export function removePort(values, source, port) {
 }
 
 export const removeSource = (values, source) => source.ports.flatMap((p) => removePort(values, source, p));
+
+// ---- changing a source's settings
+
+// Changes for several fields under one path, e.g. fields('preset', ['euclid', 2], { pulses: 5 }).
+export const fields = (dump, base, obj) => Object.entries(obj).map(([k, value]) => ({ dump, path: [...base, k], value }));
+
+export const setLfo = (output, obj) => fields('preset', ['output', output], obj);
+export const setClock = (clock, obj) => fields('config', ['clock', clock], obj);
+export const setEuclid = (euclid, obj) => fields('preset', ['euclid', euclid], obj);
+
+// What restarts an output's LFO: { type, channel, number } as in LFO_RESET_TYPES (0 = never).
+export const setLfoRestart = (output, { type, channel = 0, number = 0 }) => fields('config', ['lfoReset', output], { type, channel, number });
+
+// A knob's mapping slot (from derive's port.slot): its channel, CC and relative flag.
+export const setKnob = (slot, { channel, cc, relative }) => fields('config', ['mapping', slot], {
+  status: 0x30 | channel, cc, target: relative ? 32 : 0,
+});

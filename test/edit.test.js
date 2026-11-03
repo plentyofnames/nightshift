@@ -5,6 +5,7 @@ import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, 
   removePort, removeSource } from '../js/patch/edit.js';
 import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc } from '../js/patch/alloc.js';
 import { DEFAULT_HARDWARE } from '../js/patch/hardware.js';
+import { lfoSamples, euclidPattern } from '../js/patch/shapes.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
 import { derive } from '../js/patch/derive.js';
@@ -170,4 +171,29 @@ test('adding fails cleanly when the FH-2 is full', () => {
     msg = e.message;
   }
   eq(msg, 'all the FH-2’s 32 clocks are in use');
+});
+
+// ---- shapes.js
+
+test('Euclid patterns spread pulses evenly and rotate', () => {
+  const show = (a) => a.map((x) => (x ? 'x' : '.')).join('');
+  eq(show(euclidPattern(3, 8)), 'x..x..x.');
+  eq(show(euclidPattern(3, 8, 1)), '..x..x.x');
+  eq(show(euclidPattern(5, 8)), 'x.x.xx.x', 'E(5,8), starting on a pulse');
+  eq(show(euclidPattern(0, 4)), '....');
+  eq(show(euclidPattern(9, 4)), 'xxxx', 'more pulses than steps');
+});
+
+test('LFO drawings follow the shape mix and depth', () => {
+  const raw = { lfoLevel: 16383, lfoSine: 127, lfoSquare: 0, lfoTriangle: 0, lfoPulseWidth: 64, lfoSaw: 64, lfoRandom: 0, lfoNoise: 0, lfoPhase: 0 };
+  const sine = lfoSamples(raw, 240, 1);
+  assert(Math.abs(Math.max(...sine) - 1) < 0.01 && Math.abs(Math.min(...sine) + 1) < 0.01, 'full-depth sine spans ±1');
+  eq(sine[60] > 0.99, true, 'a quarter in, at the top');
+  const half = lfoSamples({ ...raw, lfoLevel: 8192 }, 240, 1);
+  assert(Math.abs(Math.max(...half) - 0.5) < 0.01, 'half depth');
+  const square = lfoSamples({ ...raw, lfoSine: 0, lfoSquare: 127, lfoPulseWidth: 32 }, 128, 1);
+  assert(Math.abs(square.filter((x) => x > 0).length - 32) <= 1, 'pulse width 32 of 127 is a quarter');
+  const falling = lfoSamples({ ...raw, lfoSine: 0, lfoSaw: 0 }, 100, 1);
+  assert(falling[0] > 0.9 && falling[99] < -0.9, 'a saw below 64 falls');
+  eq(lfoSamples({ ...raw, lfoSine: 0 }, 10).every((x) => x === 0), true, 'no shape, no wave');
 });

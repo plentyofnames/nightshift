@@ -77,7 +77,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
   config.clock.forEach((c, i) => {
     if (!c.type) return;
     const what = c.type === 1 ? `Clock ${durationName(c.base * c.multiplier)}` : CLOCK_TYPES[c.type] ?? `Clock type ${c.type}`;
-    clocks.push({ name: what, output: c.output, clock: i, shift: c.shift, length: c.length });
+    clocks.push({ name: what, output: c.output, clock: i, type: c.type, base: c.base, multiplier: c.multiplier, shift: c.shift, length: c.length });
   });
   if (clocks.length) addSource({ id: 'clocks', kind: 'clock', name: 'Clock & transport', ports: clocks, controls: [] });
 
@@ -104,7 +104,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
     const p = preset?.euclid[i];
     addSource({
       id: `euclid:${i}`, kind: 'euclid', index: i, name: `Euclid ${i + 1}`, ports, controls: [],
-      pattern: p ? { pulses: p.pulses, steps: p.steps, rotation: p.rotation, rate: p.rate ? durationName(p.rate) : 'external clock', gate: p.gate, accent: p.accent, reset: p.reset } : null,
+      pattern: p ? { pulses: p.pulses, steps: p.steps, rotation: p.rotation, rate: p.rate ? durationName(p.rate) : 'external clock', ratePulses: p.rate, gate: p.gate, accent: p.accent, reset: p.reset } : null,
       idle: p ? p.pulses === 0 : false,
     });
   });
@@ -136,6 +136,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
     for (let i = 0; i < 64; i++) {
       const lfo = lfoOf(preset.output[i]);
       if (lfo) outputs[i].lfo = lfo;
+      outputs[i].lfoRaw = lfoRaw(preset.output[i]);
     }
   }
 
@@ -152,7 +153,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
       o.lfo.alone = true;
     } else if (dc) {
       if (!knobs.has(dc.channel)) knobs.set(dc.channel, []);
-      knobs.get(dc.channel).push({ name: `CC ${dc.cc}`, output: i, cc: dc.cc });
+      knobs.get(dc.channel).push({ name: `CC ${dc.cc}`, output: i, cc: dc.cc, channel: dc.channel, relative: dc.relative, slot: dc.slot });
     } else if (o.directLevel) {
       levels.push({ name: `Level ${o.directLevel}`, output: i, level: o.directLevel });
     }
@@ -271,15 +272,23 @@ function lfoOf(o) {
   const shapes = { sine: o.lfoSine, square: o.lfoSquare, triangle: o.lfoTriangle, saw: o.lfoSaw - 64, random: o.lfoRandom, noise: o.lfoNoise };
   if (!o.lfoLevel || !Object.values(shapes).some(Boolean)) return null;
   return {
+    raw: lfoRaw(o),
     level: o.lfoLevel, shapes, pulseWidth: o.lfoPulseWidth, phase: o.lfoPhase, fade: o.lfoFade,
     synced: !!o.lfoSynced,
     rate: o.lfoSynced ? durationName(o.lfoTempoBase * o.lfoTempoMultiplier) : `≈ ${lfoHz(o.lfoSpeed).toFixed(2)} Hz`,
   };
 }
 
+// The preset's LFO fields of an output, as stored.
+export function lfoRaw(o) {
+  const keys = ['lfoLevel', 'lfoSpeed', 'lfoTempoBase', 'lfoTempoMultiplier', 'lfoSine', 'lfoSquare', 'lfoTriangle', 'lfoPulseWidth',
+    'lfoSaw', 'lfoRandom', 'lfoNoise', 'lfoFade', 'lfoSynced', 'lfoPhase'];
+  return Object.fromEntries(keys.map((k) => [k, o[k]]));
+}
+
 function lfoResetOf(r) {
   if (!r.type) return null;
-  return { type: LFO_RESET_TYPES[r.type] ?? r.type, channel: r.channel, number: r.number };
+  return { type: LFO_RESET_TYPES[r.type] ?? r.type, typeIndex: r.type, channel: r.channel, number: r.number };
 }
 
 function gateFriendly(sources, p) {

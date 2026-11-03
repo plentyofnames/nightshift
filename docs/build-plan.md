@@ -144,6 +144,14 @@ None of these touch the page, so they work unchanged. That gives one implementat
   4. The "+ add" flow on an empty jack, and removing a source, for: fixed voltage, MIDI knob, LFO, clock, transport, Euclid. `alloc.js` finds free FH-2 slots (a parked Euclid counts as free) and suggests CCs.
      - Done 2026-11-03: clicking a free jack opens the dialog; gate jacks offer only clocks, transport and Euclid. A × on each row of a jack's inspector takes that source off the jack; a source's inspector can remove it from all its jacks. Source colours now stay put when sources are added.
   5. Editors for those sources (artboard 3 for the LFO, with its waveform).
+     - Done 2026-11-03:
+       - LFO: two cycles drawn from the shape mix (redrawn while a slider moves); timing, rate or cycle, depth, the seven shapes, phase, fade, restart (never, a clock, a Euclid; a CC or note set elsewhere is kept); a note about the double jump of check 14.
+       - An LFO can also go on top of another source ("Add an LFO on top": 5 Hz sine at 5 %) and be edited and removed from the jack's inspector.
+       - Euclid: the pattern drawn as steps, all seven settings.
+       - Clocks and transport: signal, rate, pulse, shift per clock.
+       - Knobs: channel, CC (free ones, 14-bit marked), relative, the current level.
+       - Stored levels: in volts.
+     - Still to do for M2a: hardware check H2 (build part of the example on the module and send it).
 - **M2b:** voices (poly, stride, base gate), triggers, players (sequencers, external gear like the Disting, "clocked by"), scenes A/B/C, project files with names, learning a knob.
 
 ### M3: EC4 pages and live link (v0.2)
