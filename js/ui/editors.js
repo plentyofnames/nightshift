@@ -5,8 +5,9 @@
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
-import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
-import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS } from '../patch/edit.js';
+import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
+import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
+  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES } from '../patch/edit.js';
 import { freeCcs, voicePlan } from '../patch/alloc.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -314,4 +315,30 @@ export function voiceEditor(view, s, act, color) {
     parts.push(h('p', { class: 'note' }, 'Glide, transpose and the envelope live in the preset: open or pull one to edit them.'));
   }
   return parts;
+}
+
+// ---- triggers (one source per MIDI channel)
+
+export function triggerEditor(view, s, act) {
+  const config = act.values().config;
+  const triggers = s.ports.filter((p) => !p.accent);
+  const kit = [
+    field('MIDI channel', selectInput(`Channel of ${s.name}`, s.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]),
+      (v) => act.edit(`Channel of ${s.name}: ${v + 1}`, triggers.flatMap((p) => setTrigger(p.trigger, { channel: v }))))),
+    field('Trigger length', numberInput('Trigger length (all triggers)', config.triggerLength, { min: 1, max: 100 },
+      (v) => act.edit(`Trigger length (all triggers): ${v} ms`, fields('config', [], { triggerLength: v }))), ' ms, all triggers'),
+  ];
+  const boxes = triggers.map((p) => {
+    const name = `the trigger on ${p.jack}`;
+    const gate = view.outputs[p.output]?.gate;
+    const types = TRIGGER_TYPES.map((n, i) => [i, n]).slice(1).filter(([i]) => !(gate && LEVEL_TRIGGER_TYPES.has(i)) || i === p.typeIndex);
+    const accent = s.ports.find((x) => x.accent && x.trigger === p.trigger);
+    return h('div', { class: 'subbox' }, h('h4', {}, `${p.jack}${accent ? ` + ${accent.jack} (accent)` : ''}`), h('div', { class: 'erows' },
+      field('Note', selectInput(`Note of ${name}`, p.note ?? -1, [[-1, 'Any note'], ...NOTES], (v) => act.edit(`Note of ${name}`, setTriggerNote(p.trigger, v < 0 ? null : v)))),
+      field('Type', selectInput(`Type of ${name}`, p.typeIndex, types, (v) => act.edit(`Type of ${name}: ${TRIGGER_TYPES[v]}`, setTrigger(p.trigger, { type: v })))),
+      p.typeIndex === 9 ? field('Envelope from', selectInput(`Envelope of ${name}`, p.envSet, Array.from({ length: 16 }, (_, i) => [i, `Voice ${i + 1}’s settings`]),
+        (v) => act.edit(`Envelope of ${name}`, setTriggerEnvSet(p.trigger, v)))) : null));
+  });
+  return [h('div', { class: 'erows' }, kit), boxes,
+    h('p', { class: 'note' }, 'Accent types also use the next jack up, for hits at velocity 96 and above. Velocity, envelope and level types need a CV jack.')];
 }

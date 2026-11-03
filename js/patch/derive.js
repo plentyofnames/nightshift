@@ -88,7 +88,8 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
     if (!byChannel.has(t.channel)) byChannel.set(t.channel, []);
     const note = t.anyNote ? 'Any note' : `${noteName(t.note)} (${t.note})`;
     const list = byChannel.get(t.channel);
-    list.push({ name: note, output: t.output, trigger: i, type: TRIGGER_TYPES[t.type] ?? `type ${t.type}`, note: t.anyNote ? null : t.note });
+    list.push({ name: note, output: t.output, trigger: i, type: TRIGGER_TYPES[t.type] ?? `type ${t.type}`, typeIndex: t.type, note: t.anyNote ? null : t.note,
+      envSet: (t.envSetHigh << 1) | t.envSetLow });
     if (ACCENT_TRIGGER_TYPES.has(t.type)) list.push({ name: `${note} accent`, output: t.output + 1, trigger: i, accent: true });
   });
   for (const [ch, ports] of [...byChannel].sort((a, b) => a[0] - b[0])) {

@@ -163,6 +163,9 @@ None of these touch the page, so they work unchanged. That gives one implementat
     - Glide (your question): the manual (v2.0, "Portamento") says it's always fingered, a glide time between notes played legato, on mono voices and in Unison only; there is no mode to pick. The editor says so, and says when a voice won't glide.
     - Fixed: "Mono retrig" was labelled as retriggering each note. The manual: it decides whether a note that sounds again when you release a key (another one still held) fires the trigger and envelope. Now "Returning note".
     - Added the global "Legato velocity" (mono voices keep the first note's velocity through a phrase) and "Envelope zero start" to the voice editor.
+  - **Triggers done 2026-11-03** (called "Trigger", not "drum trigger": they serve any gate):
+    - "Trigger" in the add dialog: the channel most triggers already use (else a quiet one), the next free note there (C2 for a new kit), any note, the type, and for Envelope the voice whose envelope settings it borrows. Gate jacks only offer gate-type triggers. Accent types take the next jack up too, and the preview marks the jack that's in the way.
+    - The editor (one source per channel): the kit's channel (moves all its triggers), the global trigger length, and per trigger its note, type and envelope source. Removing an accent trigger frees both its jacks.
   - **USB gamepad and keyboard entries can be switched off** (your request, 2026-11-03): one at a time with the × on a jack, or all at once from the source. It sets Usage or Type to "--" and leaves the output alone, so the official tool's `0xFF` bug can't happen. Sending that to the module is hardware check 16.
 
 ### Next UI round (your ideas, stashed 2026-11-03)

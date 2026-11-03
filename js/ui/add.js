@@ -3,12 +3,13 @@
 
 import { h, $, replace, modal } from '../../vendor/lilypad/js/dom.js';
 import { icon } from './look.js';
-import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, voltsToLevel } from '../patch/tables.js';
-import { freeCcs, suggestCc, suggestChannel, suggestBaseGate, suggestStart, voicePlan } from '../patch/alloc.js';
-import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, VOICE_OUTPUTS, SHARED_OUTPUTS } from '../patch/edit.js';
+import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, TRIGGER_TYPES, voltsToLevel, noteName } from '../patch/tables.js';
+import { freeCcs, suggestCc, suggestChannel, suggestBaseGate, suggestStart, voicePlan, suggestTriggerChannel, suggestNote, jacksInTheWay } from '../patch/alloc.js';
+import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, addTrigger, VOICE_OUTPUTS, SHARED_OUTPUTS, LEVEL_TRIGGER_TYPES, isAccentType } from '../patch/edit.js';
 
 const KINDS = [
   { id: 'voice', group: 'Notes', title: 'Pitch & gate', desc: 'A voice: mono or poly', icon: 'voice', cv: true },
+  { id: 'trigger', group: 'Notes', title: 'Trigger', desc: 'A MIDI note fires a trigger, gate or level', icon: 'triggers' },
   { id: 'fixed', group: 'Control', title: 'Fixed voltage', desc: 'Stored in the preset', icon: 'level', cv: true, preset: true },
   { id: 'knob', group: 'Control', title: 'MIDI knob', desc: 'A CC sets the voltage', icon: 'knobs', cv: true },
   { id: 'lfo', group: 'Modulation', title: 'LFO', desc: 'Free, or synced to the tempo', icon: 'lfo', cv: true, preset: true },
@@ -30,9 +31,11 @@ export async function addToJack(view, values, o) {
     shape: 'sine', synced: false, hz: 1, lfoPulses: 96, depth: 100,
     base: 24, multiplier: 1, length: 0, transport: 2,
     pulses: 4, steps: 16, rotation: 0, rate: 6,
+    trigChannel: suggestTriggerChannel(values.config), trigType: 1, envSet: 0,
     voiceType: 0, voices: 2, voiceChannel: suggestChannel(values.config), outs: { cvOut: 1, gateOut: 1 }, gatesOnExpander: false, start: o.index,
   };
 
+  f.trigNote = suggestNote(values.config, f.trigChannel);
   const tiles = h('div', { class: 'tiles' });
   const details = h('div', { class: 'fields' });
   const draw = () => {
@@ -45,7 +48,7 @@ export async function addToJack(view, values, o) {
     replace(details, fieldsFor(f, values, o, draw, view));
     // nothing is added on top of another source: Add waits until the voice fits
     const add = $('dialog').querySelector('button.primary');
-    if (add) add.disabled = f.kind === 'voice' && !voiceFits(f, o, view);
+    if (add) add.disabled = (f.kind === 'voice' && !voiceFits(f, o, view)) || (f.kind === 'trigger' && triggerProblems(f, o, view).length > 0);
   };
   draw();
 
@@ -67,6 +70,10 @@ function voiceSettings(f, o, baseGate) {
 }
 
 const gatesFor = (f, o, view) => (f.gatesOnExpander ? gateStart(f, o, view) ?? 0 : 0);
+// A trigger uses its jack, and an accent type the next one up too.
+const triggerJacks = (f, o) => (isAccentType(f.trigType) ? [o.index, o.index + 1] : [o.index]);
+const triggerProblems = (f, o, view) => jacksInTheWay(view, triggerJacks(f, o), ['The trigger', 'Its accent']);
+
 const voiceFits = (f, o, view) => Object.values(f.outs).some(Boolean) && !voicePlan(view, voiceSettings(f, o, gatesFor(f, o, view))).problems.length;
 
 // Where the gates go: the first run of free gate jacks long enough for them, or none.
@@ -78,6 +85,11 @@ function gateStart(f, o, view) {
 function build(f, values, hardware, o, where, view) {
   const division = (p) => DIVISIONS.find(([n]) => n === p)?.[1] ?? `${p}/24`;
   switch (f.kind) {
+    case 'trigger': {
+      const note = f.trigNote < 0 ? null : f.trigNote;
+      return { label: `${TRIGGER_TYPES[f.trigType]} for ${note == null ? 'any note' : noteName(note)} on ch ${f.trigChannel + 1} at ${where}`,
+        changes: addTrigger(values, { output: o.index, channel: f.trigChannel, note, type: f.trigType, envSet: f.envSet }) };
+    }
     case 'voice': {
       const baseGate = gatesFor(f, o, view);
       return { label: `${f.voiceType ? `${f.voices}-voice poly` : 'Mono voice'} on ch ${f.voiceChannel + 1} from jack ${view.outputs[f.start].jack}`,
@@ -130,6 +142,8 @@ function fieldsFor(f, values, o, redraw, view) {
   switch (f.kind) {
     case 'voice':
       return voiceFields(f, values, o, redraw, view);
+    case 'trigger':
+      return triggerFields(f, values, o, redraw, view);
     case 'fixed': {
       const [lo, hi] = RANGE_VOLTS[o.rangeIndex ?? 0];
       return [field('Voltage', [num(f, 'volts', lo, hi, 0.01), ' V'], `${o.range}. Kept in the preset, so each scene can have its own.`)];
@@ -198,5 +212,27 @@ function voiceFields(f, values, o, redraw, view) {
       elsewhere != null && elsewhere !== f.start ? h('button', { type: 'button', class: 'btn', onclick: () => { f.start = elsewhere; redraw(); } },
         `Start at ${view.outputs[elsewhere].jack} instead: it fits there`) : null,
       f.start !== o.index ? h('button', { type: 'button', class: 'btn', onclick: () => { f.start = o.index; redraw(); } }, `Back to jack ${o.jack}`) : null),
+  ];
+}
+
+// ---- a trigger: channel, note, type, and the jacks it takes
+
+function triggerFields(f, values, o, redraw, view) {
+  const listeners = (ch) => view.channels[ch]?.listeners.map((l) => l.name) ?? [];
+  const types = TRIGGER_TYPES.map((n, i) => [i, n]).slice(1).filter(([i]) => !(o.gate && LEVEL_TRIGGER_TYPES.has(i)));
+  if (!types.some(([i]) => i === f.trigType)) f.trigType = 1;
+  const problems = triggerProblems(f, o, view);
+  const jacks = triggerJacks(f, o).map((x, k) => [x, `${view.outputs[x]?.jack ?? '—'} · ${k ? 'accent' : TRIGGER_TYPES[f.trigType].toLowerCase()}`]);
+  return [
+    field('MIDI channel', h('select', {
+      onchange: (e) => { f.trigChannel = +e.target.value; f.trigNote = suggestNote(values.config, f.trigChannel); redraw(); },
+    }, Array.from({ length: 16 }, (_, c) => h('option', { value: String(c), selected: c === f.trigChannel }, `${c + 1}${listeners(c).length ? ` · ${listeners(c).join(', ')}` : ''}`))),
+    'Triggers on one channel show up together, as one source (a drum kit, say).'),
+    field('Note', pick(f, 'trigNote', [[-1, 'Any note'], ...Array.from({ length: 128 }, (_, n) => [n, `${noteName(n)} (${n})`])]), 'The next free note on this channel is suggested.'),
+    field('Type', pick(f, 'trigType', types, redraw), o.gate ? 'Velocity, envelope and level types need a CV jack: gate jacks are always 10 V.' : 'Accent types also use the next jack up, for hits at velocity 96 and above.'),
+    f.trigType === 9 ? field('Envelope from', pick(f, 'envSet', Array.from({ length: 16 }, (_, i) => [i, `Voice ${i + 1}’s envelope settings`]))) : null,
+    h('div', { class: 'field wide plan' }, h('span', {}, 'Will use'),
+      h('div', { class: 'checks' }, jacks.map(([x, j]) => h('span', { class: 'chip' + (problems.some((p) => p.output === x) ? ' clash' : '') }, j))),
+      problems.map((x) => h('small', { class: 'warn' }, x.message))),
   ];
 }

@@ -110,3 +110,37 @@ export function suggestBaseGate(view, count, own = -1) {
   }
   return null;
 }
+
+// ---- triggers
+
+export const freeTrigger = (config) => config.trigger.findIndex((t) => !t.type);
+
+// The channel triggers mostly use already, else a quiet one.
+export function suggestTriggerChannel(config) {
+  const count = new Map();
+  for (const t of config.trigger) if (t.type) count.set(t.channel, (count.get(t.channel) ?? 0) + 1);
+  const best = [...count].sort((a, b) => b[1] - a[1])[0];
+  return best ? best[0] : suggestChannel(config);
+}
+
+// The note after the highest one on `channel`, or C2 (36, the usual kick) for a new kit.
+export function suggestNote(config, channel) {
+  const notes = config.trigger.filter((t) => t.type && t.channel === channel && !t.anyNote).map((t) => t.note);
+  return notes.length ? Math.min(127, Math.max(...notes) + 1) : 36;
+}
+
+// What is in the way of a source on `outputs`: jacks outside the rack or taken by others.
+export function jacksInTheWay(view, outputs, names) {
+  const problems = [];
+  outputs.forEach((o, k) => {
+    const out = o >= 0 && o < 128 ? view.outputs[o] : null;
+    const what = names?.[k] ?? 'It';
+    if (!out) problems.push({ output: o, message: `${what} would land past the last output` });
+    else if (!out.present) problems.push({ output: o, message: `${what} would land on ${out.jack}, which isn’t in your rack` });
+    else {
+      const taken = [...new Set(out.ports.filter((x) => !x.standby).map((x) => view.sources.find((s) => s.id === x.source)?.name ?? x.source))];
+      if (taken.length) problems.push({ output: o, message: `${what} would land on ${out.jack}, which ${taken.join(' and ')} already uses` });
+    }
+  });
+  return problems;
+}

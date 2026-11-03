@@ -7,7 +7,7 @@
 
 import { getPath, setPath } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
-import { freeClock, freeEuclid, freeMapping, freeConverter } from './alloc.js';
+import { freeClock, freeEuclid, freeMapping, freeConverter, freeTrigger } from './alloc.js';
 import { isUsed, targetOf } from './mappings.js';
 import { hzToLfo } from './tables.js';
 
@@ -185,6 +185,8 @@ export function removePort(values, source, port) {
       return removeLfo(o);
     case 'clock':
       return [config(['clock', port.clock, 'type'], 0)];
+    case 'triggers':
+      return setTrigger(port.trigger, { type: 0 }); // with an accent type, its second jack goes too
     case 'euclid': {
       const k = port.name === 'Pulses' ? 'output' : 'offOutput';
       return [config(['euclid', source.index, k], 127), config(['euclid', source.index, k + 'High'], 1)];
@@ -263,3 +265,22 @@ export function outputSwitch(role) {
   const r = role.replace(/ \(inverted\)$/, '').replace(/^Bend (up|down)$/, 'Bend');
   return ALL_OUTPUTS.find(([, name]) => name === r)?.[0] ?? null;
 }
+
+// ---- triggers (a note fires a trigger, gate or level)
+
+// Trigger types that put out a level (from velocity or an envelope): they need a CV jack.
+export const LEVEL_TRIGGER_TYPES = new Set([3, 4, 9, 10]);
+export const isAccentType = (type) => type === 5 || type === 6; // these also use the next jack up
+
+export const setTrigger = (i, obj) => fields('config', ['trigger', i], obj);
+
+// A note (or any note, `note` null) on `channel` fires `type` on `output`. `envSet` (0–15) is
+// the voice whose envelope settings an Envelope trigger borrows.
+export function addTrigger(values, { output, channel, note = 36, type = 1, envSet = 0 }) {
+  const i = freeTrigger(values.config);
+  if (i < 0) throw noRoom('64 triggers');
+  return setTrigger(i, { type, channel, note: note ?? 0, anyNote: note == null ? 1 : 0, output, envSetHigh: envSet >> 1, envSetLow: envSet & 1 });
+}
+
+export const setTriggerNote = (i, note) => setTrigger(i, { note: note ?? 0, anyNote: note == null ? 1 : 0 });
+export const setTriggerEnvSet = (i, envSet) => setTrigger(i, { envSetHigh: envSet >> 1, envSetLow: envSet & 1 });

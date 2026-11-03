@@ -2,8 +2,9 @@
 
 import { test, assert, eq } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
-  removePort, removeSource, addVoice } from '../js/patch/edit.js';
-import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc, suggestChannel, suggestBaseGate, voicePlan } from '../js/patch/alloc.js';
+  removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet } from '../js/patch/edit.js';
+import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc, suggestChannel, suggestBaseGate, voicePlan,
+  suggestTriggerChannel, suggestNote, jacksInTheWay } from '../js/patch/alloc.js';
 import { DEFAULT_HARDWARE } from '../js/patch/hardware.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../js/patch/shapes.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
@@ -274,4 +275,33 @@ test('USB gamepad and keyboard entries are switched off, not pointed at None', (
   eq(derive(p.config.values, p.preset.values).sources, [], 'all off');
   eq([p.config.values.gamepad[1].output, p.config.values.keyboard[0].output], [1, 0], 'outputs untouched');
   assert(bodyOf(buildDump(p.config)).every((b) => b < 0x80), 'no byte outside 7 bits');
+});
+
+// ---- triggers
+
+test('triggers: a kit on one channel, notes in a row, accents on two jacks', () => {
+  const p = patch();
+  const c = () => p.config.values;
+  eq(suggestTriggerChannel(c()), 0, 'a quiet channel for a new kit');
+  eq(suggestNote(c(), 9), 36, 'C2 to start');
+  apply(p, addTrigger(values(p), { output: 64, channel: 9, note: 36 }));
+  apply(p, addTrigger(values(p), { output: 65, channel: 9, note: suggestNote(c(), 9), type: 6 })); // accent gate
+  apply(p, addTrigger(values(p), { output: 3, channel: 9, note: null, type: 9, envSet: 5 })); // any note → envelope on a CV jack
+  eq(suggestTriggerChannel(c()), 9, 'the kit’s channel next time');
+  let v = derive(c(), p.preset.values);
+  eq(portsOf(v, 'triggers:9').map((x) => x.join('@')), ['C2 (36)@GT1·1', 'C♯2 (37)@GT1·2', 'C♯2 (37) accent@GT1·3', 'Any note@4']);
+  eq(v.sources.find((s) => s.id === 'triggers:9').ports[3].envSet, 5);
+  eq(jacksInTheWay(v, [65, 66], ['Trigger', 'Accent']).map((x) => x.message),
+    ['Trigger would land on GT1·2, which Triggers · ch 10 already uses', 'Accent would land on GT1·3, which Triggers · ch 10 already uses']);
+  eq(jacksInTheWay(v, [67]), []);
+
+  // the accent trigger goes, with both its jacks
+  const kit = v.sources.find((s) => s.id === 'triggers:9');
+  apply(p, removePort(values(p), kit, kit.ports[2]));
+  v = derive(c(), p.preset.values);
+  eq(portsOf(v, 'triggers:9').map((x) => x[1]), ['GT1·1', '4']);
+  apply(p, setTriggerNote(kit.ports[0].trigger, 38));
+  apply(p, setTriggerEnvSet(kit.ports[3].trigger, 2));
+  v = derive(c(), p.preset.values);
+  eq(v.sources.find((s) => s.id === 'triggers:9').ports.map((x) => [x.name, x.envSet]), [['D2 (38)', 0], ['Any note', 2]]);
 });

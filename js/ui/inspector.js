@@ -7,7 +7,7 @@ import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel 
 import { outputNumber, internalName } from '../patch/hardware.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
 import { numberInput, voltsInput } from './controls.js';
-import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor } from './editors.js';
+import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -16,7 +16,7 @@ const param = (p) => PARAM_NAMES[p] ?? p;
 const yes = (b) => (b ? 'on' : 'off');
 
 // Sources that can be removed so far (M2a).
-const REMOVABLE = new Set(['voice', 'level', 'knobs', 'lfo', 'clock', 'euclid', 'hid']);
+const REMOVABLE = new Set(['voice', 'triggers', 'level', 'knobs', 'lfo', 'clock', 'euclid', 'hid']);
 
 // `act` is { edit(label, changes), add(output), remove(source, port?) }; each changes the
 // patch through edit.js and redraws.
@@ -100,6 +100,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
 function editorOf(view, s, act, color) {
   switch (s.kind) {
     case 'voice': return voiceEditor(view, s, act, color);
+    case 'triggers': return triggerEditor(view, s, act);
     case 'lfo': return lfoEditor(view, view.outputs[s.index], act, color);
     case 'euclid': return euclidEditor(s, act, color);
     case 'clock': return clockEditor(s, act);
