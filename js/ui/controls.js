@@ -29,14 +29,15 @@ export function perScene(row) {
 }
 
 // A setting's name that a click puts on the EC4 or takes off again (ec4/pages.js): in its own
-// colour when a knob can control the setting, with a ring after it, filled while it is on.
+// colour when a knob can control the setting, with a ring before it (after the scene dot, if it
+// has one), filled while it is on.
 // `ec4` is { state(key) → { on, title } or null, toggle(key) }; without one, or for a setting
 // no knob can control, it is the plain text.
 export function ec4Label(text, key, ec4) {
   const st = ec4?.state(key);
   if (!st) return text;
-  return h('button', { type: 'button', class: 'ec4-able' + (st.on ? ' on' : ''), 'aria-pressed': st.on ? 'true' : 'false', title: st.title,
-    onclick: () => ec4.toggle(key) }, text, h('span', { class: 'ec4-dot', 'aria-hidden': 'true' }));
+  return h('button', { type: 'button', class: 'ec4-able' + (st.on ? ' on' : ''), 'aria-pressed': st.on ? 'true' : 'false', title: st.title, 'data-ec4': key,
+    onclick: () => ec4.toggle(key) }, h('span', { class: 'ec4-dot', 'aria-hidden': 'true' }), text);
 }
 
 // `options` is [[value, text]]; values may be numbers, which come back as numbers.

@@ -5,7 +5,7 @@ import { test, assert, eq } from './harness.js';
 import { derive } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
-import { jackName, internalName, rack, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
+import { jackName, internalName, rack, EXAMPLE_HARDWARE } from '../js/patch/hardware.js';
 import { buildDump, parseDump } from '../js/fh2/sysex.js';
 import * as O from './official.js';
 
@@ -17,7 +17,7 @@ const exampleView = () => {
 const portsOf = (view, id) => view.sources.find((s) => s.id === id).ports.map((p) => [p.name, p.jack]);
 
 test('jacks are named after the modules in the rack', () => {
-  const hw = DEFAULT_HARDWARE;
+  const hw = EXAMPLE_HARDWARE;
   eq([0, 7, 8, 13, 16, 64, 71, 72, 79].map((o) => jackName(o, hw)), ['1', '8', 'CV1·1', 'CV1·6', 'CV2·1', 'GT1·1', 'GT1·8', 'GT2·1', 'GT2·8']);
   eq([24, 63, 80, 127].map((o) => jackName(o, hw)), ['3/1', '7/8', 'GT1/1', 'GT3/16'], 'outputs outside the rack keep their internal names');
   eq(rack(hw).map((m) => `${m.name}=${m.internal}`), ['FH-2=1–8', 'CV1=1/1–8', 'CV2=2/1–8', 'GT1=GT0/1–8', 'GT2=GT0/9–16']);

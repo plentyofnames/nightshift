@@ -6,13 +6,13 @@
 // change. Where the manual leaves the output order open, the choice is marked "assumed".
 
 import { mappingsOf } from './mappings.js';
-import { jackName, isPresent, isGate, DEFAULT_HARDWARE } from './hardware.js';
+import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
   CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName } from './tables.js';
 
 // `names` are Night Shift's own names beside the dumps (edit.js setName): for sources and players
 // by id, and for the gear on a port and channel.
-export function derive(config, preset = null, hardware = DEFAULT_HARDWARE, names = {}) {
+export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names = {}) {
   const outputs = Array.from({ length: 128 }, (_, i) => ({
     index: i,
     jack: jackName(i, hardware),

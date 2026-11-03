@@ -10,7 +10,7 @@ import { playerLine } from '../js/ui/look.js';
 import { ccOf } from '../js/ui/connect.js';
 import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc, suggestChannel, suggestBaseGate, voicePlan,
   suggestTriggerChannel, suggestNote, jacksInTheWay } from '../js/patch/alloc.js';
-import { DEFAULT_HARDWARE } from '../js/patch/hardware.js';
+import { EXAMPLE_HARDWARE } from '../js/patch/hardware.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../js/patch/shapes.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
@@ -109,12 +109,12 @@ test('free slots: a parked Euclid counts as free unless an LFO restarts from it'
   const p = patch();
   const c = p.config.values;
   for (const e of c.euclid) Object.assign(e, { output: 127, outputHigh: 0 }); // the Init config: all on GT3/16
-  eq(freeEuclid(c, DEFAULT_HARDWARE), 0);
+  eq(freeEuclid(c, EXAMPLE_HARDWARE), 0);
   Object.assign(c.lfoReset[3], { type: 7, number: 0 }); // an LFO restarts on Euclid 1's pulses
-  eq(freeEuclid(c, DEFAULT_HARDWARE), 1);
+  eq(freeEuclid(c, EXAMPLE_HARDWARE), 1);
   Object.assign(c.euclid[5], { output: 127, outputHigh: 1 }); // truly unused wins over parked
-  eq(freeEuclid(c, DEFAULT_HARDWARE), 5);
-  eq(freeEuclid(c, { ...DEFAULT_HARDWARE, gt: [0, 1, 6, 7] }), 5, 'with GT3 in the rack, only the unused one');
+  eq(freeEuclid(c, EXAMPLE_HARDWARE), 5);
+  eq(freeEuclid(c, { ...EXAMPLE_HARDWARE, gt: [0, 1, 6, 7] }), 5, 'with GT3 in the rack, only the unused one');
   eq(freeClock(c), 0);
   eq(freeMapping(c), 0);
 });
@@ -135,7 +135,7 @@ test('free CCs keep 14-bit pairs together', () => {
 
 test('each source kind can be added to a jack and removed again', () => {
   const p = patch();
-  const hw = DEFAULT_HARDWARE;
+  const hw = EXAMPLE_HARDWARE;
   const add = (changes) => apply(p, changes);
   add(addFixedVoltage(0, 12000));
   add(addKnob(values(p), 1, 1, 20));
@@ -209,7 +209,7 @@ test('LFO drawings follow the shape mix and depth', () => {
 
 test('a voice can be added, laid out and checked before it lands', () => {
   const p = patch();
-  const hw = DEFAULT_HARDWARE;
+  const hw = EXAMPLE_HARDWARE;
   apply(p, addClock(values(p), 65)); // something on GT1·2
   let v = derive(p.config.values, p.preset.values);
   eq(suggestChannel(p.config.values), 0);
@@ -316,7 +316,7 @@ test('triggers: a kit on one channel, notes in a row, accents on two jacks', () 
 test('players: wire a sequencer to a voice, give them their own channel, clock it from a Euclid', () => {
   const p = patch();
   apply(p, addVoice(values(p), { output: 0, channel: 2 }));
-  apply(p, addEuclid(values(p), DEFAULT_HARDWARE, 64));
+  apply(p, addEuclid(values(p), EXAMPLE_HARDWARE, 64));
   let v = derive(p.config.values, p.preset.values);
   eq(v.players, [], 'nothing plays yet');
   eq(playersOf(p.config.values, p.preset.values, { all: true }).filter((x) => x.kind === 'sequencer').length, 4, 'four sequencers to pick from');
@@ -384,7 +384,7 @@ test('names sit beside the dumps, show up in derive, and undo like any edit', ()
   apply(p, setPlayer('noteSequencer:0', { channel: 4, dests: { din: true } }));
   const h = new History();
   h.do(p, 'Rename', [...setName('converter:0', '  Bass  '), ...setName(deviceKey('din', 4), 'Disting mk4')]);
-  let v = derive(p.config.values, p.preset.values, DEFAULT_HARDWARE, p.names);
+  let v = derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, p.names);
   eq([v.sources[0].name, v.sources[0].defaultName], ['Bass', 'Voice 1']);
   eq(v.players[0].devices, { din: 'Disting mk4' });
   eq(playerLine(v.players[0]), 'ch 5 → Disting mk4 (DIN)');
@@ -406,7 +406,7 @@ test('a project file holds the config, every scene, the names and the rack, byte
   const p = patch();
   apply(p, addVoice(values(p), { output: 0, channel: 0 }));
   const b = blankPreset('Chorus');
-  const hw = { ...DEFAULT_HARDWARE, cv: [1] };
+  const hw = { ...EXAMPLE_HARDWARE, cv: [1] };
   const text = projectToJson({ config: p.config, scenes: [p.preset, b], scene: 1, names: { 'converter:0': 'Bass' }, hardware: hw });
   const back = projectFromJson(text);
   eqBytes(buildDump(back.config), buildDump(p.config), 'config');
@@ -460,16 +460,16 @@ test('what a scene changes against another, in a few words', () => {
   Object.assign(vb.converter[0], { arpMode: 11, envAttack: 10 });
   vb.tempo = 1300;
   vb.name = 'Chorus';
-  eq(sceneDifferences(p.preset.values, vb, DEFAULT_HARDWARE), ['jack 5 (LFO, smoothing)', 'Voice 1 (arp, envelope)', 'tempo', 'Euclid 2'], 'in the preset’s own order');
+  eq(sceneDifferences(p.preset.values, vb, EXAMPLE_HARDWARE), ['jack 5 (LFO, smoothing)', 'Voice 1 (arp, envelope)', 'tempo', 'Euclid 2'], 'in the preset’s own order');
   const c = structuredClone(p.preset.values);
   c.noteSequencerMute2 = 1;
-  eq(sceneDifferences(p.preset.values, c, DEFAULT_HARDWARE), ['sequence 3 (mute)']);
-  eq(sceneDifferences(p.preset.values, structuredClone(p.preset.values), DEFAULT_HARDWARE), []);
+  eq(sceneDifferences(p.preset.values, c, EXAMPLE_HARDWARE), ['sequence 3 (mute)']);
+  eq(sceneDifferences(p.preset.values, structuredClone(p.preset.values), EXAMPLE_HARDWARE), []);
 });
 
 test('the fit check finds what a preset sets that this config doesn’t use', () => {
   const p = patch();
-  apply(p, addEuclid(values(p), DEFAULT_HARDWARE, 64, { pulses: 3 })); // Euclid 1 on a jack: fine
+  apply(p, addEuclid(values(p), EXAMPLE_HARDWARE, 64, { pulses: 3 })); // Euclid 1 on a jack: fine
   const pv = p.preset.values;
   pv.euclid[4].pulses = 5; // Euclid 5: no jack
   pv.converter[2].arpMode = 11; // no Voice 3

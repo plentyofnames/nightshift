@@ -17,14 +17,18 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, ec4Port, withEc4 } from './ui/connect.js';
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, ec4Port, withEc4,
+  openEc4, watchEc4, fh2Output, pullPresetFromFh2 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, wholePage,
   strayMappings, removeMappings, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup } from './ec4/setup.js';
-import { renderEc4 } from './ui/ec4.js';
+import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
+import { Ec4Link, Cc14 } from './ec4/link.js';
+import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
+import { getPath } from './fh2/layout.js';
 
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
@@ -51,11 +55,21 @@ const state = {
   colors: new Map(),
   selected: null,
   tab: 'patch',
-  ec4: { sel: null, note: '' }, // the EC4 tab: the knob in view ({ page, knob }), and one line on the EC4
+  ec4: { sel: null, note: '', link: null, thru: loadThru() }, // the EC4 tab's knob in view ({ page, knob }), a line on
+  // the EC4, the live link (ec4/link.js) while the EC4 is connected, and Night Shift's thru (EC4 → FH-2)
   ec4Model: null, // the EC4 pages (ec4/pages.js pagesOf), recomputed with the view
   status: '',
   warn: false,
 };
+
+const THRU_KEY = 'nightshift.ec4thru';
+function loadThru() {
+  try {
+    return localStorage.getItem(THRU_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 function storedSettings() {
   try {
@@ -134,6 +148,7 @@ function update() {
   state.ec4Model = state.view ? pagesOf(state.view, state.names) : null;
   store();
   render();
+  showOnEc4();
 }
 
 // `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. What
@@ -702,11 +717,13 @@ async function sendEc4() {
   if (model.unmapped.length) return status('Give every knob and push a CC first', true);
   state.busy = true;
   try {
-    const pair = await ec4Port();
-    if (!pair) return status('No EC4 found', true);
+    const link = state.ec4.link;
+    const pair = link ? null : await ec4Port();
+    if (!link && !pair) return status('No EC4 found', true);
     status(`Reading EC4 setup ${SETUP + 1}…`);
-    await withEc4(pair, async (device, info) => {
-      state.ec4.note = `controlfrog ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
+    const withDevice = (work) => (link ? work(link.device, link.info) : withEc4(pair, work));
+    await withDevice(async (device, info) => {
+      if (!link) state.ec4.note = `controlfrog ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
       const base = await readSetup(device, (k, n) => status(`Reading EC4 setup ${SETUP + 1}… ${Math.round((100 * k) / n)} %`));
       const img = setupImage(base, model.pages, state.view, model.channel);
       const writes = writesFor(img, base);
@@ -728,6 +745,174 @@ async function sendEc4() {
     state.busy = false;
     render();
   }
+}
+
+// ---- the live link (ec4/link.js): the EC4 and Night Shift follow each other's page, the
+// EC4 shows values in FH-2 units, a touched knob shows its setting, and Night Shift's thru
+// passes the knobs on to the FH-2 (off while Logic does that).
+
+let fh2Out = null; // the FH-2's output port, for the thru
+const cc14 = new Cc14();
+
+async function linkEc4() {
+  if (state.ec4.link || state.ec4.linking) return;
+  state.ec4.linking = true;
+  try {
+    const pair = await ec4Port();
+    if (!pair) return;
+    const { device, info } = await openEc4(pair, onEc4Midi);
+    const link = new Ec4Link(device, info);
+    link.addEventListener('state', (e) => onEc4State(e.detail));
+    link.addEventListener('touch', (e) => onEc4Touch(e.detail));
+    state.ec4.link = link;
+    state.ec4.note = `controlfrog ${info.fwMajor}.${info.fwMinor}`;
+    await link.start();
+  } catch (e) {
+    state.ec4.note = refused(e) ? '' : `EC4: ${e.message}`;
+    state.ec4.link?.close();
+    state.ec4.link = null;
+  } finally {
+    state.ec4.linking = false;
+    render();
+  }
+}
+
+function unlinkEc4() {
+  state.ec4.link?.close();
+  state.ec4.link = null;
+  state.ec4.note = '';
+  render();
+}
+
+// The page a selection in the Patch tab belongs to (a source, a player, a jack with an LFO).
+function pageOfSelection(model) {
+  const sel = state.selected;
+  if (!sel || !model) return null;
+  const id = sel.source ?? sel.player ?? (sel.output != null ? `lfo:${sel.output}` : null);
+  return model.pages.find((p) => p.objects.includes(id) || (id === 'clocks' && p.id === 'clock')) ?? null;
+}
+
+// Night Shift → EC4: the page of what you selected (only while the EC4 is on setup 15).
+function followOnEc4() {
+  const link = state.ec4.link;
+  if (!link?.ours) return;
+  const page = state.tab === 'ec4' ? state.ec4Model?.pages.find((p) => p.id === state.ec4.sel?.page) : pageOfSelection(state.ec4Model);
+  if (page) link.select(page.group).catch(() => {});
+}
+
+// EC4 → Night Shift: its page selects that source (Patch tab) or page (EC4 tab).
+function onEc4State({ setup, group, moved }) {
+  if (setup !== SETUP || !moved) return render();
+  const page = state.ec4Model?.pages[group];
+  if (page) {
+    if (state.tab === 'ec4') state.ec4.sel = { page: page.id, knob: null };
+    else if (!page.live && page !== pageOfSelection(state.ec4Model)) {
+      const id = page.objects[0];
+      state.selected = state.view.sources.some((s) => s.id === id) ? { source: id }
+        : state.view.players.some((p) => p.id === id) ? { player: id }
+        : id === 'clock' ? { source: 'clocks' } : id.startsWith('lfo:') ? { output: Number(id.slice(4)) } : state.selected;
+    }
+  }
+  render();
+  showOnEc4();
+}
+
+// A knob touched on the EC4: its setting shows (and is outlined for a moment) in Night Shift.
+function onEc4Touch({ index, group }) {
+  const page = state.ec4Model?.pages[group];
+  const c = page?.cells[index];
+  if (!c) return;
+  if (state.tab === 'ec4') {
+    state.ec4.sel = { page: page.id, knob: index };
+    return render();
+  }
+  const row = document.querySelector(`[data-ec4="${c.key}"]`);
+  if (row) {
+    row.scrollIntoView({ block: 'nearest' });
+    row.classList.remove('touched');
+    void row.offsetWidth; // restart the outline's fade
+    row.classList.add('touched');
+  }
+}
+
+// What the page the EC4 shows should look like: each knob's value as text and as the CC that
+// puts the knob there.
+function showOnEc4() {
+  const link = state.ec4.link;
+  const page = link?.ours && state.ec4Model?.pages[link.group];
+  if (!page || !state.preset) return;
+  const range = (o) => state.view.outputs[o]?.rangeIndex ?? 0;
+  link.show(page.cells.map((c) => {
+    if (!c?.map) return null;
+    const v = valueOf(state.preset.values, c.key);
+    return { text: valueText(c.key, v, { range }), cc: c.map.relative ? null : { channel: c.map.channel, number: c.map.cc, value: ccFor(c.key, v, c.map.bits), bits: c.map.bits } };
+  })).catch(() => {});
+}
+
+// The EC4's knobs: passed on to the FH-2 (thru), their value shown right away (an estimate
+// where the FH-2 scales the CC), and read back from the FH-2 once they rest.
+function onEc4Midi(bytes) {
+  if (state.ec4.thru && bytes[0] >= 0x80 && bytes[0] < 0xf0) {
+    if (fh2Out?.state === 'connected') fh2Out.send(bytes);
+    else fh2Output().then((o) => { fh2Out = o; o?.send(bytes); }).catch(() => {});
+  }
+  const link = state.ec4.link;
+  const page = link?.ours && state.ec4Model?.pages[link.group];
+  if (!page) return;
+  const hires = (ch, cc) => page.cells.some((c) => c?.map?.channel === ch && c.map.cc === cc && c.map.bits === 14);
+  const range = (o) => state.view.outputs[o]?.rangeIndex ?? 0;
+  for (const m of cc14.take(bytes, hires)) {
+    page.cells.forEach((c, i) => {
+      if (!c?.map || c.map.channel !== m.channel || c.map.cc !== m.cc) return;
+      link.showOne(i, c.map.relative ? null : valueText(c.key, fromCc(c.key, m.value, m.bits), { range })).catch(() => {});
+      link.sent.set(i, `${m.channel}:${m.cc}:${m.value}`);
+      turned.add(c.key);
+    });
+  }
+  if (turned.size) {
+    clearTimeout(readBackTimer);
+    readBackTimer = setTimeout(readBack, 500);
+  }
+}
+
+// After the knobs rest: the FH-2's preset is read and the settings they turned take its values,
+// as one step (undo goes back to before the knobs). Only while the FH-2 holds the scene in view.
+const turned = new Set();
+let readBackTimer = null;
+async function readBack() {
+  const keys = [...turned];
+  turned.clear();
+  if (state.busy || state.link !== 'connected' || !state.preset || state.sync?.kind === 'scene') return;
+  state.busy = true;
+  try {
+    const pair = (await fh2Ports()).find(looksLikeFh2);
+    if (!pair) return;
+    const preset = await pullPresetFromFh2(pair);
+    const changes = [];
+    for (const k of keys) {
+      const path = pathOf(state.ec4Model.known.get(k)?.setting ?? { kind: '' });
+      if (!path) continue;
+      const v = getPath(preset.values, path);
+      if (v !== getPath(state.preset.values, path)) changes.push({ dump: 'preset', path, value: v });
+    }
+    if (state.module) state.module.preset = structuredClone(preset.values);
+    const labels = keys.map((k) => state.ec4Model.known.get(k)?.label.toLowerCase()).filter(Boolean);
+    state.busy = false;
+    if (changes.length) edit(`From the EC4: ${labels.slice(0, 3).join(', ')}${labels.length > 3 ? '…' : ''}`, changes, { force: true });
+    else update();
+  } catch {
+    // the knobs still changed the FH-2; the mark says so at the next read
+  } finally {
+    state.busy = false;
+  }
+}
+
+function toggleThru() {
+  state.ec4.thru = !state.ec4.thru;
+  try {
+    localStorage.setItem(THRU_KEY, state.ec4.thru ? '1' : '0');
+  } catch {}
+  status(state.ec4.thru ? 'Thru on: the EC4’s knobs go on to the FH-2' : 'Thru off');
 }
 
 // ---- rack setup
@@ -764,6 +949,7 @@ function select(sel) {
   const same = sel && state.selected && sel.source === state.selected.source && sel.output === state.selected.output && sel.player === state.selected.player;
   state.selected = same ? null : sel;
   render();
+  followOnEc4();
   // clicking a free jack asks what should come out of it
   if (!same && sel?.output != null && sel.sources && isFree(state.view.outputs[sel.output])) {
     if (state.scenesOnly) status('Setup locked: Scenes only is on', true);
@@ -863,27 +1049,40 @@ function empty() {
       h('button', { type: 'button', class: 'btn', onclick: loadExample }, 'Example patch')));
 }
 
+// the EC4 sketch's lines follow the page as it scrolls or resizes
+let linesFrame = 0;
+const drawLines = () => {
+  cancelAnimationFrame(linesFrame);
+  linesFrame = requestAnimationFrame(sketchLines);
+};
+addEventListener('scroll', drawLines, { passive: true });
+addEventListener('resize', drawLines);
+
 function render() {
   const v = state.view;
+  const sketchPage = v && state.tab === 'patch' ? pageOfSelection(state.ec4Model) : null;
   let content;
   if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
   else if (state.tab === 'ec4') content = renderEc4(v, state.ec4Model, state.colors, state.ec4.sel, {
-    select: (page, knob) => { state.ec4.sel = { page, knob }; render(); },
+    select: (page, knob) => { state.ec4.sel = { page, knob }; render(); followOnEc4(); },
     pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
-    rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note });
+    rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
+    link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy, ec4 });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
     setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
   else {
     content = [
-      h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select)),
+      h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
+        sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
       h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status, ec4 })),
     ];
   }
   document.body.classList.toggle('scenes-only', !!(v && state.scenesOnly));
   replace($('#app'), bar(), h('main', {}, content));
+  drawLines();
 }
 
 // ---- drop files anywhere, keys
@@ -924,4 +1123,7 @@ else if (kept) {
   state.status = 'Last patch restored';
 }
 render();
-connect().then(watch);
+connect().then(watch).then(() => {
+  linkEc4();
+  watchEc4((portState) => (portState === 'connected' ? setTimeout(linkEc4, 600) : unlinkEc4())).catch(() => {});
+});

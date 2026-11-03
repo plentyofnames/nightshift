@@ -14,7 +14,11 @@ export const HARDWARE_VERSION = 2;
 
 // cv: FHX-8CV jumper addresses, in rack order (CV1, CV2…).
 // gt: gate blocks of 8, in rack order (GT1, GT2…); block b = internal GT(b >> 1)/(8·(b & 1) + 1…+8).
-export const DEFAULT_HARDWARE = { version: HARDWARE_VERSION, cv: [1, 2], gt: [0, 1] };
+// The default: one FHX-8CV, and an FHX-8GT with an ESX-8GT on it (your rack, 2026-11-03).
+export const DEFAULT_HARDWARE = { version: HARDWARE_VERSION, cv: [1], gt: [0, 1] };
+// The rack the example patch is made for: two FHX-8CVs. Also what derive() assumes when it is
+// given no rack (the tests).
+export const EXAMPLE_HARDWARE = { version: HARDWARE_VERSION, cv: [1, 2], gt: [0, 1] };
 
 export const isGate = (output) => output >= 64;
 

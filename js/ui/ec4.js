@@ -9,7 +9,7 @@ import { SETUP, KNOBS } from '../ec4/pages.js';
 // `model`: pagesOf(); `sel`: { page, knob } or null. `act`: { select(page, knob), pick(page,
 // knob) (a free knob), takeOff(page, knob), off(key), live(key), addPage(pageId), whole(pageId),
 // map(), send(), rename(pageId), stray (mappings on no page), tidy(), busy, note (the EC4's
-// state, one line) }.
+// state, one line), link ({ ours, setup, group } while linked, else null), thru, toggleThru() }.
 export function renderEc4(view, model, colors, sel, act) {
   const { pages, extra, unmapped, channel } = model;
   const page = pages.find((p) => p.id === sel?.page) ?? pages[0];
@@ -28,7 +28,10 @@ export function renderEc4(view, model, colors, sel, act) {
     h('button', { type: 'button', class: 'btn' + (unmapped.length ? '' : ' primary'), disabled: act.busy || unmapped.length > 0 || !pages.length, onclick: act.send,
       title: unmapped.length ? 'Give every knob and push a CC first' : `Writes the pages to EC4 setup ${SETUP + 1}; other setups stay as they are` }, 'Send to EC4'),
     h('span', { class: 'note' }, `Setup ${SETUP + 1} · ${pages.length} page${pages.length === 1 ? "" : "s"} · CCs on ch ${channel + 1}`),
-    act.note && h('span', { class: 'note' }, act.note),
+    h('span', { class: 'note', title: act.note || '' }, !act.link ? 'EC4 not linked'
+      : act.link.ours ? `Linked · EC4 on page ${act.link.group + 1}` : `EC4 on setup ${act.link.setup + 1}`),
+    h('button', { type: 'button', class: 'btn small', 'aria-pressed': act.thru ? 'true' : 'false', onclick: act.toggleThru,
+      title: 'Passes the EC4’s knobs on to the FH-2. Off while Logic does that.' }, act.thru ? 'Thru on' : 'Thru off'),
     act.stray.length > 0 && h('span', { class: 'note' }, `${act.stray.length} CCs on no page`,
       ' ', h('button', { type: 'button', class: 'btn small', onclick: act.tidy, title: act.stray.map((s) => s.label).join(', ') }, 'Remove them')));
 
@@ -95,4 +98,47 @@ export function renderEc4(view, model, colors, sel, act) {
         title: page.live ? '' : 'Off the EC4, LIVE included' }, page.live ? 'Take off LIVE' : 'Take off')));
 
   return h('div', { class: 'ec4-page' }, head, h('div', { class: 'ec4' }, groups, face, detail));
+}
+
+// ---- a small EC4 beside the rack: the page of the selected source, its knobs in the EC4's
+// 4 × 4 order, each joined by a faint line to its setting in the inspector (sketchLines).
+
+export function ec4Sketch(page, colors, linked) {
+  if (!page) return null;
+  const colorOf = (c) => (c?.source && colors.get(c.source)) || 'var(--faint)';
+  return h('div', { class: 'ec4-sketch', role: 'img', 'aria-label': `EC4 page ${page.name}: ${page.cells.map((c) => c?.short ?? '-').join(' ')}` },
+    h('div', { class: 'head' }, h('span', { class: 'mono' }, page.name), h('span', {}, linked ? 'on the EC4' : `EC4 page ${page.group + 1}`)),
+    h('div', { class: 'grid' }, page.cells.map((c, i) => h('span', { class: 'kn' + (c ? '' : ' free'), 'data-knob': c?.key ?? '',
+      style: `--src:${colorOf(c)}`, title: c ? `Knob ${i + 1}: ${c.label}` : `Knob ${i + 1}: free` }, h('i'), h('b', {}, c ? c.short : '')))));
+}
+
+const SVG = 'http://www.w3.org/2000/svg';
+
+// Draws (again) the lines from the sketch's knobs to their settings in the inspector, in one
+// SVG over the page; none for a setting scrolled out of sight.
+export function sketchLines() {
+  let svg = document.getElementById('ec4-lines');
+  if (!svg) {
+    svg = document.createElementNS(SVG, 'svg');
+    svg.id = 'ec4-lines';
+    svg.setAttribute('aria-hidden', 'true');
+    document.body.append(svg);
+  }
+  svg.replaceChildren();
+  const sketch = document.querySelector('.ec4-sketch');
+  if (!sketch) return;
+  for (const k of sketch.querySelectorAll('[data-knob]')) {
+    const key = k.dataset.knob;
+    const row = key && document.querySelector(`.inspector [data-ec4="${CSS.escape(key)}"]`);
+    if (!row) continue;
+    const a = k.querySelector('i').getBoundingClientRect();
+    const b = row.getBoundingClientRect();
+    if (b.bottom < 0 || b.top > innerHeight || !b.width) continue;
+    const [x1, y1, x2, y2] = [a.right, a.top + a.height / 2, b.left - 3, b.top + b.height / 2];
+    const mid = x1 + (x2 - x1) / 2;
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute('d', `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);
+    path.setAttribute('stroke', getComputedStyle(k).getPropertyValue('--src').trim() || 'currentColor');
+    svg.append(path);
+  }
 }

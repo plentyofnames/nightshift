@@ -286,7 +286,7 @@ Hardware results: learning a knob works (2026-11-03).
   - Built: objectsOf() lists everything a knob or push can control per object; the picker is a list by object; knobs you put on a page are kept with the names (`ec4:add:<page>`) and can be taken off again.
 - **Switched on, not automatic** (your call, 2026-11-03: with every template setting mapped, the config got "quite impenetrable"). Replaces "every template knob gets a CC":
   - In the Patch tab (and Settings), the name of every setting a knob can control is printed in its own colour with a ring after it; clicking it puts it on its object's EC4 page and gives it a CC at once (one undoable step), and the ring fills. Clicking again takes it off, and removes the CC if Night Shift added it (noted in the names as `ec4:cc`); a mapping the config already had stays.
-  - Rows kept per scene keep their dot before the name; the EC4 ring goes after it.
+  - Both marks sit before the name: first the scene dot (kept per scene), then the EC4 ring (your call, 2026-11-03).
   - The templates only say where a knob goes on its page. "+ Page for…" on the EC4 tab makes a page with an object's whole template; "Whole page" fills in the rest of one.
   - The arp commands and truncate are in the voice's arpeggiator section ("On the EC4"); nudge, tempo ±0.1 and the display ones in Settings.
   - "n CCs on no page · Remove them" on the EC4 tab lists mappings on the pages channels that are on no page (not the CC knobs, whose mapping is the source), for what the earlier "give every knob a CC" left behind. They're shown before anything is removed, and it undoes.
@@ -295,7 +295,19 @@ Hardware results: learning a knob works (2026-11-03).
   - Put two small pages in one group (two Euclids at 7 knobs each fit in 16).
   - Keep the clock and sequencer pages in front, so they aren't the ones cut when more than 16 pages want a group.
   - Change the order of the knobs on LIVE.
-- Not yet: "send values on group change" stays off (with it, the EC4 would send its own values, 0 after power-on, to the FH-2 on every page change until the two are in step); values in FH-2 units, SELECT/STATE and touch (the live link); moving knobs between pages; a push to restart an LFO (that is the LFO’s reset by CC, not a mapping).
+- Not yet: "send values on group change" stays off (with it, the EC4 would send its own values, 0 after power-on, to the FH-2 on every page change until the two are in step); moving knobs between pages; a push to restart an LFO (that is the LFO’s reset by CC, not a mapping).
+
+**Live link, first part built (2026-11-03)** (`js/ec4/link.js`, `js/ec4/values.js`):
+- While the EC4 is connected, Night Shift keeps it open (IDENTIFY, then STATE and TOUCH events), and links again when it is plugged in. It only ever acts while the EC4 is on setup 15, and never turns it there by itself: on the MDMM's setup 16 or one of yours it does nothing.
+- **Following:** selecting a source (or a page on the EC4 tab) turns the EC4 to its page; paging on the EC4 selects that source in the Patch tab, or that page on the EC4 tab.
+- **Values in FH-2 units:** for the page in view, each knob gets a value text (TEXT, controlfrog 0.10): volts on a level, % on depths and shapes, Hz, note values (1/16, 16T, EXT), arp modes (UP, DOWN, RND…), ON/OFF, +12 on transpose, tempo, swing type. Only what changed is sent; a new page gets everything again (the EC4 drops its texts on a group change).
+- **In step:** Night Shift sends the FH-2's values to the EC4 as the knobs' CCs (MSB and LSB for 14-bit), so absolute knobs start where the settings are. An edit in Night Shift updates the knob too.
+- **Turning a knob:** its text follows at once (an estimate where the FH-2 scales the CC), and once the knobs rest for half a second Night Shift reads the FH-2's preset and takes the turned settings' values from it, as one undoable step ("From the EC4: …"). Not while the FH-2 holds another scene.
+- **Touch:** turning or pushing a knob outlines its setting in the inspector (scrolled into view), or selects it on the EC4 tab.
+- **Thru** (EC4 tab, kept in the browser): passes the EC4's channel messages on to the FH-2's USB C. On for setting up, off while Logic forwards them.
+- **A small EC4 beside the rack** (your idea, 2026-11-03): the selected source's page, its knobs 4 × 4, each joined by a faint line to its setting in the inspector.
+- How the FH-2 scales a 7-bit CC onto a setting with another range (Euclid pulses 0–32, swing type 0–7…) is a guess: linear (hardware check 19). Tempo isn't sent to the EC4 (its CC range is the config's, check 18).
+- Tested with a stand-in EC4 (`test/link.test.js`); not tried on your EC4 yet. The built-in browser has no MIDI, so the link only runs in Chrome. Lilypad must be closed: only one host may talk to the EC4.
 
 ### M4 and later (v0.3+)
 - Full shift-register editing.
@@ -336,6 +348,7 @@ Each item is listed with the milestone that needs it.
 | 16 | Gamepad and keyboard entries with Usage/Type "--" do nothing on their output, whatever output is set. (The official tool's "None" for these outputs sends `0xFF` inside the SysEx; see fh2-notes.md, "The existing tools") | M2 | Night Shift never writes None there: it switches an entry off through Usage/Type, and keeps every byte 7-bit |
 | 17 | Preset program change: does program change N load preset slot N, or N + 1 (0- or 1-based)? And does Save all leave every scene in its slot (load each from the panel)? | M2 | Night Shift shows "program change N → slot N" until then |
 | 18 | Tempo CC range (config tempoMin/tempoMax, 0–127, shown 1–128 by the official tool): what tempo in BPM does each value mean? Your Init has both at 59 | later | Shown as the official tool numbers it |
+| 19 | How a 7-bit CC maps onto a setting whose range isn't 0–127 (Euclid pulses, steps, rotation, reset; swing type; arp range and latch): linear, and how rounded? Send CC 0, 64, 127 and read the preset back | M3 | Night Shift's EC4 value texts and knob positions assume linear |
 
 ## From your review of fh2-components.md (2026-11-01)
 

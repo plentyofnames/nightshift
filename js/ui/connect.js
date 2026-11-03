@@ -148,6 +148,42 @@ export async function withEc4(pair, work, log) {
   }
 }
 
+// Opens the EC4 and keeps it open (for the live link): { device, info }. Its channel messages
+// (the knobs) go to `onMidi`; controlfrog's own replies and events to the device.
+export async function openEc4(pair, onMidi, log) {
+  const transport = midiTransport(pair.in, pair.out);
+  const device = new Device(transport, { log });
+  const forDevice = transport.onmessage;
+  transport.onmessage = (bytes) => {
+    forDevice(bytes);
+    if (bytes[0] !== 0xf0) onMidi(bytes);
+  };
+  try {
+    return { device, info: await device.identify({ busyMs: 3000 }) };
+  } catch (e) {
+    device.close();
+    throw new Error(e.name === 'TimeoutError' ? 'no answer (controlfrog on it? Lilypad closed?)' : e.message);
+  }
+}
+
+// The FH-2's output port, for passing the EC4's knobs on (Night Shift's thru), or null.
+export async function fh2Output() {
+  return (await fh2Ports()).find(looksLikeFh2)?.out ?? null;
+}
+
+// Only the preset: what the knobs change.
+export function pullPresetFromFh2(pair, log) {
+  return withClient(pair, log, (client) => client.pullPreset());
+}
+
+// Calls `onChange('connected' | 'disconnected')` when a port named like the EC4 comes or goes.
+export async function watchEc4(onChange) {
+  const acc = await midiAccess();
+  acc.addEventListener('statechange', (e) => {
+    if (EC4_NAME.test(e.port.name ?? '') && e.port.type === 'output') onChange(e.port.state);
+  });
+}
+
 // Calls `onChange('connected' | 'disconnected')` when a port named like the FH-2 comes or goes.
 export async function watchFh2(onChange) {
   const acc = await midiAccess();

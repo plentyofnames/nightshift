@@ -323,7 +323,9 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 /* a setting's name that puts it on the EC4 (Patch tab, Settings) */
 .ec4-able { border: 0; background: none; padding: 0; font: inherit; color: var(--ec4); cursor: pointer; text-align: left; display: inline-flex; align-items: center; gap: 5px; }
 .k:has(> .ec4-able) { display: flex; align-items: center; }
-.k:has(> .ec4-able) .scene-dot { flex: none; }
+.k:has(> .ec4-able) .scene-dot { flex: none; margin-right: 5px; }
+.ec4-able.touched { animation: touched 1.6s ease-out; border-radius: 4px; }
+@keyframes touched { from { background: color-mix(in srgb, var(--ec4) 35%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ec4) 35%, transparent); } to { background: transparent; box-shadow: 0 0 0 3px transparent; } }
 .ec4-able:hover { text-decoration: underline; text-underline-offset: 2px; }
 .ec4-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0.55; }
 .ec4-able.on .ec4-dot { background: currentColor; opacity: 1; }
@@ -331,3 +333,16 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .ec4-knobs .unmapped .addr { color: var(--warn); }
 .ec4-knobs .gone { opacity: 0.6; }
 .ec4-cmds { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
+
+/* the small EC4 beside the rack, and its lines to the inspector */
+.stage-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
+.ec4-sketch { flex: none; width: 168px; margin-top: 34px; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+.ec4-sketch .head { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; color: var(--faint); }
+.ec4-sketch .head .mono { font-weight: 600; font-size: 12px; color: var(--text); white-space: pre; }
+.ec4-sketch .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 4px; }
+.ec4-sketch .kn { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ec4-sketch .kn i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--src); background: var(--bg); box-sizing: border-box; }
+.ec4-sketch .kn.free i { border-color: var(--line2); border-style: dashed; }
+.ec4-sketch .kn b { font: 500 9px var(--mono); color: var(--dim); min-height: 11px; white-space: pre; }
+#ec4-lines { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
+#ec4-lines path { fill: none; stroke-width: 1.5; stroke-opacity: 0.35; }
