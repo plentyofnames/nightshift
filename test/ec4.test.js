@@ -6,7 +6,7 @@ import { derive } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
-import { pagesOf, mapPages, toggleLive, liveKeys, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey } from '../js/ec4/pages.js';
+import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, choicesFor, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey } from '../js/ec4/pages.js';
 import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, OWNED, SETUP_NAME } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
@@ -172,4 +172,55 @@ test('writing setup 15 to the mock EC4 leaves every other setup as it was', asyn
   eq(setupState(again).ours, true);
   eq(writesFor(setupImage(again, pages, view, channel), again).length, 0, 'sending again writes nothing');
   dev.close();
+});
+
+test('the FH-2’s commands go on the pushes: arp commands under the arp knobs, nudge and tempo on the clock page', async () => {
+  const { pushOf } = await import('../js/ec4/setup.js');
+  const p = fresh();
+  mapAll(p);
+  const view = viewOf(p);
+  const { pages, channel } = pagesOf(view, p.names);
+  const voice = pages.find((pg) => pg.id === 'converter:0');
+  const arpAt = voice.cells.findIndex((c) => c?.setting.param === 'arpMode');
+  eq(voice.pushes.slice(arpAt, arpAt + 6).map((c) => c.setting.param), ['arpAdd', 'arpRemove', 'arpRest', 'arpTranspose', 'arpTransposeInKey', 'arpSetRoot']);
+  const clock = pages.find((pg) => pg.id === 'clock');
+  eq(clock.pushes.slice(0, 4).map((c) => c.label), ['Nudge slower', 'Nudge faster', 'Tempo −0.1', 'Tempo +0.1']);
+  assert([...voice.pushes, ...clock.pushes].filter(Boolean).every((c) => c.map && c.map.bits === 7), 'every command got a CC');
+  const img = setupImage(demoImage(), pages, view, channel);
+  const push = M.readPush(img, SETUP, voice.group, arpAt);
+  eq([push.type, push.mode, push.channel, push.number, push.lower, push.upper], [M.PT.CC, 0, voice.pushes[arpAt].map.channel, voice.pushes[arpAt].map.cc, 0, 127],
+    'a key-mode CC push: 127 while held, 0 on release');
+  eq(pushOf(null).type, M.PT.OFF);
+  eq(M.readPush(img, SETUP, voice.group, 0).type, M.PT.OFF, 'pushes without a command are off');
+});
+
+test('a free knob takes any other setting of its object, LIVE’s any setting at all', () => {
+  const p = fresh();
+  const view = viewOf(p);
+  let model = pagesOf(view, p.names);
+  const voice = model.pages.find((pg) => pg.id === 'converter:0');
+  const offered = choicesFor(model.objects, voice);
+  eq(offered.length, 1, 'only the voice’s own settings');
+  const params = offered[0].cells.map((c) => c.setting.param);
+  assert(params.includes('arpTruncate') && params.includes('envAttackShape'), 'truncate and the envelope shapes are offered');
+  assert(!params.includes('arpMode'), 'what is on the page already is not');
+  const free = voice.cells.findIndex((c) => !c);
+  apply(p, placeKnob(p.names, voice.id, free, settingKey({ kind: 'converter', index: 0, param: 'arpTruncate' })));
+  model = pagesOf(viewOf(p), p.names);
+  const placed = model.pages.find((pg) => pg.id === 'converter:0').cells[free];
+  eq([placed.short, placed.added, placed.map], ['TRNC', true, null]);
+  assert(model.unmapped.includes(placed.key), 'it needs a CC like any other knob');
+  const live = choicesFor(model.objects, { live: true, cells: [] });
+  assert(live.length >= 10 && live.some((g) => g.name === 'Drum sequencer') && live.some((g) => g.name === 'Stored levels'),
+    'LIVE offers every object, including those without a page');
+  apply(p, placeKnob(p.names, voice.id, free, null));
+  eq(p.names['ec4:add:converter:0'], undefined, 'taking it off clears the stored list');
+});
+
+test('a knob whose object is gone shows as gone and gets no CC', () => {
+  const p = fresh();
+  apply(p, placeKnob(p.names, 'live', 2, 'euclid:9:pulses'));
+  const model = pagesOf(viewOf(p), p.names);
+  eq(model.pages[0].cells[2].gone, true);
+  assert(!model.unmapped.includes('euclid:9:pulses'));
 });

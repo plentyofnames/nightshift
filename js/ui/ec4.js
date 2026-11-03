@@ -1,11 +1,13 @@
 // The EC4 tab: Night Shift's pages on the Faderfox EC4 (setup 15), one per source plus LIVE,
-// laid out like the knobs. Pick a knob to see what it controls and to put it on LIVE.
+// laid out like the knobs. Pick a knob to see what it controls and to put it on LIVE; a free
+// knob takes any other setting of the page's object (on LIVE, of any object).
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { SETUP, KNOBS } from '../ec4/pages.js';
 
-// `model`: pagesOf(); `sel`: { page, knob } or null. `act`: { select(page, knob), map(),
-// send(), live(key), rename(pageId), busy, note (the EC4's state, one line) }.
+// `model`: pagesOf(); `sel`: { page, knob } or null. `act`: { select(page, knob), pick(page,
+// knob) (a free knob), place(page, knob, key or null), map(), send(), live(key), rename(pageId),
+// busy, note (the EC4's state, one line) }.
 export function renderEc4(view, model, colors, sel, act) {
   const { pages, extra, unmapped, channel } = model;
   const page = pages.find((p) => p.id === sel?.page) ?? pages[0];
@@ -14,11 +16,15 @@ export function renderEc4(view, model, colors, sel, act) {
   const sourceName = (id) => view.sources.find((s) => s.id === id)?.name ?? view.players.find((p) => p.id === id)?.name ?? null;
   const colorOf = (c) => (c?.source && colors.get(c.source)) || 'var(--faint)';
 
+  const pushKeys = new Set(pages.flatMap((pg) => pg.pushes.filter(Boolean).map((c) => c.key)));
+  const nPushes = unmapped.filter((k) => pushKeys.has(k)).length;
+  const nKnobs = unmapped.length - nPushes;
+  const what = [nKnobs && `${nKnobs} knobs`, nPushes && `${nPushes} pushes`].filter(Boolean).join(' and ');
   const head = h('div', { class: 'ec4-head' },
     unmapped.length > 0 && h('button', { type: 'button', class: 'btn primary', disabled: act.busy, onclick: act.map,
-      title: `Adds a CC mapping on ch ${channel + 1} for each knob that has none (undoable)` }, `Give ${unmapped.length} knobs a CC`),
+      title: `Adds a CC mapping on ch ${channel + 1} for each that has none (undoable)` }, `Give ${what} a CC`),
     h('button', { type: 'button', class: 'btn' + (unmapped.length ? '' : ' primary'), disabled: act.busy || unmapped.length > 0 || !pages.length, onclick: act.send,
-      title: unmapped.length ? 'Give every knob a CC first' : `Writes the pages to EC4 setup ${SETUP + 1}; other setups stay as they are` }, 'Send to EC4'),
+      title: unmapped.length ? 'Give every knob and push a CC first' : `Writes the pages to EC4 setup ${SETUP + 1}; other setups stay as they are` }, 'Send to EC4'),
     h('span', { class: 'note' }, `Setup ${SETUP + 1} · ${pages.length} pages · CCs on ch ${channel + 1}`),
     act.note && h('span', { class: 'note' }, act.note));
 
@@ -38,11 +44,13 @@ export function renderEc4(view, model, colors, sel, act) {
     page.cells.map((c, i) => h('span', { class: i === knob ? 'on' : '' }, c ? c.short : '')));
   const knobs = h('div', { class: 'ec4-knobs' }, page.cells.map((c, i) => h('button', {
     type: 'button', class: 'tile' + (c ? '' : ' free') + (c && !c.map ? ' unmapped' : '') + (c?.gone ? ' gone' : ''),
-    'aria-pressed': i === knob ? 'true' : 'false', style: `--src:${colorOf(c)}`, disabled: !c,
-    'aria-label': c ? `Knob ${i + 1}: ${c.label}` : `Knob ${i + 1}: free`, onclick: () => act.select(page.id, i),
+    'aria-pressed': c && i === knob ? 'true' : 'false', style: `--src:${colorOf(c)}`,
+    'aria-label': c ? `Knob ${i + 1}: ${c.label}` : `Knob ${i + 1}: free, add a setting`,
+    onclick: () => (c ? act.select(page.id, i) : act.pick(page.id, i)),
   },
   h('span', { class: 'short' }, c ? c.short : '····'),
-  h('span', { class: 'label' }, c ? c.label : 'free'),
+  h('span', { class: 'label' }, c ? c.label : '+ add'),
+  page.pushes[i] && h('span', { class: 'push' }, `push: ${page.pushes[i].label}`),
   c && h('span', { class: 'addr' }, address(c), c.onLive && !page.live ? ' · LIVE' : ''))));
 
   const face = h('section', { class: 'ec4-face', 'aria-label': `Page ${page.name}` },
@@ -52,16 +60,21 @@ export function renderEc4(view, model, colors, sel, act) {
     display, knobs);
 
   const c = page.cells[knob];
+  const push = page.pushes[knob];
   const row = (k, v) => h('div', { class: 'erow' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v));
   const detail = c && h('aside', { class: 'ec4-knob', 'aria-label': 'Selected knob' },
     h('h3', {}, `Knob ${knob + 1} · `, h('span', { class: 'mono', style: `color:${colorOf(c)}` }, c.short)),
     h('div', { class: 'erows' },
       row('Controls', c.gone ? 'gone from the patch' : `${sourceName(c.source) ?? 'Global'} · ${c.label.toLowerCase()}`),
       row('Sends', address(c)),
-      row('Resolution', !c.map ? '—' : c.map.relative ? 'relative (up/down)' : c.map.bits === 14 ? '14-bit' : '7-bit')),
-    h('button', { type: 'button', class: 'btn', disabled: !c.onLive && model.liveFull, onclick: () => act.live(c.key),
-      title: model.liveFull && !c.onLive ? `LIVE is full (${KNOBS} knobs)` : 'LIVE is a page of your own, from any source' },
-    c.onLive || page.live ? 'Take off LIVE' : 'Put on LIVE'));
+      row('Resolution', !c.map ? '—' : c.map.relative ? 'relative (up/down)' : c.map.bits === 14 ? '14-bit' : '7-bit'),
+      row('Push', push ? `${push.label} · ${address(push)}` : '—')),
+    h('div', { class: 'actions' },
+      !page.live && h('button', { type: 'button', class: 'btn', disabled: !c.onLive && model.liveFull, onclick: () => act.live(c.key),
+        title: model.liveFull && !c.onLive ? `LIVE is full (${KNOBS} knobs)` : 'LIVE is a page of your own, from any source' },
+      c.onLive ? 'Take off LIVE' : 'Put on LIVE'),
+      (c.added || page.live) && h('button', { type: 'button', class: 'btn', onclick: () => act.place(page.id, knob, null) },
+        page.live ? 'Take off LIVE' : 'Take off this page')));
 
   return h('div', { class: 'ec4-page' }, head, h('div', { class: 'ec4' }, groups, face, detail));
 }

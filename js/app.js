@@ -21,7 +21,7 @@ import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToF
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
-import { pagesOf, mapPages, toggleLive, liveKeys, pageNameKey, SETUP } from './ec4/pages.js';
+import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, choicesFor, pageNameKey, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup } from './ec4/setup.js';
 import { renderEc4 } from './ui/ec4.js';
 
@@ -607,14 +607,37 @@ const ec4Model = () => pagesOf(state.view, state.names);
 // Gives every knob without one a CC mapping (one undoable edit of the config).
 function mapEc4() {
   const r = mapPages(state.config.values, state.view, ec4Model());
-  if (!r.changes.length) return status(r.left.length ? `No room for ${r.left.length} knobs` : 'Every knob has a CC', r.left.length > 0);
-  edit(`${r.mapped} knobs got a CC${r.left.length ? `; no room for ${r.left.length}` : ''}`, r.changes);
+  if (!r.changes.length) return status(r.left.length ? `No room for ${r.left.length} more CCs` : 'Every knob has a CC', r.left.length > 0);
+  edit(`${r.mapped} CCs added${r.left.length ? `; no room for ${r.left.length}` : ''}`, r.changes);
 }
 
 function liveEc4(key) {
   const changes = toggleLive(state.names, key);
   if (!changes) return status('LIVE is full', true);
   edit(liveKeys(state.names).includes(key) ? 'Taken off LIVE' : 'Put on LIVE', changes);
+}
+
+// A free knob: pick any other setting of the page's object (on LIVE, of any object).
+async function pickEc4(pageId, i) {
+  const model = ec4Model();
+  const page = model.pages.find((p) => p.id === pageId);
+  const groups = choicesFor(model.objects, page);
+  if (!groups.length) return status('Every setting is on this page already');
+  const select = h('select', { 'aria-label': 'Setting' }, groups.map((g) => h('optgroup', { label: g.name },
+    g.cells.map((c) => h('option', { value: c.key }, `${c.label} (${c.short})`)))));
+  const ok = await modal($('dialog'), {
+    title: `Knob ${i + 1} of ${page.name}`,
+    body: select,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Put it here', value: true, primary: true }],
+  });
+  if (!ok) return;
+  state.ec4.sel = { page: pageId, knob: i };
+  edit(`Put on ${page.name}`, placeKnob(state.names, pageId, i, select.value));
+}
+
+function placeEc4(pageId, i, key) {
+  const page = ec4Model().pages.find((p) => p.id === pageId);
+  edit(key ? `Put on ${page.name}` : `Taken off ${page.name}`, placeKnob(state.names, pageId, i, key));
 }
 
 function renameEc4Page(id) {
@@ -626,7 +649,7 @@ function renameEc4Page(id) {
 async function sendEc4() {
   const model = ec4Model();
   if (state.busy) return;
-  if (model.unmapped.length) return status('Give every knob a CC first', true);
+  if (model.unmapped.length) return status('Give every knob and push a CC first', true);
   state.busy = true;
   try {
     const pair = await ec4Port();
@@ -797,7 +820,7 @@ function render() {
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
   else if (state.tab === 'ec4') content = renderEc4(v, ec4Model(), state.colors, state.ec4.sel, {
     select: (page, knob) => { state.ec4.sel = { page, knob }; render(); },
-    map: mapEc4, send: sendEc4, live: liveEc4, rename: renameEc4Page, busy: state.busy, note: state.ec4.note });
+    pick: pickEc4, place: placeEc4, map: mapEc4, send: sendEc4, live: liveEc4, rename: renameEc4Page, busy: state.busy, note: state.ec4.note });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,

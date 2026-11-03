@@ -6,7 +6,7 @@
 // 14-bit setting is CC absolute 14-bit (CCAh, MSB first, so the FH-2 needs "14 bit CC byte
 // order" = MSB first) with acceleration; the rest CC absolute, or CC relative where the
 // config's mapping is relative. Free knobs send CC 119 relative on the pages channel, which
-// nothing maps, so turning one does nothing. Pushes are off.
+// nothing maps, so turning one does nothing. Pushes carry the FH-2's commands; the rest are off.
 
 import * as M from '../../vendor/lilypad/js/model.js';
 import { SETUP, GROUPS, KNOBS, SWITCHES, DEAD_CC } from './pages.js';
@@ -35,6 +35,13 @@ export function encoderOf(cell, view, channel) {
   return { type: M.T.CCAB, channel: map.channel, number: map.cc, mode: MODE.acc1, scale: SWITCHES.has(cell.setting.param) ? SCALE.onoff : SCALE.n127, lower: 0, upper: 127, name };
 }
 
+// What a push sends: a command's CC, 127 while held and 0 on release (key mode), with the
+// display mark on while it is held; else nothing.
+export function pushOf(push) {
+  if (!push || !push.map || push.gone) return { type: M.PT.OFF, channel: 0, mode: 0, number: 0, display: 0, lower: 0, upper: 0 };
+  return { type: M.PT.CC, channel: push.map.channel, mode: 0, number: push.map.cc, display: 1, lower: 0, upper: 127 };
+}
+
 // `base` (64 KB, what the EC4 holds) with setup 15 replaced by the pages.
 export function setupImage(base, pages, view, channel) {
   const img = Uint8Array.from(base);
@@ -48,7 +55,8 @@ export function setupImage(base, pages, view, channel) {
       for (const f of ['type', 'scale', 'channel', 'number', 'mode', 'lower', 'upper', 'name']) M.setEncoder(img, SETUP, g, i, f, e[f]);
       M.setEncoder(img, SETUP, g, i, 'numberHigh', 0);
       if (i < 15) M.setEncoder(img, SETUP, g, i, 'link', 0);
-      for (const f of ['type', 'channel', 'mode', 'number', 'display', 'lower', 'upper']) M.setPush(img, SETUP, g, i, f, 0);
+      const p = pushOf(page?.pushes[i]);
+      for (const f of ['type', 'channel', 'mode', 'number', 'display', 'lower', 'upper']) M.setPush(img, SETUP, g, i, f, p[f]);
       if (i < 15) M.setPush(img, SETUP, g, i, 'link', 0);
     }
   }

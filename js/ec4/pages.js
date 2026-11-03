@@ -5,9 +5,16 @@
 // setting on two pages (its own and LIVE) is one mapping and one CC, so the EC4 keeps both
 // knobs on the same value.
 //
-// The pages are recomputed from the patch like everything else. Night Shift's own part (the
-// LIVE page, page names) lives in the patch's names: `ec4:live` holds 16 setting keys
-// separated by commas (empty where a knob is free), `ec4:page:<id>` a page's name.
+// Templates hold the settings you turn while playing. The rest can be put on a free knob by
+// hand: a page's free knobs offer the rest of its object's settings, LIVE's every setting of
+// every object (objectsOf lists them all). The FH-2's commands (arp add, remove, rest,
+// transpose…, nudge, tempo ±0.1) act while their CC is 64 or more, or when it gets there, so
+// they go on the pushes, which send 127 while held and 0 on release.
+//
+// The pages are recomputed from the patch like everything else. Night Shift's own part lives
+// in the patch's names: `ec4:live` holds LIVE's 16 setting keys separated by commas (empty
+// where a knob is free), `ec4:add:<page>` the knobs put on a page's free knobs the same way,
+// `ec4:page:<page>` a page's name.
 
 import { encodeTarget, isUsed } from '../patch/mappings.js';
 import { PARAM_NAMES } from '../patch/tables.js';
@@ -18,6 +25,7 @@ export const GROUPS = 16;
 export const KNOBS = 16;
 export const LIVE_KEY = 'ec4:live';
 export const pageNameKey = (id) => `ec4:page:${id}`;
+const knobsKey = (pageId) => (pageId === 'live' ? LIVE_KEY : `ec4:add:${pageId}`);
 
 // The settings the FH-2 takes as 14-bit (CC n below 32 with n + 32 as the fine half).
 export const HIRES = new Set(['directLevel', 'lfoSpeed', 'lfoLevel']);
@@ -30,43 +38,29 @@ export function settingOf(key) {
   return { kind, index: Number(index), param };
 }
 
-// ---- templates: [EC4 name, parameter] per knob, in the EC4's 4 × 4 order; null is a free knob
+// ---- names on the EC4 (four characters) and in Night Shift
 
-const LFO = [['SYNC', 'lfoTempoBase'], ['MULT', 'lfoTempoMultiplier'], ['DPTH', 'lfoLevel'], ['OFFS', 'directLevel'],
-  ['SINE', 'lfoSine'], ['TRI', 'lfoTriangle'], ['SAW', 'lfoSaw'], ['SQR', 'lfoSquare'],
-  ['PW', 'lfoPulseWidth'], ['RAND', 'lfoRandom'], ['NOIS', 'lfoNoise'], ['SMTH', 'smoothing'],
-  ['PHAS', 'lfoPhase'], ['FADE', 'lfoFade'], ['RATE', 'lfoSpeed'], null];
-const EUCLID = [['PULS', 'pulses'], ['STEP', 'steps'], ['ROT', 'rotation'], ['RATE', 'rate'],
-  ['GATE', 'gate'], ['ACNT', 'accent'], ['RSET', 'reset']];
-const RANDOM = [['RAND', 'randomness'], ['LEN', 'length'], ['RATE', 'rate'], ['ATTN', 'attenuator'],
-  ['SCAL', 'scale'], ['KEY', 'key'], ['GATE', 'gateLength'], ['DIR', 'direction']];
-const ENVELOPE = [['ATK', 'envAttack'], ['DEC', 'envDecay'], ['SUS', 'envSustain'], ['REL', 'envRelease'],
-  ['ENVD', 'envDepth'], ['VELD', 'envVelocityDepth'], ['ERNG', 'envRange']];
-const ARP = [['ARP', 'arpMode'], ['ARNG', 'arpRange'], ['AGAT', 'arpGate'], ['ARAT', 'arpRate']];
-const CLOCK = [['TEMP', 'tempo'], ['SWNG', 'swingAmount'], ['STYP', 'swingType']];
-const SEQUENCER = [['RAT', 'rate'], ['RST', 'reset'], ['GAT', 'gateLength'], ['POS', 'position']];
+const SHORT = {
+  lfoTempoBase: 'SYNC', lfoTempoMultiplier: 'MULT', lfoLevel: 'DPTH', directLevel: 'LEVL', lfoSine: 'SINE', lfoTriangle: 'TRI',
+  lfoSaw: 'SAW', lfoSquare: 'SQR', lfoPulseWidth: 'PW', lfoRandom: 'RAND', lfoNoise: 'NOIS', smoothing: 'SMTH', lfoPhase: 'PHAS',
+  lfoFade: 'FADE', lfoSpeed: 'RATE',
+  pulses: 'PULS', steps: 'STEP', rotation: 'ROT', rate: 'RATE', gate: 'GATE', accent: 'ACNT', reset: 'RSET',
+  randomness: 'RAND', length: 'LEN', attenuator: 'ATTN', scale: 'SCAL', key: 'KEY', gateLength: 'GATE', direction: 'DIR',
+  envAttack: 'ATK', envDecay: 'DEC', envSustain: 'SUS', envRelease: 'REL', envDepth: 'ENVD', envVelocityDepth: 'VELD',
+  envRange: 'ERNG', randomDepth: 'RNDD', envAttackShape: 'ASHP', envDecayShape: 'DSHP', envReleaseShape: 'RSHP',
+  arpMode: 'ARP', arpRange: 'ARNG', arpGate: 'AGAT', arpRate: 'ARAT', arpLatch: 'LTCH', arpReset: 'ARST', portamento: 'GLID',
+  transpose: 'TRNS', arpTruncate: 'TRNC',
+  tempo: 'TEMP', swingAmount: 'SWNG', swingType: 'STYP', displayMode: 'DISP', displayItem: 'DITM', position: 'POS',
+};
 
 const label = (param) => {
   const n = (PARAM_NAMES[param] ?? param).replace(/^LFO /, '');
   return n.charAt(0).toUpperCase() + n.slice(1);
 };
-const cellOf = (short, kind, index, param, source) => ({ short, label: label(param), setting: { kind, index, param }, key: settingKey({ kind, index, param }), source });
+const cellOf = (kind, index, param, source, more = {}) => ({
+  short: SHORT[param] ?? param.slice(0, 4).toUpperCase(), label: label(param), setting: { kind, index, param },
+  key: settingKey({ kind, index, param }), source, ...more });
 const fill = (cells) => Array.from({ length: KNOBS }, (_, i) => cells[i] ?? null);
-
-// A voice: its envelope if it has an envelope output, glide where it glides (mono voices and
-// unison), the arpeggiator, transpose, random depth with a random output.
-function voiceCells(s) {
-  const cv = s.raw;
-  const out = [];
-  const add = (list) => list.forEach(([short, p]) => out.push(cellOf(short, 'converter', s.index, p, s.id)));
-  if (cv.envelopeOut) add(ENVELOPE);
-  if (cv.type === 0 || cv.allocation === 2 || cv.allocation === 3) add([['GLID', 'portamento']]);
-  while (out.length % 4) out.push(null);
-  add(ARP);
-  add([['TRNS', 'transpose'], ['LTCH', 'arpLatch'], ['ARST', 'arpReset']]);
-  if (cv.randomOut) add([['RNDD', 'randomDepth']]);
-  return out.slice(0, KNOBS);
-}
 
 // "CV2·1" → "C2.1", "5" → "OUT5", "GT1·3" → "G1.3": a jack in four characters.
 export function jackShort(jack) {
@@ -74,6 +68,7 @@ export function jackShort(jack) {
   if (/^\d+$/.test(j)) return `OUT${j}`.slice(0, 4);
   return (j.charAt(0) + j.replace(/^[A-Za-z]+/, '')).slice(0, 4);
 }
+const jackDigits = (jack) => String(jack).replace('·', '.').replace(/^[A-Za-z]+/, '');
 
 // A page name in the EC4's four characters: "Voice 1" → "VOI1", "Euclid 12" → "EU12", "Wobble" → "WOBB".
 export function shortName(name) {
@@ -85,46 +80,126 @@ export function shortName(name) {
 // Up to four characters the EC4 can show (padded with spaces only when written).
 export const fourChars = (text) => sanitizeName(text).trimEnd();
 
-// The template pages for the patch, in the order sources are shown, then the sequencers and
-// the clock. Every page holds at most 16 knobs; a "CC → CV" source with more gets several.
-function templatePages(view) {
-  const pages = [];
-  const page = (id, name, source, cells) => pages.push({ id, name, defaultName: shortName(name), source, cells: fill(cells) });
+// ---- everything a knob or a push can control
+
+const ARP_COMMANDS = [['arpAdd', 'Arp add'], ['arpRemove', 'Arp remove'], ['arpRest', 'Arp rest'], ['arpTranspose', 'Arp transpose'],
+  ['arpTransposeInKey', 'Arp transpose in key'], ['arpSetRoot', 'Arp set root']];
+const CLOCK_COMMANDS = [['nudgeSlower', 'Nudge slower'], ['nudgeFaster', 'Nudge faster'], ['tempoDown', 'Tempo −0.1'], ['tempoUp', 'Tempo +0.1']];
+
+// Each object a page can be about: { id, name, source (for colours), knobs: [cell], commands:
+// [cell] }, in the order Night Shift shows sources.
+export function objectsOf(view) {
+  const out = [];
+  const obj = (id, name, source, knobs, commands = []) => out.push({ id, name, source, knobs, commands });
+  const of = (kind, index, source, params) => params.map((p) => cellOf(kind, index, p, source));
   for (const s of view.sources) {
     if (s.parked) continue;
-    if (s.kind === 'voice') page(s.id, s.name, s.id, voiceCells(s));
-    else if (s.kind === 'euclid') page(s.id, s.name, s.id, EUCLID.map(([short, p]) => cellOf(short, 'euclid', s.index, p, s.id)));
-    else if (s.kind === 'random') page(s.id, s.name, s.id, RANDOM.map(([short, p]) => cellOf(short, 'srr', s.index, p, s.id)));
-    else if (s.kind === 'lfo') page(s.id, s.name, s.id, LFO.map((c) => c && { ...cellOf(c[0], 'output', s.index, c[1], s.id), ...(c[1] === 'directLevel' && { label: 'Centre' }) }));
+    if (s.kind === 'voice') {
+      obj(s.id, s.name, s.id, [
+        ...of('converter', s.index, s.id, ['envAttack', 'envDecay', 'envSustain', 'envRelease', 'envDepth', 'envVelocityDepth', 'envRange',
+          'portamento', 'arpMode', 'arpRange', 'arpGate', 'arpRate', 'transpose', 'arpLatch', 'arpReset', 'randomDepth', 'arpTruncate',
+          'envAttackShape', 'envDecayShape', 'envReleaseShape']),
+      ], ARP_COMMANDS.map(([p, l]) => cellOf('converter', s.index, p, s.id, { label: l })));
+    } else if (s.kind === 'euclid') obj(s.id, s.name, s.id, of('euclid', s.index, s.id, ['pulses', 'steps', 'rotation', 'rate', 'gate', 'accent', 'reset']));
+    else if (s.kind === 'random') obj(s.id, s.name, s.id, of('srr', s.index, s.id, ['randomness', 'length', 'rate', 'attenuator', 'scale', 'key', 'gateLength', 'direction']));
+    else if (s.kind === 'lfo') {
+      obj(s.id, s.name, s.id, of('output', s.index, s.id, ['lfoTempoBase', 'lfoTempoMultiplier', 'lfoLevel', 'directLevel', 'lfoSine', 'lfoTriangle',
+        'lfoSaw', 'lfoSquare', 'lfoPulseWidth', 'lfoRandom', 'lfoNoise', 'smoothing', 'lfoPhase', 'lfoFade', 'lfoSpeed'])
+        .map((c) => (c.setting.param === 'directLevel' ? { ...c, label: 'Centre', short: 'OFFS' } : c)));
+    } else if (s.kind === 'knobs' || s.kind === 'level') {
+      obj(s.id, s.name, s.id, s.ports.filter((p) => p.output < 64).flatMap((p) => [
+        cellOf('output', p.output, 'directLevel', s.id, { short: jackShort(p.jack), label: `Level of ${p.jack}` }),
+        cellOf('output', p.output, 'smoothing', s.id, { short: `S${jackDigits(p.jack)}`.slice(0, 4), label: `Smoothing of ${p.jack}` }),
+      ]));
+    }
+  }
+  for (const q of view.players) {
+    if (q.kind === 'sequencer') {
+      obj(q.id, q.name, q.id, ['rate', 'reset', 'gateLength', 'position'].map((p) =>
+        cellOf('noteSequencer', q.index, p, q.id, { short: `${SHORT[p].slice(0, 3)}${q.index + 1}`, label: `${q.name}: ${PARAM_NAMES[p]}` })));
+    } else if (q.kind === 'drums') {
+      obj(q.id, q.name, q.id, [
+        ...of('drumSequencer', 0, q.id, ['reset', 'position']),
+        ...Array.from({ length: 16 }, (_, l) => cellOf('drumLane', l, 'rate', q.id, { short: `LR${l + 1}`, label: `Lane ${l + 1} rate` })),
+      ]);
+    }
+  }
+  const clocks = view.sources.some((s) => s.id === 'clocks') ? 'clocks' : null;
+  obj('clock', 'Clock', clocks, of('global', 0, clocks, ['tempo', 'swingAmount', 'swingType', 'displayMode', 'displayItem']),
+    CLOCK_COMMANDS.map(([p, l]) => cellOf('global', 0, p, clocks, { label: l })));
+  return out;
+}
+
+// ---- the template pages
+
+// A voice: its envelope if it has an envelope output, glide where it glides (mono voices and
+// unison), the arpeggiator, transpose, random depth with a random output. The arp commands
+// go on the pushes under the arp knobs.
+function voicePage(o, s) {
+  const cv = s.raw;
+  const by = new Map(o.knobs.map((c) => [c.setting.param, c]));
+  const cells = [];
+  const add = (params) => params.forEach((p) => cells.push(by.get(p)));
+  if (cv.envelopeOut) add(['envAttack', 'envDecay', 'envSustain', 'envRelease', 'envDepth', 'envVelocityDepth', 'envRange']);
+  if (cv.type === 0 || cv.allocation === 2 || cv.allocation === 3) add(['portamento']);
+  while (cells.length % 4) cells.push(null);
+  const arpAt = cells.length;
+  add(['arpMode', 'arpRange', 'arpGate', 'arpRate', 'transpose', 'arpLatch', 'arpReset']);
+  if (cv.randomOut) add(['randomDepth']);
+  const pushes = [];
+  o.commands.forEach((c, k) => (pushes[arpAt + k] = c));
+  return { cells: cells.slice(0, KNOBS), pushes };
+}
+
+// The template pages, in the order sources are shown, then the note sequencers and the clock.
+// Every page holds at most 16 knobs; a "CC → CV" source with more gets several.
+function templatePages(view, objects) {
+  const pages = [];
+  const page = (id, name, o, cells, pushes = []) => pages.push({ id, name, defaultName: shortName(name), object: o.id, source: o.source, cells: fill(cells), pushes: fill(pushes) });
+  const byId = new Map(objects.map((o) => [o.id, o]));
+  for (const s of view.sources) {
+    const o = byId.get(s.id);
+    if (!o) continue;
+    if (s.kind === 'voice') {
+      const { cells, pushes } = voicePage(o, s);
+      page(s.id, s.name, o, cells, pushes);
+    } else if (s.kind === 'euclid' || s.kind === 'random' || s.kind === 'lfo') page(s.id, s.name, o, o.knobs);
     else if (s.kind === 'knobs') {
-      const ports = s.ports.filter((p) => p.output < 64);
-      for (let k = 0; k < ports.length; k += KNOBS) {
-        const part = ports.slice(k, k + KNOBS).map((p) => ({ ...cellOf(jackShort(p.jack), 'output', p.output, 'directLevel', s.id), label: `Level of ${p.jack}` }));
-        page(k ? `${s.id}:${k / KNOBS}` : s.id, k ? `${s.name} ${k / KNOBS + 1}` : s.name, s.id, part);
+      const levels = o.knobs.filter((c) => c.setting.param === 'directLevel');
+      for (let k = 0; k < levels.length; k += KNOBS) {
+        page(k ? `${s.id}:${k / KNOBS}` : s.id, k ? `${s.name} ${k / KNOBS + 1}` : s.name, o, levels.slice(k, k + KNOBS));
         if (!s.defaultName) pages.at(-1).defaultName = shortName(`CC ${s.channel + 1}${k ? String.fromCharCode(65 + k / KNOBS) : ''}`);
       }
     }
   }
-  const seqs = view.players.filter((p) => p.kind === 'sequencer');
+  const seqs = objects.filter((o) => o.id.startsWith('noteSequencer:'));
   if (seqs.length) {
-    page('sequencers', 'Sequencers', null, seqs.flatMap((q) => SEQUENCER.map(([short, p]) => ({
-      ...cellOf(`${short}${q.index + 1}`, 'noteSequencer', q.index, p, q.id), label: `${q.name}: ${PARAM_NAMES[p]}` }))));
+    page('sequencers', 'Sequencers', { id: 'sequencers', source: null }, seqs.flatMap((o) => o.knobs));
     Object.assign(pages.at(-1), { defaultName: 'SEQ', sub: 'Note sequencers' });
   }
-  page('clock', 'Clock', 'clocks', CLOCK.map(([short, p]) => cellOf(short, 'global', 0, p, view.sources.some((s) => s.id === 'clocks') ? 'clocks' : null)));
+  const clock = byId.get('clock');
+  page('clock', 'Clock', clock, clock.knobs.slice(0, 3), clock.commands);
   Object.assign(pages.at(-1), { defaultName: 'CLK', sub: 'Tempo, swing' });
   return pages;
 }
 
-// The LIVE page as stored: 16 setting keys or ''.
-export function liveKeys(names) {
-  const keys = (names?.[LIVE_KEY] ?? '').split(',');
+// ---- knobs you put on pages yourself
+
+// The knobs put on a page by hand (on LIVE: all of them), as stored: 16 setting keys or ''.
+export function addedKeys(names, pageId) {
+  const keys = (names?.[knobsKey(pageId)] ?? '').split(',');
   return Array.from({ length: KNOBS }, (_, i) => keys[i] ?? '');
 }
-// The change that stores `keys` as the LIVE page (cleared when all are free).
-export function setLive(keys) {
+export const liveKeys = (names) => addedKeys(names, 'live');
+function setKeys(pageId, keys) {
   const value = keys.some(Boolean) ? keys.map((k) => k ?? '').join(',').replace(/,+$/, '') : null;
-  return [{ dump: 'names', path: [LIVE_KEY], value }];
+  return [{ dump: 'names', path: [knobsKey(pageId)], value }];
+}
+// Puts setting `key` on knob `i` of a page (null takes it off).
+export function placeKnob(names, pageId, i, key) {
+  const keys = addedKeys(names, pageId);
+  keys[i] = key ?? '';
+  return setKeys(pageId, keys);
 }
 // Puts a setting on the first free LIVE knob, or takes it off.
 export function toggleLive(names, key) {
@@ -136,8 +211,18 @@ export function toggleLive(names, key) {
     if (free < 0) return null; // LIVE is full
     keys[free] = key;
   }
-  return setLive(keys);
+  return setKeys('live', keys);
 }
+
+// What the picker offers for a free knob of `page`: [{ name, cells }] by object, without the
+// settings already on that page. LIVE offers every object's.
+export function choicesFor(objects, page) {
+  const here = new Set(page.cells.filter(Boolean).map((c) => c.key));
+  const from = page.live ? objects : objects.filter((o) => o.id === page.object || (page.object === 'sequencers' && o.id.startsWith('noteSequencer:')));
+  return from.map((o) => ({ name: o.name, cells: o.knobs.filter((c) => !here.has(c.key)) })).filter((g) => g.cells.length);
+}
+
+// ---- the pages channel and CCs
 
 // The pages channel: ch 2, unless a voice, a trigger or one of the FH-2's players uses it;
 // then the first channel nothing but CC mappings uses.
@@ -147,8 +232,9 @@ export function pagesChannels(view) {
   return free.includes(1) ? [1, ...free.filter((c) => c !== 1)] : free;
 }
 
-// Every page with its knobs' CCs: { pages, extra (pages past the 16th), channel, unmapped }.
-// A knob's `map` is { channel, cc, relative, bits, slot } or null while it has no mapping.
+// Every page with its knobs' and pushes' CCs: { pages, extra (pages past the 16th), objects,
+// channel, unmapped, liveFull }. A knob's or push's `map` is { channel, cc, relative, bits, slot },
+// or null while it has no mapping.
 export function pagesOf(view, names = {}) {
   const byKey = new Map();
   for (const m of view.mappings) {
@@ -164,31 +250,34 @@ export function pagesOf(view, names = {}) {
     const bits = HIRES.has(p) && m.cc < 32 && !m.relative && !usedOn(m.channel).has(m.cc + 32) ? 14 : 7;
     return { channel: m.channel, cc: m.cc, relative: m.relative, bits, slot: m.slot };
   };
+  const objects = objectsOf(view);
+  const known = new Map(objects.flatMap((o) => o.knobs.map((c) => [c.key, c])));
+  const gone = (key) => ({ short: '?', label: 'Gone from the patch', key, setting: settingOf(key), source: null, gone: true });
+  // a knob put there by hand: as the object lists it, or gone once its object is
+  const placed = (key, more) => (known.has(key) ? { ...known.get(key), ...more } : { ...gone(key), ...more });
 
-  const all = templatePages(view);
-  const cells = new Map();
+  const all = templatePages(view, objects);
   for (const pg of all) {
     pg.name = names[pageNameKey(pg.id)] ? fourChars(names[pageNameKey(pg.id)]) : pg.defaultName;
-    for (const c of pg.cells) if (c) {
-      c.map = mapOf(c.key);
-      cells.set(c.key, c);
-    }
+    addedKeys(names, pg.id).forEach((key, i) => {
+      if (key && !pg.cells[i]) pg.cells[i] = placed(key, { added: true });
+    });
   }
-  // LIVE: settings from the other pages; one that no longer exists shows as gone
-  const live = liveKeys(names).map((key) => {
-    if (!key) return null;
-    const c = cells.get(key);
-    if (c) return { ...c, live: true };
-    return { short: '?', label: 'Gone from the patch', key, setting: settingOf(key), source: null, map: mapOf(key), gone: true };
-  });
-  if (live.some(Boolean)) all.unshift({ id: 'live', name: names[pageNameKey('live')] ? fourChars(names[pageNameKey('live')]) : 'LIVE', defaultName: 'LIVE', source: null, cells: live, live: true });
+  const live = liveKeys(names).map((key) => key && placed(key, { live: true }));
+  if (live.some(Boolean)) all.unshift({ id: 'live', name: names[pageNameKey('live')] ? fourChars(names[pageNameKey('live')]) : 'LIVE', defaultName: 'LIVE', object: null, source: null, cells: live.map((c) => c || null), pushes: fill([]), live: true });
   const pages = all.slice(0, GROUPS);
   pages.forEach((pg, g) => (pg.group = g));
-  const unmapped = new Set();
-  for (const pg of pages) for (const c of pg.cells) if (c && !c.map && !c.gone) unmapped.add(c.key);
   const onLive = new Set(liveKeys(names).filter(Boolean));
-  for (const pg of pages) for (const c of pg.cells) if (c) c.onLive = onLive.has(c.key);
-  return { pages, extra: all.slice(GROUPS), channel: pagesChannels(view)[0] ?? null, unmapped: [...unmapped], liveFull: onLive.size >= KNOBS };
+  const unmapped = new Set();
+  for (const pg of pages) {
+    for (const c of [...pg.cells, ...pg.pushes]) {
+      if (!c) continue;
+      c.map = mapOf(c.key);
+      c.onLive = onLive.has(c.key);
+      if (!c.map && !c.gone) unmapped.add(c.key);
+    }
+  }
+  return { pages, extra: all.slice(GROUPS), objects, channel: pagesChannels(view)[0] ?? null, unmapped: [...unmapped], liveFull: onLive.size >= KNOBS };
 }
 
 // CCs on a channel in the order knobs get them: 14-bit settings take a free pair below 32
@@ -222,10 +311,10 @@ class CcPool {
   }
 }
 
-// The changes that give every unmapped knob a mapping: absolute, on the pages channel (the
-// next free channel once it's full). The 14-bit settings go first, so the 7-bit ones don't
-// take the fine halves they need. { changes, mapped: count, left: keys that found no CC or
-// no mapping slot }.
+// The changes that give every unmapped knob and push a mapping: absolute, on the pages
+// channel (the next free channel once it's full). The 14-bit settings go first, so the 7-bit
+// ones don't take the fine halves they need. { changes, mapped: count, left: keys that found
+// no CC or no mapping slot }.
 export function mapPages(config, view, pages) {
   const changes = [];
   const left = [];

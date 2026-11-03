@@ -275,10 +275,21 @@ Hardware results: learning a knob works (2026-11-03).
 - `js/ec4/pages.js`: a page per source from a template (voice: envelope if it has an envelope output, glide where it glides, arp, transpose; Euclid; random; LFO; "CC → CV" knobs, 16 to a page), then the note sequencers and the clock (tempo, swing). At most 16 pages; the rest are listed as not fitting. Pages can be renamed (4 characters).
 - **LIVE:** "Put on LIVE" on any knob; LIVE comes first. It shares the knob's CC, so both stay on one value. Kept with the names, so it undoes and goes into the project.
 - **CCs:** a knob uses the config's own mapping for its setting if there is one. "Give n knobs a CC" adds the rest as one undoable edit: absolute, on ch 2 (or the first channel nothing but CC mappings uses), then the next free channel when ch 2 is full. Direct levels, LFO rate and LFO depth get a free pair below 32 (14-bit); the rest take CCs from 64 up. Never used: bank select, data entry, sustain, sostenuto, (N)RPN, channel mode, and CC 119 (free knobs send it, relative, so turning one does nothing).
-- **Send to EC4** (`js/ec4/setup.js`): reads setup 15, says what it holds, and after a yes writes only the bytes that changed, then reloads the EC4 and turns it to setup 15, page 1. Every write is checked against setup 15's bytes and its name before it goes out. 14-bit knobs are CCAh with Acc2 (display 0–1000, ±500 on a ±5 V jack), 7-bit ones CCAb with Acc1 (ON/OFF for arp latch), relative ones CCR1. Pushes are off.
+- **Send to EC4** (`js/ec4/setup.js`): reads setup 15, says what it holds, and after a yes writes only the bytes that changed, then reloads the EC4 and turns it to setup 15, page 1. Every write is checked against setup 15's bytes and its name before it goes out. 14-bit knobs are CCAh with Acc2 (display 0–1000, ±500 on a ±5 V jack), 7-bit ones CCAb with Acc1 (ON/OFF for arp latch), relative ones CCR1. Pushes carry the commands (below).
 - The example patch has 76 settings on its pages, so ch 2 fills up and ch 3 takes the rest.
 - Tested against Lilypad's mock EC4: setup 15 written, every other byte of the EEPROM unchanged, a second send writes nothing. Not tried on your EC4 yet (needs Chrome).
-- Not yet: "send values on group change" stays off (with it, the EC4 would send its own values, 0 after power-on, to the FH-2 on every page change until the two are in step); values in FH-2 units, SELECT/STATE and touch (the live link); moving knobs between pages; pushes.
+- **The other settings** (your call, 2026-11-03: "that way"). The FH-2 can map some 1500 settings, so only what is on a knob or a push gets a CC:
+  - templates hold what you turn while playing;
+  - a free knob ("+ add") takes any other setting of its page's object (a voice's envelope shapes, random depth, arp truncate; a CC knob's smoothing; the clock's display mode and item); a free knob on LIVE takes any setting of any object, the drum sequencer and stored levels included, which have no page;
+  - the commands go on the pushes, as CC in key mode (127 while held, 0 on release): arp add, remove, rest, transpose, transpose in key and set root under the arp knobs of a voice page; nudge slower/faster and tempo −/+0.1 under the first four knobs of the clock page. The manual: add, remove, the transposes, set root and nudge act while the CC is 64 or more; rest and tempo ±0.1 when it gets there. Arp truncate takes a value, so it is a knob;
+  - settings you set once and leave stay in Night Shift's inspector.
+  - Built: objectsOf() lists everything a knob or push can control per object; the picker is a list by object; knobs you put on a page are kept with the names (`ec4:add:<page>`) and can be taken off again.
+- **Stashed for later** (your call, 2026-11-03): editing the pages.
+  - Hide the pages of sources you don't play live.
+  - Put two small pages in one group (two Euclids at 7 knobs each fit in 16).
+  - Keep the clock and sequencer pages in front, so they aren't the ones cut when more than 16 pages want a group.
+  - Change the order of the knobs on LIVE.
+- Not yet: "send values on group change" stays off (with it, the EC4 would send its own values, 0 after power-on, to the FH-2 on every page change until the two are in step); values in FH-2 units, SELECT/STATE and touch (the live link); moving knobs between pages; a push to restart an LFO (that is the LFO’s reset by CC, not a mapping).
 
 ### M4 and later (v0.3+)
 - Full shift-register editing.
