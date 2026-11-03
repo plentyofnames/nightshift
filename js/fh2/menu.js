@@ -63,9 +63,34 @@ export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200,
 
   // MIDI Forwarding: one screen, "from" and "to" pick the route, its On/Off shows on the "to"
   // line. Only "from" and "to" are ever edited; the cursor never goes to the On/Off.
+  //
+  // The screen remembers where its cursor was and whether a field was being edited, so first
+  // get to a known place: the cursor on "to", nothing being edited. On "from" or "to" a turn is
+  // always harmless: it moves the cursor, or (if that field is being edited) only picks another
+  // route; 43H afterwards says which happened.
+  const toToField = async () => {
+    for (let k = 0; k < 4; k++) {
+      const at = await client.itemName();
+      if (at === 'MIDI Forwarding from') {
+        await step('cw');
+        if ((await client.itemName()) === 'MIDI Forwarding to') return; // moved: nothing was being edited
+        await step('press'); // "from" was being edited: stop
+      } else if (at === 'MIDI Forwarding to') {
+        await step('ccw');
+        if ((await client.itemName()) === 'MIDI Forwarding from') { // moved back: nothing was being edited
+          await step('cw');
+          return;
+        }
+        await step('press'); // "to" was being edited: stop
+      } else {
+        throw new MenuError(`MIDI Forwarding’s cursor is on “${at}” (a route’s On/Off): move it to “from” on the module, then read again`);
+      }
+    }
+    throw new MenuError('couldn’t find the cursor in MIDI Forwarding');
+  };
+
   const readForwarding = async () => {
-    await expect('MIDI Forwarding from', 'on opening');
-    await step('cw'); // cursor to "to" (nothing is being edited yet)
+    await toToField();
     await expect('MIDI Forwarding to', 'moving to “to”');
     const items = [];
     const froms = [];
@@ -93,13 +118,22 @@ export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200,
       await step('cw'); // cursor to "to"
       await expect('MIDI Forwarding to', 'after the next source');
     }
+    await step('ccw'); // leave the cursor on "from", nothing being edited, as the module first opens it
+    await expect('MIDI Forwarding from', 'leaving');
     return items;
   };
 
-  // History Inclusion: a message type and its On/Off; only the type is ever edited.
+  // History Inclusion: a message type and its On/Off; only the type is ever edited. It too may
+  // have been left with the type being edited: a turn tells (it changes the type while editing,
+  // else moves the cursor to the On/Off, which a turn back undoes without changing anything).
   const readHistory = async () => {
-    await expect('Include in history', 'on opening');
-    await step('press'); // edit the type
+    await expect('Include in history', 'on opening (the cursor may be on a type’s On/Off: move it back on the module)');
+    await step('cw');
+    if ((await client.itemName()) !== 'Include in history') {
+      await step('ccw'); // it had moved to the On/Off: back, and start editing the type
+      await expect('Include in history', 'moving back to the type');
+      await step('press');
+    }
     const items = [];
     for (let k = 0; k < 20; k++) {
       const [type, value = '?'] = fields(await line(1));

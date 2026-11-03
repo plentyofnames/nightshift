@@ -84,3 +84,44 @@ test('settings read as numbers are shown in words', async () => {
     ['Tempo', '1 Init', '15', 'None']);
   eq(settingText('Tuner pitch reference', '440.0'), '440.0');
 });
+
+test('MIDI Forwarding and History Inclusion are read wherever their cursors were left', async () => {
+  const left = [
+    { forwarding: { field: 1, editing: false }, note: 'cursor on “to”' },
+    { forwarding: { field: 1, editing: true }, note: 'editing “to”' },
+    { forwarding: { field: 0, editing: true }, note: 'editing “from”' },
+    { historyIncl: { editing: true }, note: 'editing the type' },
+  ];
+  for (const { forwarding, historyIncl, note } of left) {
+    const menu = new MenuModel();
+    Object.assign(menu.forwarding, forwarding);
+    Object.assign(menu.historyIncl, historyIncl);
+    const { client } = setUp(menu);
+    const pages = await readSettings(client, { wait: 0 });
+    eq(pages.find((p) => p.page === 'MIDI Forwarding').items.length, 12, note);
+    eq(pages.find((p) => p.page === 'History Inclusion').items.length, 5, note);
+    eq(menu.changes, 0, `${note}: nothing changed`);
+    eq([menu.forwarding.field, menu.forwarding.editing], [0, false], `${note}: left on “from”, as the module first opens it`);
+  }
+});
+
+test('reading twice in a row works, and an On/Off left under the cursor stops the walk unchanged', async () => {
+  const menu = new MenuModel();
+  const { client } = setUp(menu);
+  await readSettings(client, { wait: 0 });
+  await readSettings(client, { wait: 0 });
+  eq(menu.changes, 0);
+  for (const where of ['forwarding', 'historyIncl']) {
+    const m = new MenuModel();
+    m[where].field = where === 'forwarding' ? 2 : 1; // someone left the cursor on an On/Off
+    const { client: c } = setUp(m);
+    let err = null;
+    try {
+      await readSettings(c, { wait: 0 });
+    } catch (e) {
+      err = e;
+    }
+    assert(err instanceof MenuError, `${where}: stopped`);
+    eq([m.changes, m.level], [0, 'overview'], `${where}: nothing changed, back home`);
+  }
+});

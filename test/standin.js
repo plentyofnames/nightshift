@@ -56,7 +56,9 @@ export class Fh2StandIn {
 // with its General pages, MIDI Forwarding, History Inclusion, USB Device Name and USB Device
 // Settings. As on the module, turning while something is open changes it: `changes` counts
 // changes to settings (choosing which route or type to look at isn't one), and `pressed`
-// records every Settings item pressed, so tests can catch a careless walk.
+// records every Settings item pressed, so tests can catch a careless walk. MIDI Forwarding and
+// History Inclusion remember their cursor and editing state between visits (`forwarding`,
+// `historyIncl`), as the module does.
 const PORTS = ['DIN', 'USB A', 'USB C', 'SEL'];
 const TYPES = ['Note On/Off', 'CC', 'Pitch Bend', 'Real Time', 'Aftertouch'];
 export const DEVICES = ['Generic', 'Launch Control', 'Launch Control XL', 'Launchpad Mini', 'Launchpad Pro', 'Launchpad Mini Mk3', 'Launchpad X', 'Launchpad Pro Mk3'];
@@ -79,7 +81,9 @@ export class MenuModel {
     this.i = 0; // cursor in the current list
     this.page = null;
     this.parent = null; // the list a page was opened from: { level, i }
-    this.screenState = null; // MIDI Forwarding / History Inclusion: { field, editing, a, b }
+    this.screenState = null; // the open one of the two below
+    this.forwarding = { field: 0, editing: false, a: 0, b: 0 }; // field 0 from, 1 to, 2 the route's On/Off
+    this.historyIncl = { field: 0, editing: false, a: 0 }; // field 0 the type, 1 its On/Off
     this.changes = 0;
     this.pressed = [];
   }
@@ -114,8 +118,8 @@ export class MenuModel {
         this.pressed.push(item);
         const back = { level: 'settings', i: this.i };
         if (/^General/.test(item)) Object.assign(this, { level: 'page', page: item, parent: back, i: 0 });
-        else if (item === 'MIDI Forwarding') Object.assign(this, { level: 'forwarding', parent: back, screenState: { field: 0, editing: false, a: 0, b: 0 } });
-        else if (item === 'History Inclusion') Object.assign(this, { level: 'historyIncl', parent: back, screenState: { field: 0, editing: false, a: 0 } });
+        else if (item === 'MIDI Forwarding') Object.assign(this, { level: 'forwarding', parent: back, screenState: this.forwarding });
+        else if (item === 'History Inclusion') Object.assign(this, { level: 'historyIncl', parent: back, screenState: this.historyIncl });
         else if (item === 'USB Device Name') Object.assign(this, { level: 'name', parent: back });
         else if (item === 'USB Device Settings') Object.assign(this, { level: 'devices', parent: back, i: 0 });
         return;
@@ -187,8 +191,8 @@ export class MenuModel {
   itemName() {
     const st = this.screenState;
     if (this.level === 'open') return this.pages[this.page][this.i][0];
-    if (this.level === 'forwarding') return ['MIDI Forwarding from', 'MIDI Forwarding to', 'MIDI Forwarding'][st.field];
-    if (this.level === 'historyIncl') return ['Include in history', 'Include'][st.field];
+    if (this.level === 'forwarding') return ['MIDI Forwarding from', 'MIDI Forwarding to', `MIDI Forwarding from ${PORTS[st.a]} to ${this.dsts(st.a)[st.b]}`][st.field];
+    if (this.level === 'historyIncl') return ['Include in history', TYPES[st.a]][st.field];
     if (this.level === 'name') return 'USB Device Name';
     return 'Sorry';
   }
