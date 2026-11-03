@@ -3,7 +3,7 @@
 // Every change goes through act.edit(label, changes), so it can be undone.
 
 import { h } from '../../vendor/lilypad/js/dom.js';
-import { numberInput, voltsInput, selectInput, slider, perScene } from './controls.js';
+import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
 import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, arpModeOf, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
@@ -41,36 +41,37 @@ export function lfoEditor(view, o, act, color) {
   const r = o.lfoRaw;
   const where = `LFO on jack ${o.jack}`;
   const set = (what, obj) => act.edit(`${what} of the ${where}`, setLfo(o.index, obj));
+  const L = (text, param) => ec4Label(text, `output:${o.index}:${param}`, act.ec4);
   const svg = waveSvg(lfoSamples(r), color);
   const preview = (key, map = (v) => v) => (v) => svg.lastChild.setAttribute('d', wavePath(lfoSamples({ ...r, [key]: map(v) })));
-  const shape = (label, key) => sfield(label, slider(`${label} of the ${where}`, r[key], { min: 0, max: 127, show: (v) => `${Math.round((v / 127) * 100)}%`, preview: preview(key) },
+  const shape = (label, key) => sfield(L(label, key), slider(`${label} of the ${where}`, r[key], { min: 0, max: 127, show: (v) => `${Math.round((v / 127) * 100)}%`, preview: preview(key) },
     (v) => set(label, { [key]: v })));
   const sawShow = (v) => (v === 0 ? 'off' : v > 0 ? `rising ${Math.round((v / 63) * 100)}%` : `falling ${Math.round((-v / 64) * 100)}%`);
 
   const rows = [
     sfield('Timing', selectInput(`Timing of the ${where}`, r.lfoSynced ? 1 : 0, [[0, 'Free'], [1, 'Synced to the tempo']], (v) => set('Timing', { lfoSynced: v }))),
-    r.lfoSynced
-      ? sfield('One cycle', selectInput(`Cycle of the ${where}`, r.lfoTempoBase, divisionOptions(), (v) => set('Cycle', { lfoTempoBase: v })),
-        ' × ', numberInput(`Cycle multiplier of the ${where}`, r.lfoTempoMultiplier, { min: 1, max: 127 }, (v) => set('Cycle', { lfoTempoMultiplier: v })))
-      : sfield('Rate', numberInput(`Rate of the ${where}`, lfoHz(r.lfoSpeed).toFixed(2), { min: 0.1, max: 10, step: 0.01 }, (v) => set('Rate', { lfoSpeed: hzToLfo(v) })), ' Hz'),
-    sfield('Depth', slider(`Depth of the ${where}`, Math.round((r.lfoLevel / 16383) * 100), { min: 0, max: 100, show: (v) => `${v}%`, preview: preview('lfoLevel', (v) => Math.round((v / 100) * 16383)) },
+    ...(r.lfoSynced
+      ? [sfield(L('One cycle', 'lfoTempoBase'), selectInput(`Cycle of the ${where}`, r.lfoTempoBase, divisionOptions(), (v) => set('Cycle', { lfoTempoBase: v }))),
+        sfield(L('Times', 'lfoTempoMultiplier'), numberInput(`Cycle multiplier of the ${where}`, r.lfoTempoMultiplier, { min: 1, max: 127 }, (v) => set('Cycle', { lfoTempoMultiplier: v })))]
+      : [sfield(L('Rate', 'lfoSpeed'), numberInput(`Rate of the ${where}`, lfoHz(r.lfoSpeed).toFixed(2), { min: 0.1, max: 10, step: 0.01 }, (v) => set('Rate', { lfoSpeed: hzToLfo(v) })), ' Hz')]),
+    sfield(L('Depth', 'lfoLevel'), slider(`Depth of the ${where}`, Math.round((r.lfoLevel / 16383) * 100), { min: 0, max: 100, show: (v) => `${v}%`, preview: preview('lfoLevel', (v) => Math.round((v / 100) * 16383)) },
       (v) => set('Depth', { lfoLevel: Math.round((v / 100) * 16383) }))),
   ];
   const shapes = [
     shape('Sine', 'lfoSine'),
     shape('Triangle', 'lfoTriangle'),
     shape('Square', 'lfoSquare'),
-    sfield('Pulse width', slider(`Pulse width of the ${where}`, r.lfoPulseWidth, { min: 0, max: 127, show: (v) => `${Math.round((v / 127) * 100)}%`, preview: preview('lfoPulseWidth') },
+    sfield(L('Pulse width', 'lfoPulseWidth'), slider(`Pulse width of the ${where}`, r.lfoPulseWidth, { min: 0, max: 127, show: (v) => `${Math.round((v / 127) * 100)}%`, preview: preview('lfoPulseWidth') },
       (v) => set('Pulse width', { lfoPulseWidth: v }))),
-    sfield('Saw', slider(`Saw of the ${where}`, r.lfoSaw - 64, { min: -64, max: 63, show: sawShow, preview: preview('lfoSaw', (v) => v + 64) },
+    sfield(L('Saw', 'lfoSaw'), slider(`Saw of the ${where}`, r.lfoSaw - 64, { min: -64, max: 63, show: sawShow, preview: preview('lfoSaw', (v) => v + 64) },
       (v) => set('Saw', { lfoSaw: v + 64 }))),
     shape('Random', 'lfoRandom'),
     shape('Noise', 'lfoNoise'),
   ];
   const more = [
-    sfield('Phase', slider(`Phase of the ${where}`, r.lfoPhase, { min: 0, max: 127, show: (v) => `${Math.round((v / 128) * 360)}°`, preview: preview('lfoPhase') },
+    sfield(L('Phase', 'lfoPhase'), slider(`Phase of the ${where}`, r.lfoPhase, { min: 0, max: 127, show: (v) => `${Math.round((v / 128) * 360)}°`, preview: preview('lfoPhase') },
       (v) => set('Phase', { lfoPhase: v }))),
-    sfield('Fade in', slider(`Fade in of the ${where}`, r.lfoFade, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => set('Fade in', { lfoFade: v }))),
+    sfield(L('Fade in', 'lfoFade'), slider(`Fade in of the ${where}`, r.lfoFade, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => set('Fade in', { lfoFade: v }))),
     field('Restart', restartSelect(view, o, act)),
   ];
   const notes = [];
@@ -125,17 +126,18 @@ export function euclidEditor(s, act, color) {
   const p = s.pattern;
   if (!p) return [h('p', { class: 'note' }, 'No preset loaded.')];
   const set = (what, obj) => act.edit(`${what} of ${s.name}`, setEuclid(s.index, obj));
-  const num = (label, key, min, max) => sfield(label, numberInput(`${label} of ${s.name}`, p[key], { min, max }, (v) => set(label, { [key]: v })));
+  const L = (text, param) => ec4Label(text, `euclid:${s.index}:${param}`, act.ec4);
+  const num = (label, key, min, max) => sfield(L(label, key), numberInput(`${label} of ${s.name}`, p[key], { min, max }, (v) => set(label, { [key]: v })));
   return [
     stepsSvg(euclidPattern(p.pulses, p.steps, p.rotation), color),
     h('div', { class: 'erows' },
       num('Pulses', 'pulses', 0, 32),
       num('Steps', 'steps', 1, 32),
       num('Rotation', 'rotation', 0, 32),
-      sfield('Step rate', selectInput(`Step rate of ${s.name}`, p.ratePulses, divisionOptions([[0, 'External clock']]), (v) => set('Step rate', { rate: v }))),
+      sfield(L('Step rate', 'rate'), selectInput(`Step rate of ${s.name}`, p.ratePulses, divisionOptions([[0, 'External clock']]), (v) => set('Step rate', { rate: v }))),
       num('Gate length', 'gate', 0, 127),
       num('Accent rate', 'accent', 0, 127),
-      sfield('Reset', numberInput(`Reset of ${s.name}`, p.reset, { min: 0, max: 32 }, (v) => set('Reset', { reset: v })), ' beats (0 = never)')),
+      sfield(L('Reset', 'reset'), numberInput(`Reset of ${s.name}`, p.reset, { min: 0, max: 32 }, (v) => set('Reset', { reset: v })), ' beats (0 = never)')),
   ];
 }
 
@@ -189,7 +191,7 @@ export function knobEditor(view, s, act) {
       field('CC', selectInput(`CC of the knob on ${p.jack}`, p.cc, ccs.map((c) => [c.cc, `${c.cc}${c.fine ? ' (14-bit)' : ''}`]), (v) => set('CC', { cc: v })),
         h('button', { type: 'button', class: 'btn small', onclick: learn, title: 'Turn a knob on a controller connected to this computer' }, 'Learn')),
       field('Relative', selectInput(`Relative knob on ${p.jack}`, p.relative ? 1 : 0, [[0, 'No: absolute'], [1, 'Yes: endless encoder']], (v) => set('Relative', { relative: !!v }))),
-      sfield('Now at', voltsInput(`Level of ${p.jack}`, view.outputs[p.output].directLevel ?? 0, view.outputs[p.output].rangeIndex,
+      sfield(ec4Label('Now at', `output:${p.output}:directLevel`, act.ec4), voltsInput(`Level of ${p.jack}`, view.outputs[p.output].directLevel ?? 0, view.outputs[p.output].rangeIndex,
         (v) => act.edit(`Level of ${p.jack}`, setDirectLevel(p.output, v))))));
   });
 }
@@ -197,7 +199,7 @@ export function knobEditor(view, s, act) {
 export function levelEditor(view, s, act) {
   return h('div', { class: 'erows' }, s.ports.map((p) => {
     const o = view.outputs[p.output];
-    return sfield(p.jack, voltsInput(`Level of ${p.jack}`, o.directLevel, o.rangeIndex, (v) => act.edit(`Level of ${p.jack}`, setDirectLevel(p.output, v))));
+    return sfield(ec4Label(p.jack, `output:${p.output}:directLevel`, act.ec4), voltsInput(`Level of ${p.jack}`, o.directLevel, o.rangeIndex, (v) => act.edit(`Level of ${p.jack}`, setDirectLevel(p.output, v))));
   }));
 }
 
@@ -291,11 +293,12 @@ export function voiceEditor(view, s, act, color) {
   // pitch and switches (config), performance (preset)
   const pf = s.performance;
   const pset = (what, obj) => act.edit(`${what} of ${s.name}`, setConverterPreset(s.index, obj));
+  const L = (text, param) => ec4Label(text, `converter:${s.index}:${param}`, act.ec4);
   parts.push(h('h4', {}, 'Pitch'), h('div', { class: 'erows' },
     field('Bend range', numberInput(`Bend range of ${s.name}`, cv.bendRange, { min: 0, max: 48 }, (v) => set('Bend range', { bendRange: v })), ' semitones'),
     field('Bend down', selectInput(`Bend down of ${s.name}`, cv.bendDown, [[0, 'Same as up'], ...Array.from({ length: 48 }, (_, i) => [i + 2, `${i + 1} semitones`])], (v) => set('Bend down', { bendDown: v }))),
-    pf && sfield('Transpose', numberInput(`Transpose of ${s.name}`, pf.transpose - 64, { min: -64, max: 63 }, (v) => pset('Transpose', { transpose: v + 64 })), ' semitones'),
-    pf && sfield('Glide', slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),
+    pf && sfield(L('Transpose', 'transpose'), numberInput(`Transpose of ${s.name}`, pf.transpose - 64, { min: -64, max: 63 }, (v) => pset('Transpose', { transpose: v + 64 })), ' semitones'),
+    pf && sfield(L('Glide', 'portamento'), slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),
     field('Sustain pedal', selectInput(`Sustain of ${s.name}`, cv.sustain, SUSTAIN.map((n, i) => [i, n]), (v) => set('Sustain pedal', { sustain: v }))),
     field('Legato gate', selectInput(`Interrupt gate of ${s.name}`, cv.interruptGate, [[0, 'Stays high'], [1, 'Short dip on legato notes']], (v) => set('Legato gate', { interruptGate: v }))),
     cv.type === 0 && field('Returning note', selectInput(`Mono retrigger of ${s.name}`, cv.monoRetrigger, [[0, 'Fires trigger and envelope'], [1, 'Doesn’t fire them']], (v) => set('Returning note', { monoRetrigger: v }))),
@@ -307,20 +310,23 @@ export function voiceEditor(view, s, act, color) {
   // the arpeggiator: its settings live in the preset, its clock source and MIDI out in the config
   if (pf) {
     const a = pf.arpRaw;
-    const rows = [sfield('Mode', selectInput(`Arp mode of ${s.name}`, arpModeOf(a.mode)[0], ARP_MODES, (v) => pset('Arp mode', { arpMode: v })))];
+    const rows = [sfield(L('Mode', 'arpMode'), selectInput(`Arp mode of ${s.name}`, arpModeOf(a.mode)[0], ARP_MODES, (v) => pset('Arp mode', { arpMode: v })))];
     if (a.mode > 10) {
       const out = (k, name) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!cv[k], 'data-key': `${s.name} ${k}`,
         onchange: (e) => set(`Arp MIDI out to ${name}`, { [k]: e.target.checked ? 1 : 0 }) }), name);
       rows.push(
-        sfield('Range', selectInput(`Arp range of ${s.name}`, Math.max(1, Math.min(3, a.range)), [[1, '1 octave'], [2, '2 octaves'], [3, '3 octaves']], (v) => pset('Arp range', { arpRange: v }))),
-        sfield('Rate', selectInput(`Arp rate of ${s.name}`, a.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => pset('Arp rate', { arpRate: v }))),
+        sfield(L('Range', 'arpRange'), selectInput(`Arp range of ${s.name}`, Math.max(1, Math.min(3, a.range)), [[1, '1 octave'], [2, '2 octaves'], [3, '3 octaves']], (v) => pset('Arp range', { arpRange: v }))),
+        sfield(L('Rate', 'arpRate'), selectInput(`Arp rate of ${s.name}`, a.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => pset('Arp rate', { arpRate: v }))),
         a.rate === 0 ? field('Clock source', selectInput(`Arp clock source of ${s.name}`, cv.arpClock, [[0, 'External clock'], ...Array.from({ length: 16 }, (_, i) => [i + 1, `Euclid ${i + 1}`])],
           (v) => set('Arp clock source', { arpClock: v }))) : null,
-        sfield('Gate', slider(`Arp gate of ${s.name}`, a.gate, { min: 0, max: 127, show: (v) => (v ? `${Math.round((v / 128) * 100)}%` : 'trigger') }, (v) => pset('Arp gate', { arpGate: v }))),
-        sfield('Latch', selectInput(`Arp latch of ${s.name}`, a.latch ? 1 : 0, [[0, 'Off'], [1, 'On: holds until a new chord']], (v) => pset('Arp latch', { arpLatch: v }))),
-        sfield('Reset', numberInput(`Arp reset of ${s.name}`, a.reset, { min: 0, max: 127 }, (v) => pset('Arp reset', { arpReset: v })), ' quarter notes (0 = never)'),
+        sfield(L('Gate', 'arpGate'), slider(`Arp gate of ${s.name}`, a.gate, { min: 0, max: 127, show: (v) => (v ? `${Math.round((v / 128) * 100)}%` : 'trigger') }, (v) => pset('Arp gate', { arpGate: v }))),
+        sfield(L('Latch', 'arpLatch'), selectInput(`Arp latch of ${s.name}`, a.latch ? 1 : 0, [[0, 'Off'], [1, 'On: holds until a new chord']], (v) => pset('Arp latch', { arpLatch: v }))),
+        sfield(L('Reset', 'arpReset'), numberInput(`Arp reset of ${s.name}`, a.reset, { min: 0, max: 127 }, (v) => pset('Arp reset', { arpReset: v })), ' quarter notes (0 = never)'),
         field('MIDI out', selectInput(`Arp MIDI channel of ${s.name}`, cv.arpChannel, Array.from({ length: 16 }, (_, c) => [c, `ch ${c + 1}`]), (v) => set('Arp MIDI channel', { arpChannel: v }))),
-        h('div', { class: 'checks' }, out('arpToUsbC', 'USB C'), out('arpToUsbA', 'USB A'), out('arpToDin', 'DIN')));
+        h('div', { class: 'checks' }, out('arpToUsbC', 'USB C'), out('arpToUsbA', 'USB A'), out('arpToDin', 'DIN')),
+        // the commands (pushes on the EC4) and truncate (a knob): no stored value, only the EC4
+        act.ec4 && field('On the EC4', h('span', { class: 'ec4-cmds' }, [['arpAdd', 'Add'], ['arpRemove', 'Remove'], ['arpRest', 'Rest'],
+          ['arpTranspose', 'Transpose'], ['arpTransposeInKey', 'In key'], ['arpSetRoot', 'Set root'], ['arpTruncate', 'Truncate']].map(([p, t]) => L(t, p)))));
     }
     parts.push(h('h4', {}, 'Arpeggiator'), h('div', { class: 'erows' }, rows),
       null);
@@ -331,7 +337,7 @@ export function voiceEditor(view, s, act, color) {
     const e = pf.envelope;
     const svg = envelopeSvg(e, color);
     const preview = (key) => (v) => svg.redraw({ ...e, [key]: v });
-    const env = (label, key, field2, show = pct) => sfield(label, slider(`${label} of ${s.name}`, e[key], { min: 0, max: 127, show, preview: preview(key) }, (v) => pset(label, { [field2]: v })));
+    const env = (label, key, field2, show = pct) => sfield(L(label, field2), slider(`${label} of ${s.name}`, e[key], { min: 0, max: 127, show, preview: preview(key) }, (v) => pset(label, { [field2]: v })));
     parts.push(h('h4', {}, 'Envelope'), h('div', { class: 'wave-box' }, svg, h('span', { class: 'wave-cap' }, cv.envelopeOut ? 'Shape only, times approximate' : 'Turn on the Envelope output to use it')),
       h('div', { class: 'erows' },
         env('Attack', 'attack', 'envAttack', String),
@@ -343,7 +349,7 @@ export function voiceEditor(view, s, act, color) {
         env('Attack shape', 'attackShape', 'envAttackShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
         env('Decay shape', 'decayShape', 'envDecayShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
         env('Release shape', 'releaseShape', 'envReleaseShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
-        sfield('Time range', numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v }))),
+        sfield(L('Time range', 'envRange'), numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v }))),
         field('Each note', selectInput(`Envelope start of ${s.name}`, cv.envZeroStart, [[0, 'Rises from where it is'], [1, 'Starts from zero']], (v) => set('Envelope start', { envZeroStart: v })))));
   } else {
     parts.push(h('p', { class: 'note' }, 'No preset loaded.'));

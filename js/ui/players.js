@@ -54,7 +54,7 @@ export function playerInspector(view, colors, id, onSelect, act) {
   if (f.rate && p.rate != null) {
     const euclids = view.sources.filter((s) => s.kind === 'euclid');
     parts.push(section('Clock', h('div', { class: 'erows' },
-      perScene(field('Steps at', selectInput(`Rate of ${p.name}`, p.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => act.edit(`Rate of ${p.name}`, setPlayerRate(p.id, v))))),
+      perScene(field(p.kind === 'sequencer' ? ec4Label('Steps at', `noteSequencer:${p.index}:rate`, act.ec4) : 'Steps at', selectInput(`Rate of ${p.name}`, p.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => act.edit(`Rate of ${p.name}`, setPlayerRate(p.id, v))))),
       // the clock source only counts at rate Ext, so it only shows then
       p.rate === 0 ? field('Clock source', selectInput(`Clock source of ${p.name}`, p.clock, [[0, 'External clock'],
         ...Array.from({ length: 16 }, (_, i) => [i + 1, `Euclid ${i + 1}${euclids.some((s) => s.index === i) ? '' : ' (not set up)'}`])], (v) => set('Clock source', { clock: v }))) : null),

@@ -1,13 +1,15 @@
-// Tests for the EC4 pages: templates, CCs for every knob, the LIVE page, and setup 15 as
-// EC4 bytes, written to Lilypad's mock EC4 without touching any other setup.
+// Tests for the EC4 pages: settings switched on and off (with their CCs), templates as
+// positions, the LIVE page, the picker, the commands on pushes, tidying stray CCs, and setup 15
+// as EC4 bytes, written to Lilypad's mock EC4 without touching any other setup.
 
 import { test, assert, eq } from './harness.js';
 import { derive } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
-import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, choicesFor, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey } from '../js/ec4/pages.js';
-import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, OWNED, SETUP_NAME } from '../js/ec4/setup.js';
+import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage,
+  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey } from '../js/ec4/pages.js';
+import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, OWNED, SETUP_NAME } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
 import { MockDevice } from '../vendor/lilypad/js/mock.js';
@@ -18,9 +20,16 @@ const fresh = () => {
   return { config, preset, names: {} };
 };
 const viewOf = (p) => derive(p.config.values, p.preset.values, undefined, p.names);
-const mapAll = (p) => {
-  const view = viewOf(p);
-  const r = mapPages(p.config.values, view, pagesOf(view, p.names));
+const modelOf = (p) => pagesOf(viewOf(p), p.names);
+const key = (kind, index, param) => settingKey({ kind, index, param });
+const on = (p, k) => {
+  const r = switchOn(p.config.values, viewOf(p), p.names, modelOf(p), k);
+  if (r.error) throw new Error(r.error);
+  apply(p, r.changes);
+  return r;
+};
+const whole = (p, pageId) => {
+  const r = wholePage(p.config.values, viewOf(p), p.names, modelOf(p), pageId);
   apply(p, r.changes);
   return r;
 };
@@ -48,92 +57,145 @@ test('names in four characters', () => {
   eq(['CV2·1', '5', 'GT1·3'].map(jackShort), ['C2.1', 'OUT5', 'G1.3']);
 });
 
-test('each source gets a page from its template, then the sequencers and the clock', () => {
+test('nothing is on the EC4 until it is switched on; then it gets its page, its place and a CC', () => {
   const p = fresh();
-  const { pages, extra } = pagesOf(viewOf(p), p.names);
-  eq(pages.map((pg) => pg.name), ['VOI1', 'VOI2', 'VOI3', 'EUC1', 'RAN1', 'LFO5', 'LFO6', 'CC2', 'SEQ', 'CLK']);
-  eq(extra.length, 0);
-  eq(pages.map((pg) => pg.group), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  const euclid = pages.find((pg) => pg.id === 'euclid:0');
-  eq(euclid.cells.filter(Boolean).map((c) => c.short), ['PULS', 'STEP', 'ROT', 'RATE', 'GATE', 'ACNT', 'RSET']);
-  eq(euclid.cells[0].map, { channel: 1, cc: 16, relative: false, bits: 7, slot: euclid.cells[0].map.slot }, 'pulses keeps the config’s own mapping');
-  eq(euclid.cells[1].map, null, 'steps has none yet');
-  const knobs = pages.find((pg) => pg.id === 'knobs:1');
-  eq(knobs.cells.filter(Boolean).map((c) => [c.short, c.map.cc, c.map.bits]), [['C2.1', 12, 14], ['C2.2', 13, 14], ['C2.3', 14, 14], ['C2.4', 15, 14]]);
-  const lfo = pages.find((pg) => pg.id === 'lfo:4');
-  eq(lfo.cells.filter(Boolean).length, 15);
-  eq(lfo.cells[1].map?.channel, 13, 'the LFO’s multiplier keeps its mapping on ch 14');
-  const renamed = pagesOf(viewOf(p), { [pageNameKey('lfo:4')]: 'Wobble' }).pages.find((pg) => pg.id === 'lfo:4');
-  eq(renamed.name, 'Wobb', 'a page can be renamed');
+  eq(modelOf(p).pages.length, 0, 'no pages at first, though the config has mappings');
+  const before = mappingsOf(p.config.values).length;
+  const attack = key('converter', 0, 'envAttack');
+  const r = on(p, attack);
+  eq(r.where, { page: 'converter:0', name: 'VOI1', index: 0, push: false }, 'where the template has it');
+  let m = modelOf(p);
+  eq(m.pages.map((pg) => pg.name), ['VOI1']);
+  eq(m.pages[0].cells[0].map.channel, 1, 'a CC on ch 2');
+  eq(mappingsOf(p.config.values).length, before + 1);
+  on(p, key('converter', 0, 'arpMode'));
+  m = modelOf(p);
+  const arpAt = m.pages[0].cells.findIndex((c) => c?.setting.param === 'arpMode');
+  eq(arpAt, m.objects.find((o) => o.id === 'converter:0').template.cells.indexOf(key('converter', 0, 'arpMode')), 'the arp row of the template');
+  apply(p, switchOff(p.names, modelOf(p), attack));
+  m = modelOf(p);
+  eq(m.pages[0].cells[0], null, 'switched off: the knob is free again');
+  eq(mappingsOf(p.config.values).length, before + 1, 'and the CC Night Shift added for it is gone');
 });
 
-test('mapping the pages gives every knob a CC on ch 2 (then ch 3), 14-bit where the FH-2 takes it', () => {
+test('a setting the config already maps keeps its CC, and keeps it when switched off', () => {
   const p = fresh();
+  const pulses = key('euclid', 0, 'pulses');
   const before = mappingsOf(p.config.values).length;
-  const r = mapAll(p);
-  eq(r.left, []);
-  const view = viewOf(p);
-  const after = pagesOf(view, p.names);
-  eq(after.unmapped, [], 'nothing left unmapped');
-  eq(mappingsOf(p.config.values).length, before + r.mapped);
-  const added = mappingsOf(p.config.values).slice(before);
-  assert(added.every((m) => !m.relative), 'all absolute');
-  const channels = [...new Set(added.map((m) => m.channel))];
-  eq(channels, [1, 2], 'ch 2 until it is full, then ch 3 (the example has 76 settings on its pages)');
-  // no CC is used twice on a channel, counting the fine halves of 14-bit ones
+  on(p, pulses);
+  eq(mappingsOf(p.config.values).length, before, 'no new mapping');
+  eq(modelOf(p).pages[0].cells[0].map.cc, 16, 'the config’s own ch 2 CC 16');
+  apply(p, switchOff(p.names, modelOf(p), pulses));
+  eq(mappingsOf(p.config.values).length, before, 'its mapping stays: Night Shift didn’t make it');
+  eq(modelOf(p).pages.length, 0);
+});
+
+test('a whole page takes its template: 14-bit for levels, LFO rate and depth, commands on the pushes', () => {
+  const p = fresh();
+  eq(whole(p, 'lfo:4').count, 15);
+  eq(whole(p, 'converter:0').count, 21, 'its envelope, glide and arp (15 knobs) and the 6 arp commands');
+  eq(whole(p, 'clock').count, 7, 'tempo, swing and the four commands');
+  const m = modelOf(p);
+  const lfo = m.pages.find((pg) => pg.id === 'lfo:4');
+  eq(lfo.cells.filter(Boolean).map((c) => c.short), ['SYNC', 'MULT', 'DPTH', 'OFFS', 'SINE', 'TRI', 'SAW', 'SQR', 'PW', 'RAND', 'NOIS', 'SMTH', 'PHAS', 'FADE', 'RATE']);
+  for (const c of lfo.cells.filter(Boolean)) if (HIRES.has(c.setting.param)) eq(c.map.bits, 14, `${c.short} is 14-bit`);
+  eq(lfo.cells[1].map.channel, 13, 'the multiplier keeps the config’s own mapping on ch 14');
+  const voice = m.pages.find((pg) => pg.id === 'converter:0');
+  const arpAt = voice.cells.findIndex((c) => c?.setting.param === 'arpMode');
+  eq(voice.pushes.slice(arpAt, arpAt + 6).map((c) => c.setting.param), ['arpAdd', 'arpRemove', 'arpRest', 'arpTranspose', 'arpTransposeInKey', 'arpSetRoot']);
+  eq(m.pages.find((pg) => pg.id === 'clock').pushes.slice(0, 4).map((c) => c.label), ['Nudge slower', 'Nudge faster', 'Tempo −0.1', 'Tempo +0.1']);
+  eq(m.unmapped, [], 'every knob and push has a CC');
   const seen = new Set();
-  for (const m of mappingsOf(p.config.values)) {
-    const k = `${m.channel}:${m.cc}`;
+  for (const x of mappingsOf(p.config.values)) {
+    const k = `${x.channel}:${x.cc}`;
     assert(!seen.has(k), `${k} used once`);
     seen.add(k);
   }
-  for (const pg of after.pages) for (const c of pg.cells) {
-    if (!c) continue;
-    assert(![0, 6, 64, 66, 119, 120, 121, 122, 123, 124, 125, 126, 127].includes(c.map.cc), `${c.label} avoids reserved CC ${c.map.cc}`);
-    if (HIRES.has(c.setting.param) && added.some((m) => m.slot === c.map.slot)) {
-      eq(c.map.bits, 14, `${pg.name} ${c.short} is 14-bit`);
-      assert(!seen.has(`1:${c.map.cc + 32}`), `${c.short}: its fine half is free`);
-    }
-  }
-  eq(mapPages(p.config.values, view, after).changes, [], 'mapping again changes nothing');
+  eq(whole(p, 'lfo:4').count, 0, 'a second time adds nothing');
 });
 
-test('the LIVE page shares its knobs’ CCs with their own pages', () => {
+test('the LIVE page shares its knobs’ CCs; a free knob takes any other setting', () => {
   const p = fresh();
-  mapAll(p);
-  const pulses = settingKey({ kind: 'euclid', index: 0, param: 'pulses' });
-  const depth = settingKey({ kind: 'output', index: 4, param: 'lfoLevel' });
+  whole(p, 'euclid:0');
+  const pulses = key('euclid', 0, 'pulses');
   apply(p, toggleLive(p.names, pulses));
-  apply(p, toggleLive(p.names, depth));
-  eq(liveKeys(p.names).slice(0, 3), [pulses, depth, '']);
-  const { pages } = pagesOf(viewOf(p), p.names);
-  eq(pages[0].name, 'LIVE');
-  eq(pages[0].cells[0].map, pages.find((pg) => pg.id === 'euclid:0').cells[0].map);
-  assert(pages.find((pg) => pg.id === 'euclid:0').cells[0].onLive, 'marked as on LIVE');
-  apply(p, toggleLive(p.names, pulses));
-  eq(liveKeys(p.names).slice(0, 2), ['', depth], 'taken off, the other knob stays where it was');
-  apply(p, toggleLive(p.names, depth));
-  eq(p.names['ec4:live'], undefined, 'an empty LIVE page is cleared');
+  let m = modelOf(p);
+  eq(m.pages[0].name, 'LIVE');
+  eq(m.pages[0].cells[0].map, m.pages.find((pg) => pg.id === 'euclid:0').cells[0].map);
+  const offered = choicesFor(m.objects, m.pages[0]);
+  assert(offered.length >= 10 && offered.some((g) => g.name === 'Drum sequencer') && offered.some((g) => g.name === 'Stored levels'),
+    'LIVE offers every object, including those without a page');
+  const truncate = key('converter', 0, 'arpTruncate');
+  assert(offered.find((g) => g.name === 'Voice 1').cells.some((c) => c.key === truncate));
+  const before = mappingsOf(p.config.values).length;
+  apply(p, placeWithCc(p.config.values, viewOf(p), p.names, m, 'live', 5, truncate).changes);
+  m = modelOf(p);
+  eq([m.pages[0].cells[5].short, mappingsOf(p.config.values).length], ['TRNC', before + 1], 'on LIVE only, with a new CC');
+  apply(p, takeOff(p.names, m, 'live', 5));
+  eq(mappingsOf(p.config.values).length, before, 'taken off LIVE, on no page: its CC goes');
+  apply(p, takeOff(p.names, modelOf(p), 'live', 0));
+  eq(mappingsOf(p.config.values).length, before, 'pulses is still on its own page: its CC stays');
+  eq(p.names['ec4:live'], undefined);
+  const page = modelOf(p).pages.find((pg) => pg.id === 'euclid:0');
+  eq(choicesFor(modelOf(p).objects, page), [], 'the Euclid page has every Euclid setting already');
+});
+
+test('leftover CCs on no page show as stray and can be removed', () => {
+  const p = fresh();
+  const before = mappingsOf(p.config.values).length;
+  eq(whole(p, 'srr:0').count, 8);
+  for (const k of Object.keys(p.names)) delete p.names[k]; // as if made by the earlier "every knob a CC"
+  const stray = strayMappings(viewOf(p), modelOf(p));
+  assert(stray.length >= 7, 'the random source’s CCs are on no page');
+  assert(!stray.some((s) => s.key.startsWith('output:16:')), 'the CC knobs are not stray: their mapping is the source');
+  apply(p, removeMappings(p.names, stray));
+  eq(mappingsOf(p.config.values).length, before + 7 - stray.length);
+  eq(strayMappings(viewOf(p), modelOf(p)), []);
+});
+
+test('a knob whose object is gone shows as gone and gets no CC', () => {
+  const p = fresh();
+  apply(p, placeKnob(p.names, 'live', 2, 'euclid:9:pulses'));
+  const model = modelOf(p);
+  eq(model.pages[0].cells[2].gone, true);
+  assert(!model.unmapped.includes('euclid:9:pulses'));
+});
+
+test('mapping the pages gives a knob without a CC a new one', () => {
+  const p = fresh();
+  apply(p, placeKnob(p.names, 'euclid:0', 1, key('euclid', 0, 'steps'))); // placed without a CC
+  const m = modelOf(p);
+  eq(m.unmapped, [key('euclid', 0, 'steps')]);
+  const r = mapPages(p.config.values, viewOf(p), m, p.names);
+  apply(p, r.changes);
+  eq([r.mapped, modelOf(p).unmapped], [1, []]);
 });
 
 test('the pages become EC4 setup 15, and nothing else changes', () => {
   const p = fresh();
-  mapAll(p);
+  whole(p, 'euclid:0');
+  whole(p, 'knobs:1');
+  whole(p, 'converter:0');
   const view = viewOf(p);
   const { pages, channel } = pagesOf(view, p.names);
+  eq(pages.map((pg) => pg.name), ['VOI1', 'EUC1', 'CC2']);
   const base = demoImage();
   const img = setupImage(base, pages, view, channel);
   eq(M.readName(img, M.setupNameAddr(SETUP)), SETUP_NAME);
-  eq(M.groupName(img, SETUP, 3), 'EUC1');
+  eq(M.groupName(img, SETUP, 1), 'EUC1');
   eq(M.groupName(img, SETUP, 12), '    ', 'unused groups are blank');
-  const knobs = pages.findIndex((pg) => pg.id === 'knobs:1');
-  const e = M.readEncoder(img, SETUP, knobs, 0);
+  const e = M.readEncoder(img, SETUP, 2, 0);
   eq([e.type, e.channel, e.number, e.lower, e.upper, e.name], [M.T.CCAH, 1, 12, 0, 16383, 'C2.1']);
-  const pulses = M.readEncoder(img, SETUP, 3, 0);
+  const pulses = M.readEncoder(img, SETUP, 1, 0);
   eq([pulses.type, pulses.channel, pulses.number, pulses.upper, pulses.name], [M.T.CCAB, 1, 16, 127, 'PULS']);
-  const free = M.readEncoder(img, SETUP, 3, 15);
+  const free = M.readEncoder(img, SETUP, 1, 15);
   eq([free.type, free.number, free.name], [M.T.CCR1, 119, '    '], 'a free knob sends nothing anyone maps');
-  eq(M.readPush(img, SETUP, 3, 0).type, M.PT.OFF);
+  const voice = pages[0];
+  const arpAt = voice.cells.findIndex((c) => c?.setting.param === 'arpMode');
+  const push = M.readPush(img, SETUP, 0, arpAt);
+  eq([push.type, push.mode, push.number, push.lower, push.upper], [M.PT.CC, 0, voice.pushes[arpAt].map.cc, 0, 127], 'a key-mode CC push: 127 held, 0 released');
+  eq(M.readPush(img, SETUP, 1, 0).type, M.PT.OFF, 'pushes without a command are off');
+  eq(pushOf(null).type, M.PT.OFF);
   for (let a = 0; a < M.SIZE; a++) if (img[a] !== base[a]) assert(owns(a), `0x${a.toString(16)} belongs to setup 15`);
   const writes = writesFor(img, base);
   assert(writes.every((w) => w.data.length <= 64 && (w.addr >> 6) === ((w.addr + w.data.length - 1) >> 6)), 'each write stays inside one page');
@@ -151,7 +213,8 @@ test('the pages become EC4 setup 15, and nothing else changes', () => {
 
 test('writing setup 15 to the mock EC4 leaves every other setup as it was', async () => {
   const p = fresh();
-  mapAll(p);
+  whole(p, 'lfo:4');
+  whole(p, 'clock');
   const view = viewOf(p);
   const { pages, channel } = pagesOf(view, p.names);
   const mock = new MockDevice(demoImage(), { speed: 'fast' });
@@ -161,8 +224,7 @@ test('writing setup 15 to the mock EC4 leaves every other setup as it was', asyn
   const state = setupState(base);
   eq([state.name, state.free, state.ours], ['SE15', true, false], 'the demo’s setup 15 is unused');
   const img = setupImage(base, pages, view, channel);
-  const n = await writeSetup(dev, img, base);
-  assert(n > 0);
+  assert((await writeSetup(dev, img, base)) > 0);
   for (let a = 0; a < M.SIZE; a++) {
     if (owns(a)) assert(mock.eeprom[a] === img[a], `0x${a.toString(16)} written`);
     else if (mock.eeprom[a] !== before[a]) throw new Error(`0x${a.toString(16)} changed outside setup 15`);
@@ -174,53 +236,9 @@ test('writing setup 15 to the mock EC4 leaves every other setup as it was', asyn
   dev.close();
 });
 
-test('the FH-2’s commands go on the pushes: arp commands under the arp knobs, nudge and tempo on the clock page', async () => {
-  const { pushOf } = await import('../js/ec4/setup.js');
+test('page names', () => {
   const p = fresh();
-  mapAll(p);
-  const view = viewOf(p);
-  const { pages, channel } = pagesOf(view, p.names);
-  const voice = pages.find((pg) => pg.id === 'converter:0');
-  const arpAt = voice.cells.findIndex((c) => c?.setting.param === 'arpMode');
-  eq(voice.pushes.slice(arpAt, arpAt + 6).map((c) => c.setting.param), ['arpAdd', 'arpRemove', 'arpRest', 'arpTranspose', 'arpTransposeInKey', 'arpSetRoot']);
-  const clock = pages.find((pg) => pg.id === 'clock');
-  eq(clock.pushes.slice(0, 4).map((c) => c.label), ['Nudge slower', 'Nudge faster', 'Tempo −0.1', 'Tempo +0.1']);
-  assert([...voice.pushes, ...clock.pushes].filter(Boolean).every((c) => c.map && c.map.bits === 7), 'every command got a CC');
-  const img = setupImage(demoImage(), pages, view, channel);
-  const push = M.readPush(img, SETUP, voice.group, arpAt);
-  eq([push.type, push.mode, push.channel, push.number, push.lower, push.upper], [M.PT.CC, 0, voice.pushes[arpAt].map.channel, voice.pushes[arpAt].map.cc, 0, 127],
-    'a key-mode CC push: 127 while held, 0 on release');
-  eq(pushOf(null).type, M.PT.OFF);
-  eq(M.readPush(img, SETUP, voice.group, 0).type, M.PT.OFF, 'pushes without a command are off');
-});
-
-test('a free knob takes any other setting of its object, LIVE’s any setting at all', () => {
-  const p = fresh();
-  const view = viewOf(p);
-  let model = pagesOf(view, p.names);
-  const voice = model.pages.find((pg) => pg.id === 'converter:0');
-  const offered = choicesFor(model.objects, voice);
-  eq(offered.length, 1, 'only the voice’s own settings');
-  const params = offered[0].cells.map((c) => c.setting.param);
-  assert(params.includes('arpTruncate') && params.includes('envAttackShape'), 'truncate and the envelope shapes are offered');
-  assert(!params.includes('arpMode'), 'what is on the page already is not');
-  const free = voice.cells.findIndex((c) => !c);
-  apply(p, placeKnob(p.names, voice.id, free, settingKey({ kind: 'converter', index: 0, param: 'arpTruncate' })));
-  model = pagesOf(viewOf(p), p.names);
-  const placed = model.pages.find((pg) => pg.id === 'converter:0').cells[free];
-  eq([placed.short, placed.added, placed.map], ['TRNC', true, null]);
-  assert(model.unmapped.includes(placed.key), 'it needs a CC like any other knob');
-  const live = choicesFor(model.objects, { live: true, cells: [] });
-  assert(live.length >= 10 && live.some((g) => g.name === 'Drum sequencer') && live.some((g) => g.name === 'Stored levels'),
-    'LIVE offers every object, including those without a page');
-  apply(p, placeKnob(p.names, voice.id, free, null));
-  eq(p.names['ec4:add:converter:0'], undefined, 'taking it off clears the stored list');
-});
-
-test('a knob whose object is gone shows as gone and gets no CC', () => {
-  const p = fresh();
-  apply(p, placeKnob(p.names, 'live', 2, 'euclid:9:pulses'));
-  const model = pagesOf(viewOf(p), p.names);
-  eq(model.pages[0].cells[2].gone, true);
-  assert(!model.unmapped.includes('euclid:9:pulses'));
+  on(p, key('output', 4, 'lfoLevel'));
+  eq(pagesOf(viewOf(p), { ...p.names, [pageNameKey('lfo:4')]: 'Wobble' }).pages[0].name, 'Wobb', 'a page can be renamed');
+  eq(liveKeys(p.names), Array(16).fill(''));
 });

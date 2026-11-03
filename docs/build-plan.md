@@ -284,6 +284,12 @@ Hardware results: learning a knob works (2026-11-03).
   - the commands go on the pushes, as CC in key mode (127 while held, 0 on release): arp add, remove, rest, transpose, transpose in key and set root under the arp knobs of a voice page; nudge slower/faster and tempo −/+0.1 under the first four knobs of the clock page. The manual: add, remove, the transposes, set root and nudge act while the CC is 64 or more; rest and tempo ±0.1 when it gets there. Arp truncate takes a value, so it is a knob;
   - settings you set once and leave stay in Night Shift's inspector.
   - Built: objectsOf() lists everything a knob or push can control per object; the picker is a list by object; knobs you put on a page are kept with the names (`ec4:add:<page>`) and can be taken off again.
+- **Switched on, not automatic** (your call, 2026-11-03: with every template setting mapped, the config got "quite impenetrable"). Replaces "every template knob gets a CC":
+  - In the Patch tab (and Settings), the name of every setting a knob can control is printed in its own colour with a ring after it; clicking it puts it on its object's EC4 page and gives it a CC at once (one undoable step), and the ring fills. Clicking again takes it off, and removes the CC if Night Shift added it (noted in the names as `ec4:cc`); a mapping the config already had stays.
+  - Rows kept per scene keep their dot before the name; the EC4 ring goes after it.
+  - The templates only say where a knob goes on its page. "+ Page for…" on the EC4 tab makes a page with an object's whole template; "Whole page" fills in the rest of one.
+  - The arp commands and truncate are in the voice's arpeggiator section ("On the EC4"); nudge, tempo ±0.1 and the display ones in Settings.
+  - "n CCs on no page · Remove them" on the EC4 tab lists mappings on the pages channels that are on no page (not the CC knobs, whose mapping is the source), for what the earlier "give every knob a CC" left behind. They're shown before anything is removed, and it undoes.
 - **Stashed for later** (your call, 2026-11-03): editing the pages.
   - Hide the pages of sources you don't play live.
   - Put two small pages in one group (two Euclids at 7 knobs each fit in 16).

@@ -21,7 +21,8 @@ import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToF
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
-import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, choicesFor, pageNameKey, SETUP } from './ec4/pages.js';
+import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, wholePage,
+  strayMappings, removeMappings, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup } from './ec4/setup.js';
 import { renderEc4 } from './ui/ec4.js';
 
@@ -51,6 +52,7 @@ const state = {
   selected: null,
   tab: 'patch',
   ec4: { sel: null, note: '' }, // the EC4 tab: the knob in view ({ page, knob }), and one line on the EC4
+  ec4Model: null, // the EC4 pages (ec4/pages.js pagesOf), recomputed with the view
   status: '',
   warn: false,
 };
@@ -129,6 +131,7 @@ function update() {
   state.colors = state.view ? colorsFor([...state.view.sources, ...state.view.players], state.colors) : new Map();
   state.sync = state.config ? syncOf() : null;
   state.unsent = state.config ? state.sync.kind !== 'same' : false;
+  state.ec4Model = state.view ? pagesOf(state.view, state.names) : null;
   store();
   render();
 }
@@ -603,10 +606,11 @@ async function saveFlash() {
 // ---- the EC4 pages (setup 15)
 
 const ec4Model = () => pagesOf(state.view, state.names);
+const ec4Edit = (label, r) => (r.error ? status(r.error, true) : edit(label, r.changes));
 
 // Gives every knob without one a CC mapping (one undoable edit of the config).
 function mapEc4() {
-  const r = mapPages(state.config.values, state.view, ec4Model());
+  const r = mapPages(state.config.values, state.view, ec4Model(), state.names);
   if (!r.changes.length) return status(r.left.length ? `No room for ${r.left.length} more CCs` : 'Every knob has a CC', r.left.length > 0);
   edit(`${r.mapped} CCs added${r.left.length ? `; no room for ${r.left.length}` : ''}`, r.changes);
 }
@@ -632,12 +636,58 @@ async function pickEc4(pageId, i) {
   });
   if (!ok) return;
   state.ec4.sel = { page: pageId, knob: i };
-  edit(`Put on ${page.name}`, placeKnob(state.names, pageId, i, select.value));
+  ec4Edit(`Put on ${page.name}`, placeWithCc(state.config.values, state.view, state.names, model, pageId, i, select.value));
 }
 
-function placeEc4(pageId, i, key) {
+function takeOffEc4(pageId, i) {
   const page = ec4Model().pages.find((p) => p.id === pageId);
-  edit(key ? `Put on ${page.name}` : `Taken off ${page.name}`, placeKnob(state.names, pageId, i, key));
+  edit(`Taken off ${page.name}`, takeOff(state.names, ec4Model(), pageId, i));
+}
+
+// Clicking a setting's name in the Patch tab: on the EC4, or off again.
+const ec4 = {
+  state(key) {
+    const model = state.ec4Model;
+    const c = model?.known.get(key);
+    if (!c) return null;
+    const where = model.on.get(key) ?? [];
+    const m = model.mapOf(key);
+    const cc = m ? `ch ${m.channel + 1} · CC ${m.cc}` : '';
+    return { on: where.length > 0, title: where.length
+      ? `On the EC4: ${where.map((w) => `${w.name} ${w.push ? 'push' : 'knob'} ${w.index + 1}`).join(', ')} · ${cc}. Click to take it off`
+      : `Click to put it on the EC4${cc ? ` (${cc})` : ''}` };
+  },
+  toggle(key) {
+    const model = ec4Model();
+    const c = model.known.get(key);
+    if (model.on.has(key)) return edit(`Off the EC4: ${c.label.toLowerCase()}`, switchOff(state.names, model, key));
+    const r = switchOn(state.config.values, state.view, state.names, model, key);
+    ec4Edit(r.where ? `On the EC4: ${r.where.name} ${r.where.push ? 'push' : 'knob'} ${r.where.index + 1}` : '', r);
+  },
+};
+
+function offEc4(key) {
+  ec4.toggle(key);
+}
+
+// A page with its whole template: for "+ Page for…" and "Whole page".
+function wholeEc4(pageId) {
+  const r = wholePage(state.config.values, state.view, state.names, ec4Model(), pageId);
+  if (!r.count) return status('Nothing more on its template');
+  state.ec4.sel = { page: pageId, knob: null };
+  edit(`${r.count} on the EC4`, r.changes);
+}
+
+// Mappings on the pages channels that are on no page: listed, then removed after a yes.
+async function tidyEc4() {
+  const stray = strayMappings(state.view, ec4Model());
+  if (!stray.length) return;
+  const ok = await modal($('dialog'), {
+    title: `Remove ${stray.length} CCs?`,
+    body: h('p', { class: 'note' }, `On no EC4 page: ${stray.slice(0, 12).map((s) => s.label).join(', ')}${stray.length > 12 ? ` and ${stray.length - 12} more` : ''}.`),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }],
+  });
+  if (ok) edit(`${stray.length} CCs removed`, removeMappings(state.names, stray));
 }
 
 function renameEc4Page(id) {
@@ -818,17 +868,18 @@ function render() {
   let content;
   if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
-  else if (state.tab === 'ec4') content = renderEc4(v, ec4Model(), state.colors, state.ec4.sel, {
+  else if (state.tab === 'ec4') content = renderEc4(v, state.ec4Model, state.colors, state.ec4.sel, {
     select: (page, knob) => { state.ec4.sel = { page, knob }; render(); },
-    pick: pickEc4, place: placeEc4, map: mapEc4, send: sendEc4, live: liveEc4, rename: renameEc4Page, busy: state.busy, note: state.ec4.note });
+    pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
+    rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
-    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy });
+    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy, ec4 });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
     setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
   else {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status })),
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status, ec4 })),
     ];
   }
   document.body.classList.toggle('scenes-only', !!(v && state.scenesOnly));

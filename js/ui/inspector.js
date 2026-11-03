@@ -6,7 +6,7 @@ import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
 import { outputNumber, internalName } from '../patch/hardware.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
-import { numberInput, voltsInput, perScene } from './controls.js';
+import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
 import { playerInspector, playedBy, euclidClocks } from './players.js';
 
@@ -78,7 +78,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
   const editor = editorOf(view, s, act, color);
   if (editor) parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), editor));
   else {
-    const settings = settingsOf(s);
+    const settings = settingsOf(s, act);
     if (settings.length) parts.push(section('Settings', settings));
   }
 
@@ -112,7 +112,7 @@ function portName(s, p) {
   return p.name;
 }
 
-function settingsOf(s) {
+function settingsOf(s, act) {
   const r = [];
   if (s.kind === 'voice') {
     const st = s.settings;
@@ -140,7 +140,9 @@ function settingsOf(s) {
   }
   if (s.kind === 'random' && s.settings) {
     const t = s.settings;
-    r.push(row('Loop length', String(t.length)), row('Randomness', String(t.randomness)), row('Scale / key', `${t.scale} / ${t.key}`), row('Direction', String(t.direction)));
+    const L = (text, param) => ec4Label(text, `srr:${s.index}:${param}`, act?.ec4);
+    r.push(row(L('Loop length', 'length'), String(t.length)), row(L('Randomness', 'randomness'), String(t.randomness)),
+      row(L('Scale', 'scale'), String(t.scale)), row(L('Key', 'key'), String(t.key)), row(L('Direction', 'direction'), String(t.direction)));
   }
   if (s.kind === 'clock') {
     for (const p of s.ports) r.push(row(p.name, `${p.length ? `${p.length} ms pulse` : 'square'}`));
@@ -160,7 +162,7 @@ function parkedInspector(view, colors, onSelect) {
   ];
 }
 
-function jackSettings(o, edit) {
+function jackSettings(o, edit, ec4) {
   const r = o.rangeIndex;
   const where = `jack ${o.jack}`;
   const rangeSelect = h('select', { 'aria-label': `Range of ${where}`, 'data-key': `range ${where}`, onchange: (e) => edit(`Range of ${where}: ${RANGES[+e.target.value]}`, setRange(o.index, +e.target.value)) },
@@ -168,9 +170,9 @@ function jackSettings(o, edit) {
   const preset = o.directLevel != null;
   const rows = [
     row('Range', rangeSelect),
-    perScene(row('Stored level', preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
+    perScene(row(ec4Label('Stored level', `output:${o.index}:directLevel`, ec4), preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
       preset ? `code ${o.directLevel}` : null)),
-    perScene(row('Smoothing', preset ? numberInput(`Smoothing of ${where}`, o.smoothing, { min: 0, max: 127 }, (v) => edit(`Smoothing of ${where}: ${v}`, setSmoothing(o.index, v))) : '—')),
+    perScene(row(ec4Label('Smoothing', `output:${o.index}:smoothing`, ec4), preset ? numberInput(`Smoothing of ${where}`, o.smoothing, { min: 0, max: 127 }, (v) => edit(`Smoothing of ${where}: ${v}`, setSmoothing(o.index, v))) : '—')),
     row('Gate low', voltsInput(`Gate low level of ${where}`, o.gateLevels.low, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, v, o.gateLevels.high)))),
     row('Gate high', voltsInput(`Gate high level of ${where}`, o.gateLevels.high, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, o.gateLevels.low, v)))),
   ];
@@ -209,7 +211,7 @@ function jackInspector(view, colors, o, onSelect, act) {
     parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',
       onclick: () => act.edit(`LFO on top of jack ${o.jack}`, addLfo(o.index, { shape: 'sine', rate: { hz: 5 }, depth: 0.05 })) }, 'Add an LFO on top')));
   }
-  if (!o.gate) parts.push(...jackSettings(o, act.edit));
+  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;
 }
