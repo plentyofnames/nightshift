@@ -268,6 +268,7 @@ function mpeChannels(cv) {
 function converterPreset(p) {
   return {
     arp: p.arpMode > 10 ? { mode: p.arpMode, range: p.arpRange, gate: p.arpGate, latch: p.arpLatch, rate: p.arpRate ? durationName(p.arpRate) : 'external clock', reset: p.arpReset } : null,
+    arpRaw: { mode: p.arpMode, range: p.arpRange, gate: p.arpGate, latch: p.arpLatch, rate: p.arpRate, reset: p.arpReset },
     portamento: p.portamento, transpose: p.transpose,
     envelope: { attack: p.envAttack, decay: p.envDecay, sustain: p.envSustain, release: p.envRelease, range: p.envRange, depth: p.envDepth, velocityDepth: p.envVelocityDepth,
       attackShape: p.envAttackShape, decayShape: p.envDecayShape, releaseShape: p.envReleaseShape },

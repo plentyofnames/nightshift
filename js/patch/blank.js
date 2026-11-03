@@ -35,7 +35,9 @@ export function blankPreset(name = 'Empty') {
     euclid: n(16, () => ({ pulses: 0, steps: 16, rate: 6, gate: 64 })),
     // as in the FH-2's Init preset: 64 is the middle (no transpose, linear shapes)
     converter: n(16, () => ({ transpose: 64, envAttack: 64, envDecay: 64, envSustain: 64, envRelease: 64, envRange: 2, envDepth: 127,
-      envVelocityDepth: 64, envAttackShape: 64, envDecayShape: 64, envReleaseShape: 64, randomDepth: 127 })),
+      envVelocityDepth: 64, envAttackShape: 64, envDecayShape: 64, envReleaseShape: 64, randomDepth: 127,
+      arpRange: 1, arpGate: 64, arpRate: 12 })),
+    noteSequencer: n(4, (i) => ({ rate: [24, 6, 12, 24][i] })),
   };
   return parseDump(dumpMessage(CMD.INSTALL_PRESET, encode(preset, values, new Uint8Array(BODY_SIZE + 340))));
 }

@@ -38,7 +38,7 @@ export function playerInspector(view, colors, id, onSelect, act) {
     h('div', { class: 'checks' }, Object.keys(f.dests).map(box))));
 
   // what it plays inside the FH-2
-  const plays = p.plays.map((sid) => view.sources.find((s) => s.id === sid)).filter(Boolean);
+  const plays = (p.kind === 'arp' ? [`converter:${p.index}`] : p.plays).map((sid) => view.sources.find((s) => s.id === sid)).filter(Boolean); // an arp plays its own voice
   parts.push(section('Plays inside the FH-2', plays.length
     ? plays.map((s) => h('div', { class: 'row' }, h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(`ch ${p.channel + 1}`, colors.get(s.id))))
     : h('p', { class: 'note' }, p.internal ? `Nothing in the FH-2 listens on ch ${p.channel + 1}. Wire it from a voice or trigger kit (“Played by”).` : 'Nothing: it doesn’t send to the FH-2 itself.')));
@@ -84,8 +84,19 @@ export function playedBy(view, s, act, onSelect, colors) {
 
   // wiring a sequencer to it
   const values = act.values();
-  const kinds = s.kind === 'voice' ? ['sequencer'] : ['drums', 'sequencer'];
-  const candidates = allPlayers(values).filter((p) => kinds.includes(p.kind) && !s.players.some((x) => x.id === p.id));
+  // what can play it: sequencers; the drum sequencer for a kit; the notes of a shift register in
+  // use; an input turned into notes (or triggers, for a kit)
+  const canPlay = (p) => {
+    if (s.players.some((x) => x.id === p.id)) return false;
+    switch (p.kind) {
+      case 'sequencer': return true;
+      case 'drums': return s.kind === 'triggers';
+      case 'random': return view.sources.some((x) => x.id === `srr:${p.index}`) || view.players.some((x) => x.id === p.id);
+      case 'input': return p.type === 'Note' || (s.kind === 'triggers' && p.type === 'Trigger');
+      default: return false;
+    }
+  };
+  const candidates = allPlayers(values).filter(canPlay);
   const status = (p) => {
     const sends = p.internal || p.usbC || p.usbA || p.din || p.select;
     if (!sends) return 'free';
@@ -93,7 +104,7 @@ export function playedBy(view, s, act, onSelect, colors) {
     const names = now?.plays.map((id) => view.sources.find((x) => x.id === id)?.name).filter(Boolean) ?? [];
     return names.length ? `now plays ${names.join(', ')}` : playerLine(p);
   };
-  const picker = h('div', { class: 'erows' }, field(s.players.length ? 'Also from' : 'Play it from', selectInput(`Play ${s.name} from`, '', [['', 'Choose a sequencer…'], ...candidates.map((p) => [p.id, `${p.name} · ${status(p)}`])],
+  const picker = h('div', { class: 'erows' }, field(s.players.length ? 'Also from' : 'Play it from', selectInput(`Play ${s.name} from`, '', [['', 'Choose a player…'], ...candidates.map((p) => [p.id, `${p.name} · ${status(p)}`])],
     (id) => {
       if (!id) return;
       const p = candidates.find((x) => x.id === id);

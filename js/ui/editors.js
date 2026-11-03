@@ -5,7 +5,7 @@
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
-import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
+import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, arpModeOf, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
   setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES } from '../patch/edit.js';
 import { freeCcs, voicePlan } from '../patch/alloc.js';
@@ -291,6 +291,28 @@ export function voiceEditor(view, s, act, color) {
   parts.push(h('p', { class: 'note' }, 'Glide slides only between notes played legato (fingered portamento), on mono voices and poly voices set to Unison. '
     + (cv.type !== 0 && !unison ? 'This voice isn’t, so it won’t glide. ' : '')
     + (cv.type === 0 ? '“Returning note”: when you let go of a key while another is held, that note sounds again; this says whether it fires the trigger and envelope. Legato velocity is one setting for all mono voices.' : '')));
+
+  // the arpeggiator: its settings live in the preset, its clock source and MIDI out in the config
+  if (pf) {
+    const a = pf.arpRaw;
+    const rows = [field('Mode', selectInput(`Arp mode of ${s.name}`, arpModeOf(a.mode)[0], ARP_MODES, (v) => pset('Arp mode', { arpMode: v })))];
+    if (a.mode > 10) {
+      const out = (k, name) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!cv[k], 'data-key': `${s.name} ${k}`,
+        onchange: (e) => set(`Arp MIDI out to ${name}`, { [k]: e.target.checked ? 1 : 0 }) }), name);
+      rows.push(
+        field('Range', selectInput(`Arp range of ${s.name}`, Math.max(1, Math.min(3, a.range)), [[1, '1 octave'], [2, '2 octaves'], [3, '3 octaves']], (v) => pset('Arp range', { arpRange: v }))),
+        field('Rate', selectInput(`Arp rate of ${s.name}`, a.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => pset('Arp rate', { arpRate: v }))),
+        a.rate === 0 ? field('Clock source', selectInput(`Arp clock source of ${s.name}`, cv.arpClock, [[0, 'External clock'], ...Array.from({ length: 16 }, (_, i) => [i + 1, `Euclid ${i + 1}`])],
+          (v) => set('Arp clock source', { arpClock: v }))) : null,
+        field('Gate', slider(`Arp gate of ${s.name}`, a.gate, { min: 0, max: 127, show: (v) => (v ? `${Math.round((v / 128) * 100)}%` : 'trigger') }, (v) => pset('Arp gate', { arpGate: v }))),
+        field('Latch', selectInput(`Arp latch of ${s.name}`, a.latch ? 1 : 0, [[0, 'Off'], [1, 'On: holds until a new chord']], (v) => pset('Arp latch', { arpLatch: v }))),
+        field('Reset', numberInput(`Arp reset of ${s.name}`, a.reset, { min: 0, max: 127 }, (v) => pset('Arp reset', { arpReset: v })), ' quarter notes (0 = never)'),
+        field('MIDI out', selectInput(`Arp MIDI channel of ${s.name}`, cv.arpChannel, Array.from({ length: 16 }, (_, c) => [c, `ch ${c + 1}`]), (v) => set('Arp MIDI channel', { arpChannel: v }))),
+        h('div', { class: 'checks' }, out('arpToUsbC', 'USB C'), out('arpToUsbA', 'USB A'), out('arpToDin', 'DIN')));
+    }
+    parts.push(h('h4', {}, 'Arpeggiator'), h('div', { class: 'erows' }, rows),
+      a.mode > 10 && cv.type ? h('p', { class: 'note' }, 'Each arp note plays the next voice in turn (round robin).') : null);
+  }
 
   // the envelope
   if (pf) {

@@ -172,6 +172,11 @@ None of these touch the page, so they work unchanged. That gives one implementat
     - The player inspector: channel, destinations (FH-2, USB C, USB A, DIN, Select), what it plays inside the FH-2, rate and clock source (at rate Ext: the external clock or a Euclid), the drum sequencer's lane notes with the trigger jacks they hit, "Stop sending".
     - "Played by" on a voice or trigger kit: pick a sequencer to play it (the list says which are free and what the others play now); a drum sequencer's lanes take the kit's notes if they don't match; × unwires; "Keep it to the FH-2: move to ch N" moves the source and its players to a channel nothing else uses.
     - A Euclid's inspector lists what it clocks. "Set up a player…" makes a free sequencer send somewhere, e.g. to a Disting on DIN; naming that gear comes with project files.
+    - MIDI cables in a gutter left of the cards join players to what they play. A second player hides behind "Add another player…".
+    - "Played by" also offers the notes of a shift register in use, and an input in note mode (trigger mode too, for a trigger kit).
+    - The voice editor has an Arpeggiator section (manual: "Arpeggiators"): mode (the preset stores ranges; Night Shift writes each range's start), range in octaves, rate, clock source at rate Ext, gate (0 = trigger), latch, reset, and MIDI out (channel, USB C, USB A, DIN). With MIDI out on, the arp also shows as a player.
+    - The blank preset now has Init's arp (range 1, gate 64, rate 1/8) and sequencer rates (1/4, 1/16, 1/8, 1/4); it had 0s, which meant range 0 and every sequencer on Ext.
+    - The shift register as a source of its own (random CV, change and trigger outputs, its settings) stays in M4.
   - **USB gamepad and keyboard entries can be switched off** (your request, 2026-11-03): one at a time with the × on a jack, or all at once from the source. It sets Usage or Type to "--" and leaves the output alone, so the official tool's `0xFF` bug can't happen. Sending that to the module is hardware check 16.
 
 ### Next UI round (your ideas, stashed 2026-11-03)

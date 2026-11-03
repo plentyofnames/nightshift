@@ -360,3 +360,14 @@ test('drum sequencer lanes play a trigger kit', () => {
   eq(v.sources.find((s) => s.id === 'triggers:9').players.map((x) => x.name), ['Drum sequencer']);
   eq(v.players[0].notes.slice(0, 2), [36, 38]);
 });
+
+test('shift-register notes and an input in note mode can play a voice too', () => {
+  const p = patch();
+  apply(p, addVoice(values(p), { output: 0, channel: 4 }));
+  Object.assign(p.config.values.srr[2], { cvOutput: 6 }); // a shift register in use, on jack 6
+  Object.assign(p.config.values.cvMidi[0], { enable: 1, type: 2 }); // input X as notes
+  apply(p, wirePlayer('srrNotes:2', 4));
+  apply(p, wirePlayer('cvMidi:0', 4));
+  const v = derive(p.config.values, p.preset.values);
+  eq(v.sources.find((s) => s.id === 'converter:0').players.map((x) => x.name), ['Random 3 notes', 'Input X → Note']);
+});
