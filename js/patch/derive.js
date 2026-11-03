@@ -8,7 +8,9 @@
 import { mappingsOf } from './mappings.js';
 import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
-  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName } from './tables.js';
+  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf } from './tables.js';
+
+const LFO_RESET_EUCLID = LFO_RESET_TYPES.indexOf('Euclid');
 
 // `names` are Night Shift's own names beside the dumps (edit.js setName): for sources and players
 // by id, and for the gear on a port and channel.
@@ -102,15 +104,21 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     addSource({ id: `triggers:${ch}`, kind: 'triggers', name: `Triggers · ch ${ch + 1}`, channel: ch, channels: [ch], ports, players: [], controls: [] });
   }
 
-  // ---- Euclidean patterns
+  // ---- Euclidean patterns. One without a jack still counts when it is a player's or an
+  // arpeggiator's clock source, or restarts an LFO (`jackless` below, shown among the players).
+  // Its pattern alone doesn't: that is in the preset, which may come from another config.
+  const players = playersOf(config, preset, { names });
   config.euclid.forEach((e, i) => {
     const ports = [];
     if (!e.outputHigh) ports.push({ name: 'Pulses', output: e.output });
     if (!e.offOutputHigh) ports.push({ name: 'Off steps', output: e.offOutput });
-    if (!ports.length) return;
     const p = preset?.euclid[i];
+    const clocks = clockedBy(config, preset, players, names, i);
+    const restarts = config.lfoReset.flatMap((r, o) => (r.type === LFO_RESET_EUCLID && r.number === i ? [o] : []));
+    const used = clocks.length > 0 || restarts.length > 0;
+    if (!ports.length && !used) return;
     addSource({
-      id: `euclid:${i}`, kind: 'euclid', index: i, name: `Euclid ${i + 1}`, ports, controls: [],
+      id: `euclid:${i}`, kind: 'euclid', index: i, name: `Euclid ${i + 1}`, ports, controls: [], clocks, restarts, used,
       pattern: p ? { pulses: p.pulses, steps: p.steps, rotation: p.rotation, rate: p.rate ? durationName(p.rate) : 'external clock', ratePulses: p.rate, gate: p.gate, accent: p.accent, reset: p.reset } : null,
       idle: p ? p.pulses === 0 : false,
     });
@@ -180,8 +188,15 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   }
 
   // ---- parked sources: every jack they use is outside the rack (the Init config puts its
-  // unused Euclid patterns on GT3/16). They may still restart LFOs or clock other things.
-  for (const s of sources) s.parked = s.ports.length > 0 && s.ports.every((p) => p.present === false);
+  // unused Euclid patterns on GT3/16). A Euclid there that clocks or restarts something is a
+  // Euclid without a jack instead, as is one with no jack at all.
+  for (const s of sources) {
+    s.parked = s.ports.length > 0 && s.ports.every((p) => p.present === false);
+    if (s.kind === 'euclid' && s.used && s.ports.every((p) => p.present === false)) {
+      s.parked = false;
+      s.jackless = true;
+    }
+  }
 
   // ---- collisions, on the jacks you have
   for (const o of outputs) {
@@ -195,7 +210,6 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     }
   }
 
-  const players = playersOf(config, preset, { names });
   for (const s of sources) {
     if (!s.channels) continue;
     s.players = players.filter((p) => p.internal && s.channels.includes(p.channel));
@@ -203,15 +217,10 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   for (const p of players) {
     p.plays = p.internal ? sources.filter((s) => s.channels?.includes(p.channel)).map((s) => s.id) : [];
   }
-  // what each Euclid pattern clocks (players whose rate is 0 and clock source is that pattern)
-  for (const s of sources.filter((x) => x.kind === 'euclid')) {
-    s.clocks = players.filter((p) => p.clock === s.index + 1).map((p) => ({ id: p.id, name: p.name, now: p.rate === 0 }));
-  }
-
   return {
     hardware, outputs, sources, mappings, players, problems,
     channels: channelMap(sources, players, mappings),
-    resources: resourcesOf(config, preset, mappings, outputs),
+    resources: resourcesOf(config, preset, mappings, outputs, sources),
     globals: globalsOf(config, preset),
   };
 }
@@ -318,6 +327,27 @@ function gateFriendly(sources, p) {
 
 const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
 
+// What Euclid pattern `i` clocks: players, shift registers (as the random source they are on
+// their jacks, the usual case), and arpeggiators that only play their own voice, whose clock
+// source it is, with what selecting one shows. `now`: their rate is Ext, so it does.
+function clockedBy(config, preset, players, names, i) {
+  const onJacks = (r) => r.cvOutput || !r.changeOutputHigh || !r.triggerOutputHigh;
+  const out = players.filter((p) => p.clock === i + 1 && !(p.kind === 'random' && onJacks(config.srr[p.index])))
+    .map((p) => ({ id: p.id, name: p.name, now: p.rate === 0, select: { player: p.id } }));
+  config.srr.forEach((r, k) => {
+    if (r.clock !== i + 1 || !onJacks(r)) return;
+    const id = `srr:${k}`;
+    out.push({ id, name: names[id] ?? `Random ${k + 1}`, now: preset?.srr[k].rate === 0, select: { source: id } });
+  });
+  config.converter.forEach((cv, k) => {
+    if (!cv.enable || cv.arpClock !== i + 1 || players.some((p) => p.id === `arp:${k}`)) return;
+    const a = preset?.converter[k];
+    const id = `converter:${k}`;
+    out.push({ id, name: `${names[id] ?? `Voice ${k + 1}`}’s arpeggiator`, now: !!a && a.arpRate === 0 && arpModeOf(a.arpMode)?.[1] !== 'Off', select: { source: id } });
+  });
+  return out;
+}
+
 // Things inside the FH-2 that make MIDI.
 // Things inside the FH-2 that make MIDI. Each sends on one channel to some of internal, USB C,
 // USB A, DIN and Select. Sequencers, shift registers and arps step at `rate` (24 ppqn pulses, from
@@ -383,13 +413,13 @@ function channelMap(sources, players, mappings) {
   return ch;
 }
 
-function resourcesOf(config, preset, mappings, outputs) {
+function resourcesOf(config, preset, mappings, outputs, sources) {
   const count = (list, f) => list.filter(f).length;
   return {
     converters: [count(config.converter, (c) => c.enable), 16],
     clocks: [count(config.clock, (c) => c.type), 32],
     triggers: [count(config.trigger, (t) => t.type), 64],
-    euclids: [count(config.euclid, (e) => !e.outputHigh || !e.offOutputHigh), 16],
+    euclids: [count(sources, (s) => s.kind === 'euclid'), 16],
     randoms: [count(config.srr, (r) => r.cvOutput || !r.changeOutputHigh || !r.triggerOutputHigh), 16],
     mappings: [mappings.length, 384],
     lfos: preset ? [count(outputs, (o) => o.lfo), 64] : null,

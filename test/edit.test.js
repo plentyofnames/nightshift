@@ -3,7 +3,7 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey, changesTowards } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -15,6 +15,7 @@ import { lfoSamples, euclidPattern, envelopePoints } from '../js/patch/shapes.js
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
 import { derive, playersOf } from '../js/patch/derive.js';
+import { examplePatch } from '../js/patch/example.js';
 import { levelToVolts, voltsToLevel } from '../js/patch/tables.js';
 
 const patch = () => ({ config: blankConfig(), preset: blankPreset() });
@@ -337,7 +338,7 @@ test('players: wire a sequencer to a voice, give them their own channel, clock i
   apply(p, setPlayerRate('noteSequencer:1', 0));
   v = derive(p.config.values, p.preset.values);
   eq([v.players[0].din, v.players[0].clock, v.players[0].rate], [true, 1, 0]);
-  eq(v.sources.find((s) => s.id === 'euclid:0').clocks, [{ id: 'noteSequencer:1', name: 'Note sequencer 2', now: true }]);
+  eq(v.sources.find((s) => s.id === 'euclid:0').clocks, [{ id: 'noteSequencer:1', name: 'Note sequencer 2', now: true, select: { player: 'noteSequencer:1' } }]);
 
   apply(p, unwirePlayer('noteSequencer:1'));
   v = derive(p.config.values, p.preset.values);
@@ -484,4 +485,32 @@ test('the fit check finds what a preset sets that this config doesn’t use', ()
   ]);
   apply(p, setPlayer('noteSequencer:1', { dests: { din: true }, clock: 5 })); // now it sends, and Euclid 5 clocks it
   eq(fitProblems(derive(p.config.values, pv), p.config.values, pv).length, 2);
+});
+
+test('a Euclid without a jack clocks a shift register or restarts an LFO, and goes with its links', () => {
+  const p = examplePatch();
+  const vals = () => ({ config: p.config.values, preset: p.preset.values, names: {} });
+  const euclid = (v, i) => v.sources.find((s) => s.id === `euclid:${i}`);
+  // the usual case: Random 1 stepped by a pattern that needs no jack
+  const e = addEuclidWithoutJack(vals(), EXAMPLE_HARDWARE, { pulses: 5, steps: 16 });
+  apply(p, [...e.changes, { dump: 'config', path: ['srr', 0, 'clock'], value: e.index + 1 }, { dump: 'preset', path: ['srr', 0, 'rate'], value: 0 }]);
+  let v = derive(p.config.values, p.preset.values);
+  let s = euclid(v, e.index);
+  eq([s.ports, s.jackless, s.parked, s.pattern.pulses], [[], true, false, 5]);
+  eq(s.clocks, [{ id: 'srr:0', name: 'Random 1', now: true, select: { source: 'srr:0' } }], 'the random source, not a player');
+  assert(freeEuclid(p.config.values, EXAMPLE_HARDWARE) !== e.index, 'a clock source is not free');
+  // a pattern alone (it is in the preset) is not a Euclid of this config
+  apply(p, [{ dump: 'config', path: ['srr', 0, 'clock'], value: 0 }]);
+  eq(euclid(derive(p.config.values, p.preset.values), e.index), undefined);
+  // restarting an LFO is a use too; parked outside the rack, it shows without a jack as well
+  apply(p, [{ dump: 'config', path: ['lfoReset', 3, 'type'], value: 7 }, { dump: 'config', path: ['lfoReset', 3, 'number'], value: e.index },
+    { dump: 'config', path: ['euclid', e.index, 'output'], value: 127 }, { dump: 'config', path: ['euclid', e.index, 'outputHigh'], value: 0 }]);
+  v = derive(p.config.values, p.preset.values);
+  s = euclid(v, e.index);
+  eq([s.restarts, s.jackless, s.parked, s.ports.map((x) => x.jack)], [[3], true, false, ['GT3/16']]);
+  // removing it takes its jacks and links: the LFO doesn't restart any more
+  apply(p, [{ dump: 'config', path: ['srr', 0, 'clock'], value: e.index + 1 }]);
+  apply(p, removeSource(vals(), euclid(derive(p.config.values, p.preset.values), e.index)));
+  v = derive(p.config.values, p.preset.values);
+  eq([euclid(v, e.index), p.config.values.srr[0].clock, p.config.values.lfoReset[3].type, p.config.values.euclid[e.index].outputHigh], [undefined, 0, 0, 1]);
 });

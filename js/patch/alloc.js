@@ -18,13 +18,18 @@ export function freeClock(config) {
 }
 
 // A Euclid pattern with no outputs; failing that, one parked on jacks outside the rack (the
-// Init config parks all 16 on GT3/16) that no LFO restarts from.
+// Init config parks all 16 on GT3/16). Either way one that no LFO restarts from, and that no
+// sequencer, shift register or arpeggiator has as its clock source: without a jack, that is
+// what it's for.
 export function freeEuclid(config, hardware) {
   const restarts = restartsFrom(config, LFO_RESET_EUCLID);
+  const clocks = new Set([...config.noteSequencer.map((q) => q.clock), ...config.srr.map((r) => r.clock),
+    ...config.converter.filter((c) => c.enable).map((c) => c.arpClock)]);
+  const free = (i) => !restarts.has(i) && !clocks.has(i + 1);
   const outs = (e) => [e.outputHigh ? null : e.output, e.offOutputHigh ? null : e.offOutput].filter((o) => o != null);
-  const unused = config.euclid.findIndex((e, i) => !restarts.has(i) && outs(e).length === 0);
+  const unused = config.euclid.findIndex((e, i) => free(i) && outs(e).length === 0);
   if (unused >= 0) return unused;
-  return config.euclid.findIndex((e, i) => !restarts.has(i) && outs(e).every((o) => !isPresent(hardware, o)));
+  return config.euclid.findIndex((e, i) => free(i) && outs(e).every((o) => !isPresent(hardware, o)));
 }
 
 export const freeMapping = (config) => config.mapping.findIndex((m) => !isUsed(m));

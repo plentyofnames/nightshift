@@ -323,6 +323,11 @@ Hardware results: learning a knob works (2026-11-03).
 - Send to EC4 becomes Store: one EEPROM write when you're done, needed for playing with the EC4 on the FH-2's USB A without Night Shift.
 - Also: the EC4 writes one EEPROM byte on every page change (the last page per setup, `persist()` in `control.c`), so Night Shift following pages writes too. Skip it when the page change comes from the host.
 
+**Euclids without a jack** (your request, 2026-11-03):
+- A Euclid pattern whose outputs are None, or only on jacks outside your rack, still shows when the config links something to it: a sequencer's, shift register's or arpeggiator's clock source (at rate Ext), or an LFO restart. It sits under Players ("Euclid 2 · 4 of 16 · no jack · clocks 1"), with dotted lines in the gutter to what it clocks or restarts; Euclids on jacks get those lines too. A pattern alone doesn't count: it is in the preset, which may come from another config.
+- Every clock-source picker (players, the random source's new Clock section, a voice's arp) and the LFO restart offer "A new Euclid (no jack)": a free pattern, 4 of 16 at 1/16, made and linked in one step. A free pattern is now one nothing clocks from or restarts on.
+- Remove takes a Euclid's jacks and its links: what it clocked goes back to the external clock, LFOs stop restarting on it. Taking it off its last jack while something still follows it leaves it without a jack.
+
 ### M4 and later (v0.3+)
 - Full shift-register editing.
 - Drum triggers with accent, velocity and envelope types.

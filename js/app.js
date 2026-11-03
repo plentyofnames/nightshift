@@ -260,7 +260,8 @@ async function addTo(output) {
 function remove(source, port) {
   try {
     const where = port ? ` ${source.kind === 'hid' ? 'on' : 'from'} jack ${port.jack}` : '';
-    edit(`${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}`,
+    const links = !port && source.kind === 'euclid' && (source.clocks.length || source.restarts.length) ? ' · its clock links undone' : '';
+    edit(`${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
       port ? removePort(values(), source, port) : removeSource(values(), source));
     if (!port) state.selected = null;
     render();

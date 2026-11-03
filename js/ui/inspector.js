@@ -8,7 +8,7 @@ import { outputNumber, internalName } from '../patch/hardware.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
-import { playerInspector, playedBy, euclidClocks } from './players.js';
+import { playerInspector, playedBy, euclidClocks, randomClock } from './players.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -70,11 +70,13 @@ function sourceInspector(view, colors, s, onSelect, act) {
 
   if (s.kind === 'voice' || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors));
 
-  parts.push(section('Comes out of', s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))));
+  parts.push(section('Comes out of', s.ports.length ? s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))
+    : h('p', { class: 'note' }, 'No jack: it runs as long as it has pulses.')));
   if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed out: not in your rack.'));
   if (s.standby) parts.push(h('p', { class: 'note' }, `Only with a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} on USB A.`));
 
-  if (s.kind === 'euclid') parts.push(euclidClocks(s, onSelect));
+  if (s.kind === 'euclid') parts.push(...euclidClocks(view, s, onSelect));
+  if (s.kind === 'random' && act) parts.push(randomClock(view, s, act));
   const editor = editorOf(view, s, act, color);
   if (editor) parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), editor));
   else {

@@ -37,7 +37,7 @@ export function renderStage(view, colors, selected, onSelect) {
   let y = 40;
   nodes.push(h('div', { class: 'stage-title', style: `left:${GX}px;width:${CARD_W}px` }, h('span', {}, 'Sources')));
   for (const [title, kinds] of GROUPS) {
-    const list = view.sources.filter((s) => kinds.includes(s.kind) && !s.parked);
+    const list = view.sources.filter((s) => kinds.includes(s.kind) && !s.parked && !s.jackless);
     if (!list.length) continue;
     nodes.push(h('div', { class: 'group-title', style: `top:${y}px;left:${GX}px` }, title));
     y += HEAD;
@@ -71,6 +71,19 @@ export function renderStage(view, colors, selected, onSelect) {
     h('span', { class: 'icon' }, icon(p.kind === 'random' ? 'random' : p.kind)),
     h('span', { class: 'txt' }, h('span', { class: 'name' }, p.name), h('span', { class: 'sub' }, playerLine(p))),
     h('span', { class: 'count' }, p.plays.length ? `plays ${p.plays.length}` : '')));
+    y += CARD_STEP;
+  }
+  // Euclid patterns without a jack: they only clock players or restart LFOs
+  for (const s of view.sources.filter((x) => x.jackless)) {
+    const on = selected?.source === s.id;
+    midiAt.set(s.id, y + 28);
+    nodes.push(h('button', {
+      type: 'button', class: 'card' + (s.idle ? ' idle' : ''), 'aria-pressed': on ? 'true' : 'false',
+      style: `top:${y}px;left:${GX}px;--src:${colors.get(s.id)}`, onclick: () => onSelect({ source: s.id }),
+    },
+    h('span', { class: 'icon' }, icon(s.kind)),
+    h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name), h('span', { class: 'sub' }, `${subline(s)} · no jack`)),
+    h('span', { class: 'count' }, s.clocks.length ? `clocks ${s.clocks.length}` : `restarts ${s.restarts.length}`)));
     y += CARD_STEP;
   }
   nodes.push(h('button', { type: 'button', class: 'btn add-player', style: `top:${y}px;left:${GX}px`, onclick: () => onSelect({ addPlayer: true }) }, 'Set up a player…'));
@@ -196,6 +209,21 @@ export function renderStage(view, colors, selected, onSelect) {
       svg.append(dot);
     }
   });
+  // ---- clock links, also in the gutter: a Euclid pattern to what it clocks or restarts
+  for (const s of view.sources.filter((x) => x.kind === 'euclid' && midiAt.has(x.id))) {
+    const to = [...s.clocks.filter((c) => c.now).map((c) => c.select.player ?? c.select.source), ...s.restarts.map((o) => `lfo:${o}`)];
+    to.filter((id) => midiAt.has(id)).forEach((id, k) => {
+      const y1 = midiAt.get(s.id);
+      const y2 = midiAt.get(id);
+      const bulge = Math.min(GX - 4, 8 + Math.abs(y1 - y2) / 12 + (k % 3) * 3);
+      const on = selected?.source === s.id || selected?.player === id || selected?.source === id;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', `M ${GX} ${y1} C ${GX - bulge} ${y1}, ${GX - bulge} ${y2}, ${GX} ${y2}`);
+      path.setAttribute('class', 'clock-link' + (on ? ' on' : ''));
+      path.setAttribute('stroke', colors.get(s.id) ?? 'currentColor');
+      svg.append(path);
+    });
+  }
   nodes.push(svg);
 
   // ---- resources under the rack

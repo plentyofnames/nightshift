@@ -7,14 +7,34 @@ import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
 import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, arpModeOf, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
-  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES } from '../patch/edit.js';
-import { freeCcs, voicePlan } from '../patch/alloc.js';
+  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack } from '../patch/edit.js';
+import { freeCcs, voicePlan, freeEuclid } from '../patch/alloc.js';
 import { learnCc } from './connect.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const field = (label, ...control) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control));
 const sfield = (label, ...control) => perScene(field(label, ...control)); // kept per scene (in the preset)
 const divisionOptions = (extra = []) => [...extra, ...DIVISIONS.map(([p, name]) => [p, name])];
+
+// ---- clock sources: the external clock or a Euclid pattern, which needs no jack for this
+
+const NEW_EUCLID = -1;
+const euclidsOf = (view) => view.sources.filter((s) => s.kind === 'euclid' && !s.parked);
+const patternOf = (s) => (s.pattern ? ` · ${s.pattern.pulses} of ${s.pattern.steps}` : '');
+
+// What a sequencer, shift register or arpeggiator follows at rate Ext: the external clock, a
+// Euclid pattern of this patch, or a new one without a jack. `pick(clock, changes)`: `changes`
+// make the new pattern, to go in the same step as linking it.
+export function clockSourceInput(view, act, label, current, pick) {
+  const options = [[0, 'External clock'], ...euclidsOf(view).map((s) => [s.index + 1, `${s.name}${patternOf(s)}`])];
+  if (current > 0 && !options.some(([v]) => v === current)) options.push([current, `Euclid ${current} (not set up)`]);
+  if (freeEuclid(act.values().config, view.hardware) >= 0) options.push([NEW_EUCLID, 'A new Euclid (no jack)']);
+  return selectInput(label, current, options, (v) => {
+    if (v !== NEW_EUCLID) return pick(v, []);
+    const e = addEuclidWithoutJack(act.values(), view.hardware);
+    pick(e.index + 1, e.changes);
+  });
+}
 
 // ---- the LFO
 
@@ -90,13 +110,18 @@ function restartSelect(view, o, act) {
   const options = [[key(0, 0, 0), 'Never (free running)']];
   const clocks = view.sources.find((s) => s.id === 'clocks');
   for (const p of clocks?.ports ?? []) options.push([key(6, 0, p.clock), `On ${p.name} (clock ${p.clock + 1}, ${p.jack})`]);
-  for (const s of view.sources.filter((x) => x.kind === 'euclid')) options.push([key(7, 0, s.index), `On ${s.name}’s pulses`]);
+  for (const s of euclidsOf(view)) options.push([key(7, 0, s.index), `On ${s.name}’s pulses${patternOf(s)}`]);
   const current = now ? key(now.typeIndex, now.channel, now.number) : key(0, 0, 0);
   if (!options.some(([k]) => k === current)) {
     const what = LFO_RESET_TYPES[now.typeIndex] ?? `type ${now.typeIndex}`;
     options.push([current, `${what}${now.typeIndex <= 3 ? `, ch ${now.channel + 1}` : ''}${now.typeIndex === 1 || now.typeIndex === 2 ? ` · ${now.number}` : ''} (as set)`]);
   }
+  if (freeEuclid(act.values().config, view.hardware) >= 0) options.push(['new', 'On a new Euclid’s pulses (no jack)']);
   return selectInput(`Restart of the LFO on jack ${o.jack}`, current, options, (k) => {
+    if (k === 'new') {
+      const e = addEuclidWithoutJack(act.values(), view.hardware);
+      return act.edit(`LFO on jack ${o.jack} restarts on a new Euclid ${e.index + 1}`, [...e.changes, ...setLfoRestart(o.index, { type: 7, channel: 0, number: e.index })]);
+    }
     const [type, channel, number] = k.split(':').map(Number);
     act.edit(`Restart of the LFO on jack ${o.jack}`, setLfoRestart(o.index, { type, channel, number }));
   });
@@ -317,8 +342,8 @@ export function voiceEditor(view, s, act, color) {
       rows.push(
         sfield(L('Range', 'arpRange'), selectInput(`Arp range of ${s.name}`, Math.max(1, Math.min(3, a.range)), [[1, '1 octave'], [2, '2 octaves'], [3, '3 octaves']], (v) => pset('Arp range', { arpRange: v }))),
         sfield(L('Rate', 'arpRate'), selectInput(`Arp rate of ${s.name}`, a.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => pset('Arp rate', { arpRate: v }))),
-        a.rate === 0 ? field('Clock source', selectInput(`Arp clock source of ${s.name}`, cv.arpClock, [[0, 'External clock'], ...Array.from({ length: 16 }, (_, i) => [i + 1, `Euclid ${i + 1}`])],
-          (v) => set('Arp clock source', { arpClock: v }))) : null,
+        a.rate === 0 ? field('Clock source', clockSourceInput(view, act, `Arp clock source of ${s.name}`, cv.arpClock,
+          (v, made) => act.edit(made.length ? `${s.name}’s arp clocked by a new Euclid ${v}` : `Arp clock source of ${s.name}`, [...made, ...setConverter(s.index, { arpClock: v })]))) : null,
         sfield(L('Gate', 'arpGate'), slider(`Arp gate of ${s.name}`, a.gate, { min: 0, max: 127, show: (v) => (v ? `${Math.round((v / 128) * 100)}%` : 'trigger') }, (v) => pset('Arp gate', { arpGate: v }))),
         sfield(L('Latch', 'arpLatch'), selectInput(`Arp latch of ${s.name}`, a.latch ? 1 : 0, [[0, 'Off'], [1, 'On: holds until a new chord']], (v) => pset('Arp latch', { arpLatch: v }))),
         sfield(L('Reset', 'arpReset'), numberInput(`Arp reset of ${s.name}`, a.reset, { min: 0, max: 127 }, (v) => pset('Arp reset', { arpReset: v })), ' quarter notes (0 = never)'),

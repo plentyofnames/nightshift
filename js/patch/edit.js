@@ -164,12 +164,20 @@ export function addClock(values, output, { type = 1, base = 24, multiplier = 1, 
   return [c('type', type), c('base', base), c('multiplier', multiplier), c('length', length), c('output', output), c('shift', 0)];
 }
 
-export function addEuclid(values, hardware, output, { pulses = 4, steps = 16, rotation = 0, rate = 6 } = {}) {
+export function addEuclid(values, hardware, output, pattern) {
+  return newEuclid(values, hardware, output, pattern).changes;
+}
+
+// A Euclid pattern with no jack, only to clock a sequencer, shift register or arpeggiator, or
+// to restart LFOs (it runs as long as it has pulses): { index, changes }. Link it in the same step.
+export const addEuclidWithoutJack = (values, hardware, pattern) => newEuclid(values, hardware, null, pattern);
+
+function newEuclid(values, hardware, output, { pulses = 4, steps = 16, rotation = 0, rate = 6 } = {}) {
   const i = freeEuclid(values.config, hardware);
   if (i < 0) throw noRoom('16 Euclid patterns');
   const changes = [
-    config(['euclid', i, 'output'], output),
-    config(['euclid', i, 'outputHigh'], 0),
+    config(['euclid', i, 'output'], output ?? 127), // 127 with the high bit: None
+    config(['euclid', i, 'outputHigh'], output == null ? 1 : 0),
     config(['euclid', i, 'offOutput'], 127),
     config(['euclid', i, 'offOutputHigh'], 1),
   ];
@@ -177,8 +185,20 @@ export function addEuclid(values, hardware, output, { pulses = 4, steps = 16, ro
     const e = (k, v) => preset(['euclid', i, k], v);
     changes.push(e('pulses', pulses), e('steps', steps), e('rotation', rotation), e('rate', rate));
   }
-  return changes;
+  return { index: i, changes };
 }
+
+// What clocks from or restarts on Euclid pattern `i` goes back to the external clock, or to
+// never restarting: for removing the pattern.
+function unlinkEuclid(c, i) {
+  const out = [];
+  c.noteSequencer.forEach((q, j) => q.clock === i + 1 && out.push(config(['noteSequencer', j, 'clock'], 0)));
+  c.srr.forEach((r, j) => r.clock === i + 1 && out.push(config(['srr', j, 'clock'], 0)));
+  c.converter.forEach((cv, j) => cv.arpClock === i + 1 && out.push(config(['converter', j, 'arpClock'], 0)));
+  c.lfoReset.forEach((r, o) => r.type === LFO_RESET_EUCLID && r.number === i && out.push(config(['lfoReset', o, 'type'], 0)));
+  return out;
+}
+const LFO_RESET_EUCLID = 7;
 
 // ---- removing what comes out of a jack
 
@@ -229,9 +249,17 @@ export function removePort(values, source, port) {
   }
 }
 
-export const removeSource = (values, source) => (source.kind === 'voice'
-  ? setConverter(source.index, { enable: 0 }) // its settings stay, for when it comes back
-  : source.ports.flatMap((p) => removePort(values, source, p)));
+// A whole source. A Euclid pattern loses its jacks and its links too (what it clocks goes back
+// to the external clock), else one without a jack would stay.
+export function removeSource(values, source) {
+  if (source.kind === 'voice') return setConverter(source.index, { enable: 0 }); // its settings stay, for when it comes back
+  if (source.kind === 'euclid') {
+    const i = source.index;
+    return [config(['euclid', i, 'output'], 127), config(['euclid', i, 'outputHigh'], 1),
+      config(['euclid', i, 'offOutput'], 127), config(['euclid', i, 'offOutputHigh'], 1), ...unlinkEuclid(values.config, i)];
+  }
+  return source.ports.flatMap((p) => removePort(values, source, p));
+}
 
 // ---- changing a source's settings
 

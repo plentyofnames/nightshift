@@ -46,6 +46,7 @@ The design mockups live on a private design canvas.
 **Other layout rules**
 - An "Acc Trig" or "Acc Gate" trigger also uses output + 1 for the accent.
 - A clock or Euclid pattern used only to reset an LFO can point at an unused expander slot. The manual suggests this workaround itself; the editor should hide it.
+- A Euclid pattern with both outputs None still runs; it only stops with no pulses (your note, 2026-11-03). Clocking a shift register from a Euclid pattern without a jack is the usual way to step it.
 
 **MIDI routing: the transparency problem**
 - All inputs (USB A, USB C, DIN, Select Bus and internal) merge into one stream of 16 channels.

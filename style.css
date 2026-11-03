@@ -240,6 +240,8 @@ details.more[open] summary { margin-bottom: 4px; }
 .cables .midi.on { stroke-width: 3; opacity: 1; }
 .cables .midi-end { opacity: 0.6; }
 .cables .midi-end.on { opacity: 1; }
+.cables .clock-link { fill: none; stroke-width: 1.5; stroke-dasharray: 1 4; stroke-linecap: round; opacity: 0.5; }
+.cables .clock-link.on { stroke-width: 2.5; opacity: 1; }
 .ins-head .grow { flex: 1 1 auto; min-width: 0; }
 .btn.small { padding: 4px 9px; font-size: 12px; }
 input.text { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 7px; background: var(--bg); color: var(--text); font-size: 13px; }

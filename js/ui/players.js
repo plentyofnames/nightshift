@@ -4,7 +4,8 @@
 
 import { h, $, modal } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, playerLine, KIND_NAMES } from './look.js';
-import { selectInput, perScene } from './controls.js';
+import { selectInput, perScene, ec4Label } from './controls.js';
+import { clockSourceInput } from './editors.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
 import { suggestChannel } from '../patch/alloc.js';
@@ -52,12 +53,11 @@ export function playerInspector(view, colors, id, onSelect, act) {
 
   // its clock
   if (f.rate && p.rate != null) {
-    const euclids = view.sources.filter((s) => s.kind === 'euclid');
     parts.push(section('Clock', h('div', { class: 'erows' },
       perScene(field(p.kind === 'sequencer' ? ec4Label('Steps at', `noteSequencer:${p.index}:rate`, act.ec4) : 'Steps at', selectInput(`Rate of ${p.name}`, p.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => act.edit(`Rate of ${p.name}`, setPlayerRate(p.id, v))))),
       // the clock source only counts at rate Ext, so it only shows then
-      p.rate === 0 ? field('Clock source', selectInput(`Clock source of ${p.name}`, p.clock, [[0, 'External clock'],
-        ...Array.from({ length: 16 }, (_, i) => [i + 1, `Euclid ${i + 1}${euclids.some((s) => s.index === i) ? '' : ' (not set up)'}`])], (v) => set('Clock source', { clock: v }))) : null),
+      p.rate === 0 ? field('Clock source', clockSourceInput(view, act, `Clock source of ${p.name}`, p.clock,
+        (v, made) => act.edit(made.length ? `${p.name} clocked by a new Euclid ${v}` : `Clock source of ${p.name}`, [...made, ...setPlayer(p.id, { clock: v })]))) : null),
     null));
   }
 
@@ -137,13 +137,29 @@ export function playedBy(view, s, act, onSelect, colors) {
   return section('Played by', rows);
 }
 
-// ---- what a Euclid pattern clocks
+// ---- a shift register's clock, shown with the random source on its jacks (its notes, when it
+// sends them, are a player with the same clock)
 
-export function euclidClocks(s, onSelect) {
-  if (!s.clocks?.length) return null;
-  return section('Clocks', s.clocks.map((c) => h('div', { class: 'row' },
-    h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ player: c.id }) }, c.name),
-    h('span', { class: 'v' }, c.now ? 'now (its rate is Ext)' : 'when its rate is Ext'))));
+export function randomClock(view, s, act) {
+  const rate = s.settings?.rate;
+  if (rate == null) return null;
+  const id = `srrNotes:${s.index}`;
+  const clock = act.values().config.srr[s.index].clock;
+  return section('Clock', h('div', { class: 'erows' },
+    perScene(field(ec4Label('Steps at', `srr:${s.index}:rate`, act.ec4), selectInput(`Rate of ${s.name}`, rate, [[0, 'Ext: its clock source'], ...DIVISIONS],
+      (v) => act.edit(`Rate of ${s.name}`, setPlayerRate(id, v))))),
+    rate === 0 ? field('Clock source', clockSourceInput(view, act, `Clock source of ${s.name}`, clock,
+      (v, made) => act.edit(made.length ? `${s.name} clocked by a new Euclid ${v}` : `Clock source of ${s.name}`, [...made, ...setPlayer(id, { clock: v })]))) : null));
+}
+
+// ---- what a Euclid pattern clocks, and the LFOs it restarts
+
+export function euclidClocks(view, s, onSelect) {
+  const link = (label, sel, note) => h('div', { class: 'row' }, h('button', { type: 'button', class: 'linkish', onclick: () => onSelect(sel) }, label), h('span', { class: 'v' }, note));
+  return [
+    s.clocks?.length ? section('Clocks', s.clocks.map((c) => link(c.name, c.select, c.now ? 'now (its rate is Ext)' : 'when its rate is Ext'))) : null,
+    s.restarts?.length ? section('Restarts', s.restarts.map((o) => link(`LFO on ${view.outputs[o].jack}`, { output: o }, 'on every pulse'))) : null,
+  ];
 }
 
 // ---- setting up a player that sends nowhere yet (e.g. a sequencer for a Disting on DIN)
