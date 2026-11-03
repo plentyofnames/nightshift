@@ -7,7 +7,7 @@
 // name { dump: 'names', path: [key], value: text or null }. Applying one checks every change
 // first, then returns the changes that undo it, so undo and redo need nothing else.
 
-import { getPath, setPath } from '../fh2/layout.js';
+import { getPath, setPath, diff } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
 import { freeClock, freeEuclid, freeMapping, freeConverter, freeTrigger } from './alloc.js';
 import { isUsed, targetOf } from './mappings.js';
@@ -60,6 +60,10 @@ export function apply(patch, changes) {
 // (deviceKey('din', 4)); empty clears it.
 export const setName = (key, name) => [{ dump: 'names', path: [key], value: name?.trim() ? name.trim() : null }];
 export const deviceKey = (port, channel) => `device:${port}:${channel}`;
+
+// The changes that make a dump's values equal `target` (the same dump's values from somewhere
+// else, e.g. read from the FH-2): one per field that differs.
+export const changesTowards = (kind, dump, target) => diff(DUMPS[dump.cmd].layout, dump.values, target).map((x) => ({ dump: kind, path: x.path, value: x.to }));
 
 // Undo and redo over apply(). Each step has a label for the status line.
 export class History {

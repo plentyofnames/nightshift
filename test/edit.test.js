@@ -3,7 +3,7 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { playerLine } from '../js/ui/look.js';
 import { ccOf } from '../js/ui/connect.js';
@@ -427,4 +427,19 @@ test('learning a knob reads control changes, not notes or mode messages', () => 
   eq(ccOf(Uint8Array.of(0x91, 60, 100)), null, 'a note');
   eq(ccOf(Uint8Array.of(0xb0, 123, 0)), null, 'all notes off');
   eq(ccOf(Uint8Array.of(0xb0, 7)), null, 'too short');
+});
+
+test('getting the FH-2’s patch is an edit: it matches the module byte for byte, and undoes', () => {
+  const p = patch();
+  const before = { config: buildDump(p.config), preset: buildDump(p.preset) };
+  // the module holds something else
+  const module = { config: blankConfig(), preset: blankPreset('On the FH-2') };
+  apply({ config: module.config, preset: module.preset, names: {} }, [...addVoice({ config: module.config.values, preset: module.preset.values }, { output: 2, channel: 5 }), ...setSmoothing(7, 33)]);
+  const h = new History();
+  h.do(p, 'Get', [...changesTowards('config', p.config, module.config.values), ...changesTowards('preset', p.preset, module.preset.values)]);
+  eqBytes(bodyOf(buildDump(p.config)), bodyOf(buildDump(module.config)), 'config now as on the FH-2');
+  eqBytes(bodyOf(buildDump(p.preset)), bodyOf(buildDump(module.preset)), 'preset now as on the FH-2');
+  h.undo(p);
+  eqBytes(buildDump(p.config), before.config, 'undo brings the config back');
+  eqBytes(buildDump(p.preset), before.preset, 'and the preset');
 });

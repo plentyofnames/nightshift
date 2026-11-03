@@ -92,3 +92,11 @@ export async function learnCc(timeoutMs = 15000) {
     for (const i of inputs) i.addEventListener('midimessage', on);
   });
 }
+
+// Calls `onChange('connected' | 'disconnected')` when a port named like the FH-2 comes or goes.
+export async function watchFh2(onChange) {
+  const acc = await midiAccess();
+  acc.addEventListener('statechange', (e) => {
+    if (FH2_NAME.test(e.port.name ?? '')) onChange(e.port.state);
+  });
+}

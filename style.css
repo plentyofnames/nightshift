@@ -244,3 +244,14 @@ input.text { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px 
 .scenes button { border: 1px solid var(--line2); background: transparent; color: var(--dim); border-radius: 7px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
 .scenes button[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .scenes .scene-add { padding: 4px 8px; }
+
+/* the File menu and the empty state */
+details.menu { position: relative; }
+details.menu > summary { list-style: none; }
+details.menu > summary::-webkit-details-marker { display: none; }
+details.menu .menu-items { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; min-width: 190px; padding: 4px; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 12px 30px rgb(0 0 0 / 0.25); }
+details.menu .menu-items button { text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+details.menu .menu-items button:hover { background: var(--panel2); }
+.empty { max-width: 640px; margin: 60px auto; padding: 24px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 12px; }
+.empty p:first-child { margin: 0; font-size: 15px; }
+.empty .actions { justify-content: flex-start; }

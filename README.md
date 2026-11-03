@@ -7,7 +7,7 @@ A patch editor for the **Expert Sleepers FH-2** that works from the output side:
 ## Status
 
 Version 0.1 (milestones M0–M2). What it does:
-- Open a config and its presets (`.syx` files, a Night Shift project, or pulled from the FH-2 over Web MIDI) and see your rack, what comes out of every jack, who plays each voice, and which CCs control what.
+- It opens on your last patch (kept in the browser) and reads the FH-2 over Web MIDI beside it, so it can say whether they match; Get from FH-2 or Send to FH-2 decides. Or open `.syx` files or a Night Shift project. See your rack, what comes out of every jack, who plays each voice, and which CCs control what.
 - Click a free jack to add a voice (mono or poly, gates on the expander or not), a trigger, a fixed voltage, a MIDI knob, an LFO, a clock, a transport signal or a Euclidean rhythm. Night Shift finds room in the FH-2 and won't put anything on top of another source.
 - Edit every one of them: LFOs and envelopes drawn as you change them, Euclid patterns, voice outputs and layout, arpeggiators, trigger notes and types, knob CCs (or learn them from a controller on the computer).
 - Players: note and drum sequencers, shift-register notes, inputs: wire them to voices and trigger kits, send them out to other gear, clock them from the tempo, the external clock or a Euclid pattern.

@@ -1,12 +1,13 @@
-// Night Shift: open a config and preset from .syx files or a project, pull them from an FH-2,
-// or try the example; see the rack and what comes out of every jack; edit, undo, keep several
-// scenes (presets) for one config, and send the result back to the module.
+// Night Shift: on opening, show the patch kept in this browser and read the FH-2 beside it;
+// see the rack and what comes out of every jack; edit, undo, keep several scenes (presets) for
+// one config, and send the result to the module or get the module's patch. Files (projects,
+// .syx dumps) and the example are in the File menu.
 
 import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
 import { parseDump, buildDump, splitSysex, commandOf, DUMPS } from './fh2/sysex.js';
 import { diff } from './fh2/layout.js';
 import { derive } from './patch/derive.js';
-import { History, removePort, removeSource, setName } from './patch/edit.js';
+import { History, removePort, removeSource, setName, changesTowards } from './patch/edit.js';
 import { examplePatch } from './patch/example.js';
 import { projectToJson, projectFromJson, PROJECT_EXTENSION } from './patch/project.js';
 import { DEFAULT_HARDWARE, validHardware, blockName } from './patch/hardware.js';
@@ -16,9 +17,10 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash } from './ui/connect.js';
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, watchFh2 } from './ui/connect.js';
 
 const HW_KEY = 'nightshift.hardware';
+const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
 const state = {
   config: null, // parsed dumps (sysex.js parseDump); their values are what gets edited
   preset: null, // the scene in view: scenes[scene]
@@ -28,8 +30,11 @@ const state = {
   from: '',
   hardware: loadHardware(),
   history: new History(),
-  sent: null, // the values the FH-2 holds, as far as we know: { config, preset }, or null
-  unsent: false, // what you see differs from what the FH-2 holds (or we don't know what it holds)
+  module: null, // the values the FH-2 holds, as last read or sent: { config, preset }, or null
+  link: 'unknown', // 'connecting', 'connected', 'offline' (no FH-2 port) or 'no-midi' (the browser refuses)
+  port: '',
+  sync: null, // how what you see compares with the FH-2: { kind: 'same' | 'scene' | 'differs' | 'unknown', scene }
+  unsent: false, // what you see isn't what the FH-2 holds (or we don't know what it holds)
   busy: false,
   view: null,
   colors: new Map(),
@@ -61,29 +66,54 @@ function status(text, warn = false) {
 
 const patch = () => ({ config: state.config, preset: state.preset, names: state.names });
 const values = () => ({ config: state.config.values, preset: state.preset?.values ?? null, names: state.names });
-const snapshot = () => structuredClone({ config: state.config?.values ?? null, preset: state.preset?.values ?? null, scene: state.scene });
+const snapshot = () => structuredClone({ config: state.config?.values ?? null, preset: state.preset?.values ?? null });
+const readModule = (r) => { state.module = structuredClone({ config: r.config.values, preset: r.preset.values }); };
 const sceneName = (i) => state.scenes[i]?.values.name.trim() || `Scene ${'ABCDEFGHIJKLMNOP'[i] ?? i + 1}`;
 
-function unsent() {
-  if (!state.sent) return true;
-  if (state.preset && state.sent.scene !== state.scene) return true; // another scene is on the FH-2
-  return ['config', 'preset'].some((k) => {
-    const d = state[k];
-    if (!d) return false;
-    return !state.sent[k] || diff(DUMPS[d.cmd].layout, d.values, state.sent[k]).length > 0;
-  });
+// What you see against what the FH-2 holds: the same, another scene of yours, or different.
+function syncOf() {
+  if (!state.module) return { kind: 'unknown' };
+  const same = (d, v) => diff(DUMPS[d.cmd].layout, d.values, v).length === 0;
+  if (!same(state.config, state.module.config)) return { kind: 'differs' };
+  if (!state.preset || same(state.preset, state.module.preset)) return { kind: 'same' };
+  const other = state.scenes.findIndex((s) => same(s, state.module.preset));
+  return other >= 0 ? { kind: 'scene', scene: other } : { kind: 'differs' };
+}
+
+// ---- the patch kept in this browser (not the example, which would replace yours)
+
+let storeTimer = null;
+function store() {
+  if (!state.config || state.from === 'example') return;
+  clearTimeout(storeTimer);
+  storeTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(PATCH_KEY, projectToJson({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware }));
+    } catch {}
+  }, 300);
+}
+
+function stored() {
+  try {
+    const text = localStorage.getItem(PATCH_KEY);
+    return text ? projectFromJson(text) : null;
+  } catch {
+    return null;
+  }
 }
 
 function update() {
   state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware, state.names) : null;
   state.colors = state.view ? colorsFor([...state.view.sources, ...state.view.players], state.colors) : new Map();
-  state.unsent = state.config ? unsent() : false;
+  state.sync = state.config ? syncOf() : null;
+  state.unsent = state.config ? state.sync.kind !== 'same' : false;
+  store();
   render();
 }
 
-// `sent`: whether these are what the FH-2 holds right now (true after a pull).
-// `presets` become the scenes (`scene` the one in view); a single `preset` is one scene.
-function load({ config, preset, presets, scene = 0, names, hardware }, from, sent = false) {
+// `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. What
+// the FH-2 holds stays as it is: the mark compares the new patch with it.
+function load({ config, preset, presets, scene = 0, names, hardware }, from) {
   if (config) state.config = config;
   const scenes = presets?.length ? presets : preset ? [preset] : null;
   if (scenes) {
@@ -100,7 +130,6 @@ function load({ config, preset, presets, scene = 0, names, hardware }, from, sen
   state.selected = null;
   state.colors = new Map(); // a new patch gets fresh colours
   state.history = new History();
-  state.sent = sent ? snapshot() : null;
   update();
 }
 
@@ -213,7 +242,7 @@ function setScene(i) {
 
 // A new scene starts as a copy of the one in view.
 function addScene() {
-  if (!state.preset) return status('Open or pull a preset first: scenes are presets.', true);
+  if (!state.preset) return status('Open or get a preset first: scenes are presets.', true);
   const copy = structuredClone(state.preset);
   const letter = 'ABCDEFGHIJKLMNOP'[state.scenes.length] ?? String(state.scenes.length + 1);
   copy.values.name = `Scene ${letter}`;
@@ -240,8 +269,6 @@ async function removeScene() {
   state.history.done = state.history.done.filter((s) => s.meta?.scene !== gone);
   state.history.undone = state.history.undone.filter((s) => s.meta?.scene !== gone);
   shiftSteps(gone + 1, -1);
-  if (state.sent?.scene === gone) state.sent = null;
-  else if (state.sent?.scene > gone) state.sent.scene -= 1;
   state.scene = Math.min(gone, state.scenes.length - 1);
   state.preset = state.scenes[state.scene];
   status(`Removed scene ${name}`);
@@ -251,7 +278,6 @@ async function removeScene() {
 // Undo steps remember their scene by number; inserting or removing a scene renumbers them.
 function shiftSteps(from, by) {
   for (const s of [...state.history.done, ...state.history.undone]) if (s.meta?.scene >= from) s.meta.scene += by;
-  if (state.sent?.scene >= from && by > 0) state.sent.scene += by;
 }
 
 async function renameScene() {
@@ -321,12 +347,12 @@ function pickFiles() {
   input.click();
 }
 
-// Asks before throwing away edits that haven't been sent or saved.
+// Asks before a file or the example replaces edits that aren't on the FH-2.
 async function dropUnsent(what) {
   if (!state.history.canUndo || !state.unsent) return true;
   return modal($('dialog'), {
-    title: 'Drop your changes?',
-    body: h('p', { class: 'note' }, `${what} replaces what you see, and your changes haven’t been sent to the FH-2. Save the project first to keep them.`),
+    title: 'Replace your changes?',
+    body: h('p', { class: 'note' }, `${what} replaces what you see, and your changes aren’t on the FH-2. Save the project first to keep them.`),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Drop them', value: true, primary: true }],
   });
 }
@@ -360,8 +386,7 @@ async function withFh2(work) {
     const pair = await pickFh2();
     if (pair) await work(pair);
   } catch (e) {
-    const refused = e.name === 'SecurityError' || e.name === 'NotAllowedError' || /permission/i.test(e.message);
-    status(refused ? 'This browser didn’t allow MIDI access. Allow it for this page (the icon in the address bar), or use Chrome or Edge.'
+    status(refused(e) ? 'This browser didn’t allow MIDI access. Allow it for this page (the icon in the address bar), or use Chrome or Edge.'
       : `The FH-2 didn’t answer: ${e.message}`, true);
   } finally {
     state.busy = false;
@@ -369,15 +394,72 @@ async function withFh2(work) {
   }
 }
 
-function pull() {
+// Get from FH-2: the module's config and preset become what you see, in the scene in view.
+// It's an edit of the fields that differ, so undo takes you back.
+
+function get() {
   return withFh2(async (pair) => {
-    if (!(await dropUnsent('Pulling'))) return status('');
     status(`Asking ${pair.name} for its config and preset…`);
     const r = await pullFromFh2(pair);
-    load(r, `${pair.name}, ${r.version}`, true);
-    status(`Pulled from ${pair.name} (${r.version})` + (r.config.versionOk ? '' : ' · unexpected config version'), !r.config.versionOk);
+    readModule(r);
+    Object.assign(state, { link: 'connected', port: pair.name });
+    const odd = r.config.versionOk ? '' : ' · unexpected config version';
+    if (!state.config || !state.preset) {
+      load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
+      return status(`Got the patch from ${pair.name} (${r.version})${odd}`, !!odd);
+    }
+    const changes = [...changesTowards('config', state.config, r.config.values), ...changesTowards('preset', state.preset, r.preset.values)];
+    if (!changes.length) {
+      update();
+      return status(`Already the same as ${pair.name}`);
+    }
+    edit(`Got the patch from ${pair.name}${state.scenes.length > 1 ? ` into scene ${sceneName(state.scene)}` : ''}`, changes);
   });
 }
+
+// Reading the FH-2 in the background, on opening and when it's plugged in: nothing you see
+// changes, only the mark. With nothing to show yet, its patch is shown.
+async function connect() {
+  if (state.busy) return;
+  state.busy = true;
+  state.link = 'connecting';
+  render();
+  try {
+    const pair = (await fh2Ports()).find(looksLikeFh2);
+    if (!pair) {
+      Object.assign(state, { link: 'offline', module: null });
+      return;
+    }
+    const r = await pullFromFh2(pair);
+    readModule(r);
+    Object.assign(state, { link: 'connected', port: pair.name });
+    if (!state.config) {
+      load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
+      state.status = `Got the patch from ${pair.name} (${r.version})`;
+    }
+  } catch (e) {
+    Object.assign(state, { link: refused(e) ? 'no-midi' : 'offline', module: null });
+  } finally {
+    state.busy = false;
+    update();
+  }
+}
+
+let watchTimer = null;
+function watch() {
+  watchFh2((portState) => {
+    clearTimeout(watchTimer);
+    watchTimer = setTimeout(() => {
+      if (portState === 'connected') connect();
+      else {
+        Object.assign(state, { link: 'offline', module: null });
+        update();
+      }
+    }, 600);
+  }).catch(() => {});
+}
+
+const refused = (e) => e.name === 'SecurityError' || e.name === 'NotAllowedError' || /permission|webmidi/i.test(e.message);
 
 function send() {
   return withFh2(async (pair) => {
@@ -386,11 +468,12 @@ function send() {
     const off = Object.entries(r).filter(([, d]) => d.length);
     if (off.length) {
       const list = off.map(([k, d]) => `${k}: ${d.slice(0, 3).map((x) => x.path.join('.')).join(', ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`);
-      state.sent = null;
+      state.module = null;
       update();
       return status(`Sent, but the FH-2 holds something else for ${list.join('; ')}`, true);
     }
-    state.sent = snapshot();
+    state.module = snapshot();
+    Object.assign(state, { link: 'connected', port: pair.name });
     update();
     status(`Sent to ${pair.name} and read back: the FH-2 now holds this patch (in RAM, not yet in flash)`);
   });
@@ -450,9 +533,14 @@ function select(sel) {
 function bar() {
   const v = state.view;
   const tab = (id, label) => h('button', { type: 'button', 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => { state.tab = id; render(); } }, label);
-  const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : '') },
-    !state.unsent ? 'same as the FH-2' : !state.sent ? 'not on the FH-2'
-      : state.preset && state.sent.scene !== state.scene ? `scene ${sceneName(state.sent.scene)} is on the FH-2` : 'changed since sent');
+  const k = state.sync?.kind;
+  const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : ''), title: state.port ? `FH-2 on port “${state.port}”` : '' },
+    state.link === 'connecting' ? 'reading the FH-2…'
+      : k === 'same' ? 'same as the FH-2'
+      : k === 'scene' ? `scene ${sceneName(state.sync.scene)} is on the FH-2`
+      : k === 'differs' ? 'differs from the FH-2'
+      : state.link === 'no-midi' ? 'no MIDI in this browser'
+      : state.link === 'offline' ? 'FH-2 not connected' : 'not on the FH-2');
   const scenes = v && state.scenes.length > 0 && h('div', { class: 'scenes', role: 'group', 'aria-label': 'Scenes' },
     state.scenes.map((_, i) => h('button', {
       type: 'button', 'aria-pressed': i === state.scene ? 'true' : 'false', title: i === state.scene ? 'Click to rename' : 'Show this scene',
@@ -472,13 +560,31 @@ function bar() {
     h('div', { class: 'grow' }),
     state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status' }, state.status),
     h('button', { type: 'button', class: 'btn', onclick: editHardware }, 'Rack…'),
-    h('button', { type: 'button', class: 'btn', onclick: pickFiles, title: 'A project, or .syx dumps (several presets become scenes)' }, 'Open…'),
-    v && h('button', { type: 'button', class: 'btn', onclick: saveProject, title: 'Config, every scene and your names, in one file' }, 'Save project'),
-    v && h('button', { type: 'button', class: 'btn', onclick: saveSyx, title: 'The config and this scene’s preset, for the FH-2 or Expert Sleepers’ tools' }, 'Save .syx'),
-    h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: pull }, 'Pull from FH-2'),
+    fileMenu(v),
+    h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, title: 'Its config and preset become what you see (undoable)' }, 'Get from FH-2'),
     v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send }, 'Send to FH-2'),
     v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
       title: state.unsent ? 'Send to the FH-2 first: saving stores what the module holds' : 'Store what the FH-2 holds in its flash' }, 'Save to flash'));
+}
+
+// Files: a menu, so the bar keeps the FH-2's buttons in front.
+function fileMenu(v) {
+  const item = (label, onclick, title) => h('button', { type: 'button', title, onclick: (e) => {
+    e.target.closest('details').open = false;
+    onclick();
+  } }, label);
+  return h('details', { class: 'menu' }, h('summary', { class: 'btn' }, 'File'),
+    h('div', { class: 'menu-items' },
+      item('Open…', pickFiles, 'A project, or .syx dumps (several presets become scenes)'),
+      v && item('Save project', saveProject, 'Config, every scene and your names, in one file'),
+      v && item('Save .syx', saveSyx, 'The config and this scene’s preset, for the FH-2 or Expert Sleepers’ tools'),
+      item('Example patch', loadExample, 'A made-up patch for an FH-2 with two CV and two gate expanders')));
+}
+
+async function loadExample() {
+  if (!(await dropUnsent('The example'))) return;
+  load(examplePatch(), 'example');
+  status('Example patch (not kept in this browser: Save project to keep it)');
 }
 
 function saveSyx() {
@@ -502,25 +608,22 @@ function jackIcon() {
   return svg;
 }
 
-function welcome() {
-  const choice = (title, text, onclick) => h('button', { type: 'button', class: 'choice', onclick }, h('b', {}, title), h('span', {}, text));
-  return h('section', { class: 'welcome' },
-    h('h1', {}, 'Night Shift'),
-    h('p', { class: 'note' }, 'An output-first editor for the Expert Sleepers FH-2. Pull your config and preset, see what comes out of every jack, change it and send it back.'),
-    h('div', { class: 'choices' },
-      choice('Pull from FH-2', 'Connect it over USB C. Needs Chrome or Edge. Only reads.', pull),
-      choice('Open .syx', 'A config dump, with or without its preset, from the FH-2 or Expert Sleepers’ tools. Or drop it here.', pickFiles),
-      choice('Try the example', 'A made-up patch for an FH-2 with two CV and two gate expanders.', () => {
-        load(examplePatch(), 'example');
-        status('Example patch');
-      })),
-    h('p', { class: 'note' }, 'Unofficial: not made or supported by Expert Sleepers.'));
+// Nothing to show: no patch kept in this browser, and no FH-2 (yet).
+function empty() {
+  const why = state.link === 'connecting' ? 'Reading the FH-2…'
+    : state.link === 'no-midi' ? 'This browser doesn’t allow MIDI, so it can’t reach the FH-2. Use Chrome or Edge, and allow MIDI for this page.'
+    : 'No FH-2 found. Connect it over USB C: Night Shift reads it as soon as it appears.';
+  return h('section', { class: 'empty' }, h('p', {}, why),
+    h('p', { class: 'note' }, 'Or open a project or .syx dumps (File, or drop them here), or look at the example patch. Unofficial: not made or supported by Expert Sleepers.'),
+    h('div', { class: 'actions' },
+      h('button', { type: 'button', class: 'btn', onclick: pickFiles }, 'Open…'),
+      h('button', { type: 'button', class: 'btn', onclick: loadExample }, 'Example patch')));
 }
 
 function render() {
   const v = state.view;
   let content;
-  if (!v) content = welcome();
+  if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
   else {
     content = [
@@ -545,6 +648,10 @@ document.addEventListener('drop', (e) => {
   document.body.classList.remove('drop');
   if (e.dataTransfer.files.length) openFiles(e.dataTransfer.files);
 });
+// a click anywhere else closes the File menu
+document.addEventListener('click', (e) => {
+  for (const m of document.querySelectorAll('details.menu[open]')) if (!m.contains(e.target)) m.open = false;
+});
 document.addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open]')) return;
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
@@ -556,9 +663,13 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && state.selected) select(null);
 });
-window.addEventListener('beforeunload', (e) => {
-  if (state.history.canUndo && state.unsent) e.preventDefault();
-});
+// ---- start: the example if asked for, else the patch kept in this browser; then the FH-2
 
+const kept = stored();
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');
+else if (kept) {
+  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware }, 'browser');
+  state.status = 'Your last patch, kept in this browser';
+}
 render();
+connect().then(watch);

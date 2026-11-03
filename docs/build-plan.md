@@ -195,6 +195,14 @@ None of these touch the page, so they work unchanged. That gives one implementat
 
 Hardware results: learning a knob works (2026-11-03).
 
+**The UI round is done (2026-11-03):**
+- No start screen. On opening, Night Shift shows the patch kept in this browser (config, scenes, names, rack: stored as a project after every change), then reads the FH-2 in the background. With nothing kept, the FH-2's patch is shown. With neither, one line says why (no FH-2 found, or a browser without MIDI) and offers Open… and the example.
+- Plugging the FH-2 in (or out) is noticed, and it's read again.
+- The mark compares what you see with what the FH-2 really holds: same, "scene B is on the FH-2", differs, not connected, no MIDI in this browser. It no longer only remembers what Night Shift last sent.
+- **Get from FH-2** (was Pull) makes its config and preset what you see, as an edit of the fields that differ, so undo takes you back and there's no question first. **Send to FH-2** as before.
+- Files and the example are in a File menu. The example is never kept in the browser, so it doesn't replace your patch. The "you have unsaved changes" warning on leaving the page is gone: the browser keeps the patch.
+- Not checked yet: the FH-2 side in Chrome (the built-in browser has no MIDI).
+
 ### Next UI round (your ideas, stashed 2026-11-03)
 - **No start screen.** Night Shift connects to the real FH-2 as soon as it opens and pulls its config and preset. The example and opening a `.syx` move into the bar (or a menu).
 - **Keep the last patch in the browser.** Store the config and preset (and whether they were sent) in the browser's storage after every change. If the FH-2 can't be reached on start, open that copy instead, marked "not on the FH-2", so a patch can be made away from the rack and sent later.
