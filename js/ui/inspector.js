@@ -6,7 +6,7 @@ import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
 import { outputNumber, internalName } from '../patch/hardware.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
-import { numberInput, voltsInput } from './controls.js';
+import { numberInput, voltsInput, perScene } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
 import { playerInspector, playedBy, euclidClocks } from './players.js';
 
@@ -168,9 +168,9 @@ function jackSettings(o, edit) {
   const preset = o.directLevel != null;
   const rows = [
     row('Range', rangeSelect),
-    row('Stored level', preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
-      preset ? `code ${o.directLevel}` : null),
-    row('Smoothing', preset ? numberInput(`Smoothing of ${where}`, o.smoothing, { min: 0, max: 127 }, (v) => edit(`Smoothing of ${where}: ${v}`, setSmoothing(o.index, v))) : '—'),
+    perScene(row('Stored level', preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
+      preset ? `code ${o.directLevel}` : null)),
+    perScene(row('Smoothing', preset ? numberInput(`Smoothing of ${where}`, o.smoothing, { min: 0, max: 127 }, (v) => edit(`Smoothing of ${where}: ${v}`, setSmoothing(o.index, v))) : '—')),
     row('Gate low', voltsInput(`Gate low level of ${where}`, o.gateLevels.low, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, v, o.gateLevels.high)))),
     row('Gate high', voltsInput(`Gate high level of ${where}`, o.gateLevels.high, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, o.gateLevels.low, v)))),
   ];
@@ -205,9 +205,9 @@ function jackInspector(view, colors, o, onSelect, act) {
   if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
   if (o.lfo && !o.lfo.alone) {
     parts.push(h('section', { class: 'section' }, h('h3', {}, 'LFO on top'), lfoEditor(view, o, act, '#3DD6C6'),
-      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.edit(`Removed the LFO on jack ${o.jack}`, removeLfo(o.index)) }, 'Remove the LFO'))));
+      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', onclick: () => act.edit(`Removed the LFO on jack ${o.jack}`, removeLfo(o.index)) }, 'Remove the LFO'))));
   } else if (!o.lfo && !o.gate && active.length && o.lfoRaw) {
-    parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', title: 'Vibrato on a pitch, wobble on a level',
+    parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',
       onclick: () => act.edit(`LFO on top of jack ${o.jack}`, addLfo(o.index, { shape: 'sine', rate: { hz: 5 }, depth: 0.05 })) }, 'Add an LFO on top')));
   }
   if (!o.gate) parts.push(...jackSettings(o, act.edit));

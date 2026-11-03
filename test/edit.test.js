@@ -5,6 +5,7 @@ import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, 
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
   moveToChannel, setLaneNote, setName, deviceKey, changesTowards } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
+import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
 import { ccOf } from '../js/ui/connect.js';
 import { freeClock, freeEuclid, freeMapping, freeCcs, suggestCc, suggestChannel, suggestBaseGate, voicePlan,
@@ -411,6 +412,10 @@ test('a project file holds the config, every scene, the names and the rack, byte
   eqBytes(buildDump(back.config), buildDump(p.config), 'config');
   eqBytes(buildDump(back.scenes[1]), buildDump(b), 'scene B');
   eq([back.scenes.length, back.scene, back.names, back.hardware], [2, 1, { 'converter:0': 'Bass' }, hw]);
+  const withSlots = projectFromJson(projectToJson({ config: p.config, scenes: [p.preset, b], scene: 0, names: {}, hardware: hw,
+    slots: { config: 3, scenes: [5, 31] }, scenesOnly: true }));
+  eq([withSlots.slots, withSlots.scenesOnly], [{ config: 3, scenes: [5, null] }, true], 'slots kept, a slot past 30 dropped');
+  eq(back.slots, { config: null, scenes: [null, null] }, 'no slots: none chosen');
   for (const bad of ['{', '{"x":1}', JSON.stringify({ nightshift: 99, config: '' })]) {
     let threw = false;
     try {
@@ -442,4 +447,41 @@ test('getting the FH-2’s patch is an edit: it matches the module byte for byte
   h.undo(p);
   eqBytes(buildDump(p.config), before.config, 'undo brings the config back');
   eqBytes(buildDump(p.preset), before.preset, 'and the preset');
+});
+
+// ---- scenes
+
+test('what a scene changes against another, in a few words', () => {
+  const p = patch();
+  const b = structuredClone(p.preset);
+  const vb = b.values;
+  Object.assign(vb.output[4], { lfoSine: 127, smoothing: 10 });
+  vb.euclid[1].pulses = 5;
+  Object.assign(vb.converter[0], { arpMode: 11, envAttack: 10 });
+  vb.tempo = 1300;
+  vb.name = 'Chorus';
+  eq(sceneDifferences(p.preset.values, vb, DEFAULT_HARDWARE), ['jack 5 (LFO, smoothing)', 'Voice 1 (arp, envelope)', 'tempo', 'Euclid 2'], 'in the preset’s own order');
+  const c = structuredClone(p.preset.values);
+  c.noteSequencerMute2 = 1;
+  eq(sceneDifferences(p.preset.values, c, DEFAULT_HARDWARE), ['sequence 3 (mute)']);
+  eq(sceneDifferences(p.preset.values, structuredClone(p.preset.values), DEFAULT_HARDWARE), []);
+});
+
+test('the fit check finds what a preset sets that this config doesn’t use', () => {
+  const p = patch();
+  apply(p, addEuclid(values(p), DEFAULT_HARDWARE, 64, { pulses: 3 })); // Euclid 1 on a jack: fine
+  const pv = p.preset.values;
+  pv.euclid[4].pulses = 5; // Euclid 5: no jack
+  pv.converter[2].arpMode = 11; // no Voice 3
+  pv.noteSequencerActive1 = 1; // sequencer 2 sends nowhere
+  Object.assign(pv.output[40], { lfoSine: 127 }); // an LFO on 5/1, not in the rack
+  const v = derive(p.config.values, pv);
+  eq(fitProblems(v, p.config.values, pv), [
+    'Euclid 5 has a pattern, but no jack and nothing it clocks',
+    'Voice 3’s arpeggiator is on, but there’s no Voice 3',
+    'Note sequencer 2 is running, but sends nowhere',
+    'An LFO on 5/1, which isn’t in your rack',
+  ]);
+  apply(p, setPlayer('noteSequencer:1', { dests: { din: true }, clock: 5 })); // now it sends, and Euclid 5 clocks it
+  eq(fitProblems(derive(p.config.values, pv), p.config.values, pv).length, 2);
 });

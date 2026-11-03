@@ -52,13 +52,39 @@ export function sendToFh2(pair, { config, preset }, log) {
   });
 }
 
-// Stores the FH-2's current config and preset in flash, in the slots they were last loaded
-// from or saved to.
-export function saveToFlash(pair, log) {
+// Stores the FH-2's current config and preset in flash: in `configSlot` and `presetSlot` (1–30),
+// or with 0 in the slots they were last loaded from or saved to.
+export function saveToFlash(pair, { configSlot = 0, presetSlot = 0 } = {}, log) {
   return withClient(pair, log, async (client) => {
-    await client.saveConfigToFlash(0);
-    await new Promise((r) => setTimeout(r, SETTLE_MS)); // let it finish writing flash
-    await client.savePresetToFlash(0);
+    await client.saveConfigToFlash(configSlot);
+    await settle(); // let it finish writing flash
+    await client.savePresetToFlash(presetSlot);
+    await settle();
+  });
+}
+
+const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
+
+// Saves a whole project to flash: the config into `configSlot`, then each scene's preset into
+// its slot (each is sent first, as the FH-2 saves what it holds), then sends `back` (the scene
+// in view) so the module ends up holding it. Returns what the FH-2 holds afterwards.
+export function saveAllToFlash(pair, { config, configSlot, scenes, back }, log) {
+  return withClient(pair, log, async (client) => {
+    await client.install(config);
+    await settle();
+    await client.saveConfigToFlash(configSlot);
+    await settle();
+    for (const s of scenes) {
+      await client.install(s.dump);
+      await settle();
+      await client.savePresetToFlash(s.slot);
+      await settle();
+    }
+    if (back) {
+      await client.install(back);
+      await settle();
+    }
+    return { config: await client.pullConfig(), preset: await client.pullPreset() };
   });
 }
 

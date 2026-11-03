@@ -17,7 +17,9 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, watchFh2 } from './ui/connect.js';
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2 } from './ui/connect.js';
+import { renderScenes } from './ui/scenes.js';
+import { sceneDifferences, fitProblems } from './patch/scenes.js';
 
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
@@ -26,6 +28,8 @@ const state = {
   preset: null, // the scene in view: scenes[scene]
   scenes: [], // parsed preset dumps, one per scene
   scene: 0,
+  slots: { config: null, scenes: [] }, // flash slots (1–30) for the config and each scene, null where none
+  scenesOnly: false, // while on, edits that change the config are refused
   names: {}, // Night Shift's own names beside the dumps (edit.js setName)
   from: '',
   hardware: loadHardware(),
@@ -82,13 +86,16 @@ function syncOf() {
 
 // ---- the patch kept in this browser (not the example, which would replace yours)
 
+const project = () => ({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware,
+  slots: state.slots, scenesOnly: state.scenesOnly });
+
 let storeTimer = null;
 function store() {
   if (!state.config || state.from === 'example') return;
   clearTimeout(storeTimer);
   storeTimer = setTimeout(() => {
     try {
-      localStorage.setItem(PATCH_KEY, projectToJson({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware }));
+      localStorage.setItem(PATCH_KEY, projectToJson(project()));
     } catch {}
   }, 300);
 }
@@ -113,13 +120,15 @@ function update() {
 
 // `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. What
 // the FH-2 holds stays as it is: the mark compares the new patch with it.
-function load({ config, preset, presets, scene = 0, names, hardware }, from) {
+function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly }, from) {
   if (config) state.config = config;
   const scenes = presets?.length ? presets : preset ? [preset] : null;
   if (scenes) {
     state.scenes = scenes;
     state.scene = Math.min(scene, scenes.length - 1);
+    state.slots = slots ?? { config: null, scenes: scenes.map(() => null) };
   }
+  state.scenesOnly = scenesOnly ?? state.scenes.length > 1;
   state.preset = state.scenes[state.scene] ?? null;
   if (hardware) {
     state.hardware = hardware;
@@ -135,7 +144,14 @@ function load({ config, preset, presets, scene = 0, names, hardware }, from) {
 
 // ---- editing
 
-function edit(label, changes) {
+// `force`: for Get from FH-2 and the Scenes page, which may change the config while
+// “Scenes only” is on.
+function edit(label, changes, { force = false } = {}) {
+  if (state.scenesOnly && !force && changes.some((c) => c.dump === 'config')) {
+    state.status = 'That changes the setup, which all scenes share. Switch off “Scenes only” to change it.';
+    state.warn = true;
+    return render();
+  }
   try {
     if (state.history.do(patch(), label, changes, { scene: state.scene })) {
       state.status = label;
@@ -247,10 +263,13 @@ function addScene() {
   const letter = 'ABCDEFGHIJKLMNOP'[state.scenes.length] ?? String(state.scenes.length + 1);
   copy.values.name = `Scene ${letter}`;
   state.scenes.splice(state.scene + 1, 0, copy);
+  state.slots.scenes.splice(state.scene + 1, 0, null);
   shiftSteps(state.scene + 1, 1);
   state.scene += 1;
   state.preset = copy;
-  status(`Added scene ${letter}, a copy of ${sceneName(state.scene - 1)}`);
+  const lock = state.scenes.length === 2 && !state.scenesOnly;
+  if (lock) state.scenesOnly = true;
+  status(`Added scene ${letter}, a copy of ${sceneName(state.scene - 1)}${lock ? '. “Scenes only” is on: the config stays as it is' : ''}`);
   update();
 }
 
@@ -265,6 +284,7 @@ async function removeScene() {
   if (!ok) return;
   const gone = state.scene;
   state.scenes.splice(gone, 1);
+  state.slots.scenes.splice(gone, 1);
   // steps made in the removed scene can't be undone any more; later scenes move down one
   state.history.done = state.history.done.filter((s) => s.meta?.scene !== gone);
   state.history.undone = state.history.undone.filter((s) => s.meta?.scene !== gone);
@@ -278,6 +298,55 @@ async function removeScene() {
 // Undo steps remember their scene by number; inserting or removing a scene renumbers them.
 function shiftSteps(from, by) {
   for (const s of [...state.history.done, ...state.history.undone]) if (s.meta?.scene >= from) s.meta.scene += by;
+}
+
+function toggleScenesOnly() {
+  state.scenesOnly = !state.scenesOnly;
+  status(state.scenesOnly ? '“Scenes only” is on: only what a scene holds can change' : '“Scenes only” is off: the config can change too, for every scene');
+  update();
+}
+
+function setSlot(which, slot) {
+  if (which === 'config') state.slots.config = slot;
+  else state.slots.scenes[which] = slot;
+  update();
+}
+
+// The scenes and their slots, for the Scenes page.
+function scenesModel(v) {
+  const onModule = (i) => (state.sync?.kind === 'same' ? i === state.scene : state.sync?.kind === 'scene' && state.sync.scene === i);
+  return {
+    configName: v.globals.name || 'untitled', configSlot: state.slots.config,
+    programChannel: state.config.values.presetProgramChannel, scenesOnly: state.scenesOnly,
+    scenes: state.scenes.map((s, i) => ({
+      name: sceneName(i), slot: state.slots.scenes[i], current: i === state.scene, onModule: onModule(i),
+      differences: i ? sceneDifferences(state.scenes[0].values, s.values, state.hardware) : [],
+      fit: fitProblems(i === state.scene ? v : derive(state.config.values, s.values, state.hardware, state.names), state.config.values, s.values),
+    })),
+  };
+}
+
+async function saveAll() {
+  const list = state.scenes.map((_, i) => `${sceneName(i)} → preset slot ${state.slots.scenes[i]}`);
+  const ok = await modal($('dialog'), {
+    title: 'Save everything to the FH-2’s flash?',
+    body: [h('p', { class: 'note' }, 'This replaces what is in these slots now:'),
+      h('ul', { class: 'note' }, h('li', {}, `the config → config slot ${state.slots.config}`), list.map((t) => h('li', {}, t))),
+      h('p', { class: 'note' }, `Each is sent to the FH-2 and saved; then scene ${sceneName(state.scene)} goes back onto the module.`)],
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Save all', value: true, primary: true }],
+  });
+  if (!ok) return;
+  await withFh2(async (pair) => {
+    status(`Saving to ${pair.name}’s flash…`);
+    const r = await saveAllToFlash(pair, {
+      config: state.config, configSlot: state.slots.config,
+      scenes: state.scenes.map((dump, i) => ({ dump, slot: state.slots.scenes[i] })), back: state.preset,
+    });
+    readModule(r);
+    Object.assign(state, { link: 'connected', port: pair.name });
+    update();
+    status(`Saved the config to slot ${state.slots.config} and ${state.scenes.length} ${state.scenes.length === 1 ? 'scene' : 'scenes'} to their slots on ${pair.name}`);
+  });
 }
 
 async function renameScene() {
@@ -303,7 +372,7 @@ async function openFiles(files) {
       try {
         const project = projectFromJson(await f.text());
         if (!(await dropUnsent('Opening'))) return;
-        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware }, f.name);
+        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly }, f.name);
         return status(`Opened project ${f.name}: ${project.scenes.length} ${project.scenes.length === 1 ? 'scene' : 'scenes'}`);
       } catch (e) {
         return status(`${f.name}: ${e.message}`, true);
@@ -337,7 +406,7 @@ async function openFiles(files) {
 
 function saveProject() {
   const name = (state.view.globals.name || 'fh2').trim().replace(/[^\w.-]+/g, '_');
-  download(projectToJson({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware }), name + PROJECT_EXTENSION);
+  download(projectToJson(project()), name + PROJECT_EXTENSION);
   status(`Saved the project: config, ${state.scenes.length} ${state.scenes.length === 1 ? 'scene' : 'scenes'}, names`);
 }
 
@@ -413,7 +482,7 @@ function get() {
       update();
       return status(`Already the same as ${pair.name}`);
     }
-    edit(`Got the patch from ${pair.name}${state.scenes.length > 1 ? ` into scene ${sceneName(state.scene)}` : ''}`, changes);
+    edit(`Got the patch from ${pair.name}${state.scenes.length > 1 ? ` into scene ${sceneName(state.scene)}` : ''}`, changes, { force: true });
   });
 }
 
@@ -480,15 +549,18 @@ function send() {
 }
 
 async function saveFlash() {
+  const configSlot = state.slots.config ?? 0;
+  const presetSlot = state.slots.scenes[state.scene] ?? 0;
+  const where = (n, what) => (n ? `${what} slot ${n}` : `the ${what} slot it was last loaded from or saved to`);
   const ok = await modal($('dialog'), {
     title: 'Save to the FH-2’s flash?',
-    body: h('p', { class: 'note' }, 'This stores the config and preset the FH-2 holds now, so they survive switching off. They go into the slots they were last loaded from or saved to, replacing what is there.'),
+    body: h('p', { class: 'note' }, `This stores the config and the preset the FH-2 holds now (scene ${sceneName(state.scene)}), so they survive switching off: into ${where(configSlot, 'config')} and ${where(presetSlot, 'preset')}, replacing what is there. To save every scene into a slot of its own, use Save all on the Scenes page.`),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Save to flash', value: true, primary: true }],
   });
   if (!ok) return;
   await withFh2(async (pair) => {
-    await saveToFlash(pair);
-    status(`Saved to ${pair.name}’s flash`);
+    await saveToFlash(pair, { configSlot, presetSlot });
+    status(`Saved to ${pair.name}’s flash: ${where(configSlot, 'config')}, ${where(presetSlot, 'preset')}`);
   });
 }
 
@@ -527,7 +599,10 @@ function select(sel) {
   state.selected = same ? null : sel;
   render();
   // clicking a free jack asks what should come out of it
-  if (!same && sel?.output != null && sel.sources && isFree(state.view.outputs[sel.output])) addTo(sel.output);
+  if (!same && sel?.output != null && sel.sources && isFree(state.view.outputs[sel.output])) {
+    if (state.scenesOnly) status('Adding a source changes the setup, which all scenes share. Switch off “Scenes only” to add one.', true);
+    else addTo(sel.output);
+  }
 }
 
 function bar() {
@@ -547,13 +622,15 @@ function bar() {
       onclick: () => (i === state.scene ? renameScene() : setScene(i)),
     }, sceneName(i))),
     h('button', { type: 'button', class: 'scene-add', title: 'Add a scene (a copy of this one)', 'aria-label': 'Add a scene', onclick: addScene }, '+'),
-    state.scenes.length > 1 && h('button', { type: 'button', class: 'scene-add', title: 'Remove this scene', 'aria-label': 'Remove this scene', onclick: removeScene }, '−'));
+    state.scenes.length > 1 && h('button', { type: 'button', class: 'scene-add', title: 'Remove this scene', 'aria-label': 'Remove this scene', onclick: removeScene }, '−'),
+    h('button', { type: 'button', class: 'scenes-only-toggle', 'aria-pressed': state.scenesOnly ? 'true' : 'false', onclick: toggleScenesOnly,
+      title: 'While on, only what a scene holds can change (levels, LFOs, patterns, envelopes, arps, sequences, tempo); the config stays as it is' }, 'Scenes only'));
   return h('header', { class: 'bar' },
     h('div', { class: 'brand' }, jackIcon(), 'Night Shift'),
     v && h('div', { class: 'patch-name' }, 'Config ', h('b', {}, v.globals.name || 'untitled')),
     scenes,
     sync,
-    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('midi', 'MIDI map')),
+    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('midi', 'MIDI map')),
     v && h('div', { class: 'undo' },
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)' }, 'Undo'),
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)' }, 'Redo')),
@@ -625,12 +702,15 @@ function render() {
   let content;
   if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
+  else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
+    setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
   else {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select)),
       h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status })),
     ];
   }
+  document.body.classList.toggle('scenes-only', !!(v && state.scenesOnly));
   replace($('#app'), bar(), h('main', {}, content));
 }
 
@@ -668,7 +748,7 @@ document.addEventListener('keydown', (e) => {
 const kept = stored();
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');
 else if (kept) {
-  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware }, 'browser');
+  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly }, 'browser');
   state.status = 'Your last patch, kept in this browser';
 }
 render();

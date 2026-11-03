@@ -20,6 +20,14 @@ export function voltsInput(label, level, range, commit) {
   return [numberInput(label, levelToVolts(level, range).toFixed(3), { min: lo, max: hi, step: 0.001 }, (v) => commit(voltsToLevel(v, range))), ' V'];
 }
 
+// Marks a settings row (with a .k label) as kept per scene, i.e. in the preset: a dot before
+// its label. While “Scenes only” is on, only these rows stay editable.
+export function perScene(row) {
+  row.classList.add('per-scene');
+  row.querySelector('.k')?.prepend(h('span', { class: 'scene-dot', title: 'Kept per scene' }));
+  return row;
+}
+
 // `options` is [[value, text]]; values may be numbers, which come back as numbers.
 export function selectInput(label, value, options, commit) {
   return h('select', {

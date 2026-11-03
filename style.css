@@ -255,3 +255,25 @@ details.menu .menu-items button:hover { background: var(--panel2); }
 .empty { max-width: 640px; margin: 60px auto; padding: 24px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 12px; }
 .empty p:first-child { margin: 0; font-size: 15px; }
 .empty .actions { justify-content: flex-start; }
+
+/* scenes: dots on what a scene holds; “Scenes only” dims the rest */
+.scene-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--warn); vertical-align: middle; }
+.scenes-only-toggle { border: 1px solid var(--line2); background: transparent; color: var(--dim); border-radius: 7px; padding: 4px 9px; font-size: 12px; cursor: pointer; margin-left: 6px; }
+.scenes-only-toggle[aria-pressed='true'] { color: var(--warn); border-color: var(--warn); }
+body.scenes-only .inspector :is(.erow, .row):not(.per-scene) .v :is(input, select, button),
+body.scenes-only .inspector .check,
+body.scenes-only .inspector .actions button:not(.per-scene),
+body.scenes-only .inspector .remove { opacity: 0.4; pointer-events: none; }
+body.scenes-only .inspector .wave-box, body.scenes-only .inspector .steps { opacity: 1; }
+.scenes-page { flex: 1 1 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.scenes-page h2 { font-size: 18px; margin: 0; }
+.scenes-controls { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; font-size: 13px; color: var(--dim); }
+.scenes-controls select { padding: 4px 6px; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg); font-size: 12.5px; }
+.scenes-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.scenes-table th { text-align: left; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.scenes-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.scenes-table tr.current td { background: var(--panel2); }
+.scenes-table select { padding: 4px 6px; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg); font-size: 12.5px; }
+.scenes-table .warn, .scenes-table small.warn { color: var(--warn); font-size: 12px; }
+.scenes-table .dim { color: var(--faint); }
+.tag.on-module { margin-left: 8px; font-size: 11px; color: var(--accent-ink); background: var(--accent); }

@@ -195,6 +195,13 @@ None of these touch the page, so they work unchanged. That gives one implementat
 
 Hardware results: learning a knob works (2026-11-03).
 
+**Scenes and flash are done (2026-11-03):**
+- A Scenes tab: the config and its scenes, each with a flash slot (1–30, "used twice" is flagged), the program change that calls it (when a preset program change channel is set, which can be chosen there), what it changes against the first scene ("jack 5 (LFO)", "Voice 1 (arp, envelope)", "tempo"), and a fit check: what a preset sets that this config doesn't use ("Euclid 5 has a pattern, but no jack and nothing it clocks").
+- **Save all to flash** (after a question listing the slots): the config into its slot, then each scene sent and saved into its own slot, then the scene in view goes back onto the module, which is read back. **Save to flash** in the bar uses the chosen slots too, or the last-used ones if none are chosen.
+- **Scenes only** (in the bar and on the Scenes page): while on, edits that change the config are refused with a reason, and the inspector dims everything but what a scene holds; those rows carry a dot. It turns itself on when a second scene is added. Get from FH-2 and the program change channel on the Scenes page may still change the config.
+- Slots and the switch are kept in the project file (and the browser).
+- Not checked on the module yet: Save all, and which slot a program change loads (check 17).
+
 **The UI round is done (2026-11-03):**
 - No start screen. On opening, Night Shift shows the patch kept in this browser (config, scenes, names, rack: stored as a project after every change), then reads the FH-2 in the background. With nothing kept, the FH-2's patch is shown. With neither, one line says why (no FH-2 found, or a browser without MIDI) and offers Open… and the example.
 - Plugging the FH-2 in (or out) is noticed, and it's read again.
@@ -287,6 +294,7 @@ Each item is listed with the milestone that needs it.
 | 14 | LFO sync and restart (L2, L5): is a synced LFO only tempo-synced, or also locked to the beat? With a restart from a clock at the LFO's own rate, does a saw jump twice (once at the end of its cycle, again at the reset a few ms later)? Can a clock that aims at no real output still restart an LFO? Needs a scope: input X is far too slow for a few milliseconds | M2 | Night Shift notes the double-jump risk when a synced LFO is restarted by a clock; restart from a Euclid pattern instead |
 | 15 | Arpeggio notes keep the held note's velocity (A6); still unclear, low priority | later | — |
 | 16 | Gamepad and keyboard entries with Usage/Type "--" do nothing on their output, whatever output is set. (The official tool's "None" for these outputs sends `0xFF` inside the SysEx; see fh2-notes.md, "The existing tools") | M2 | Night Shift never writes None there: it switches an entry off through Usage/Type, and keeps every byte 7-bit |
+| 17 | Preset program change: does program change N load preset slot N, or N + 1 (0- or 1-based)? And does Save all leave every scene in its slot (load each from the panel)? | M2 | Night Shift shows "program change N → slot N" until then |
 
 ## From your review of fh2-components.md (2026-11-01)
 
