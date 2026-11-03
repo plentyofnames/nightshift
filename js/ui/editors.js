@@ -75,7 +75,7 @@ export function lfoEditor(view, o, act, color) {
   ];
   const notes = [];
   if (r.lfoSynced && o.lfoReset?.typeIndex === 6) {
-    notes.push(h('p', { class: 'note' }, 'A synced LFO restarted by a clock at its own rate may jump twice per cycle: once at the end of its cycle and again at the restart (hardware check 14).'));
+    notes.push(h('p', { class: 'note' }, 'Synced and restarted by a clock: may jump twice per cycle (check 14).'));
   }
   return [h('div', { class: 'wave-box' }, svg, h('span', { class: 'wave-cap' }, 'Two cycles, approximate')),
     h('div', { class: 'erows' }, rows), h('h4', {}, 'Shape mix'), h('div', { class: 'erows' }, shapes), h('div', { class: 'erows' }, more), notes];
@@ -123,7 +123,7 @@ function stepsSvg(pattern, color) {
 
 export function euclidEditor(s, act, color) {
   const p = s.pattern;
-  if (!p) return [h('p', { class: 'note' }, 'The pattern lives in the preset: open or pull one to edit it.')];
+  if (!p) return [h('p', { class: 'note' }, 'No preset loaded.')];
   const set = (what, obj) => act.edit(`${what} of ${s.name}`, setEuclid(s.index, obj));
   const num = (label, key, min, max) => sfield(label, numberInput(`${label} of ${s.name}`, p[key], { min, max }, (v) => set(label, { [key]: v })));
   return [
@@ -302,9 +302,7 @@ export function voiceEditor(view, s, act, color) {
     cv.type === 0 && field('Legato velocity', selectInput('Legato velocity (all mono voices)', act.values().config.legatoVelocity, [[0, 'Each note’s own'], [1, 'First note of a phrase']],
       (v) => act.edit('Legato velocity (all mono voices)', fields('config', [], { legatoVelocity: v }))))));
   const unison = cv.allocation === 2 || cv.allocation === 3;
-  parts.push(h('p', { class: 'note' }, 'Glide slides only between notes played legato (fingered portamento), on mono voices and poly voices set to Unison. '
-    + (cv.type !== 0 && !unison ? 'This voice isn’t, so it won’t glide. ' : '')
-    + (cv.type === 0 ? '“Returning note”: when you let go of a key while another is held, that note sounds again; this says whether it fires the trigger and envelope. Legato velocity is one setting for all mono voices.' : '')));
+  if (cv.type !== 0 && !unison) parts.push(h('p', { class: 'note' }, 'Glide works on mono voices and in Unison only.'));
 
   // the arpeggiator: its settings live in the preset, its clock source and MIDI out in the config
   if (pf) {
@@ -325,7 +323,7 @@ export function voiceEditor(view, s, act, color) {
         h('div', { class: 'checks' }, out('arpToUsbC', 'USB C'), out('arpToUsbA', 'USB A'), out('arpToDin', 'DIN')));
     }
     parts.push(h('h4', {}, 'Arpeggiator'), h('div', { class: 'erows' }, rows),
-      a.mode > 10 && cv.type ? h('p', { class: 'note' }, 'Each arp note plays the next voice in turn (round robin).') : null);
+      null);
   }
 
   // the envelope
@@ -348,7 +346,7 @@ export function voiceEditor(view, s, act, color) {
         sfield('Time range', numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v }))),
         field('Each note', selectInput(`Envelope start of ${s.name}`, cv.envZeroStart, [[0, 'Rises from where it is'], [1, 'Starts from zero']], (v) => set('Envelope start', { envZeroStart: v })))));
   } else {
-    parts.push(h('p', { class: 'note' }, 'Glide, transpose and the envelope live in the preset: open or pull one to edit them.'));
+    parts.push(h('p', { class: 'note' }, 'No preset loaded.'));
   }
   return parts;
 }
@@ -375,6 +373,5 @@ export function triggerEditor(view, s, act) {
       p.typeIndex === 9 ? field('Envelope from', selectInput(`Envelope of ${name}`, p.envSet, Array.from({ length: 16 }, (_, i) => [i, `Voice ${i + 1}’s settings`]),
         (v) => act.edit(`Envelope of ${name}`, setTriggerEnvSet(p.trigger, v)))) : null));
   });
-  return [h('div', { class: 'erows' }, kit), boxes,
-    h('p', { class: 'note' }, 'Accent types also use the next jack up, for hits at velocity 96 and above. Velocity, envelope and level types need a CV jack.')];
+  return [h('div', { class: 'erows' }, kit), boxes];
 }

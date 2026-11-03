@@ -71,8 +71,8 @@ function sourceInspector(view, colors, s, onSelect, act) {
   if (s.kind === 'voice' || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors));
 
   parts.push(section('Comes out of', s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))));
-  if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed-out jacks are on expanders that aren’t in your rack (set it under Rack…). Clocks there often only restart LFOs.'));
-  if (s.standby) parts.push(h('p', { class: 'note' }, `Only does something while a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} is plugged into USB A; then it sets these jacks on top of what else is there. The FH-2’s Init config sets these up. Switching one off here sets its ${s.id === 'gamepad' ? 'Usage' : 'Type'} to “--” (setting its output to None in Expert Sleepers’ config tool doesn’t work).`));
+  if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed out: not in your rack.'));
+  if (s.standby) parts.push(h('p', { class: 'note' }, `Only with a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} on USB A.`));
 
   if (s.kind === 'euclid') parts.push(euclidClocks(s, onSelect));
   const editor = editorOf(view, s, act, color);
@@ -156,7 +156,7 @@ function parkedInspector(view, colors, onSelect) {
     section('Sources', parked.map((s) => row(
       h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name),
       [...new Set(s.ports.map((p) => p.jack))].map((j) => chip(j, colors.get(s.id), true))))),
-    h('p', { class: 'note' }, 'Their outputs are on expanders that aren’t in your rack (set it under Rack…), so nothing comes out. The FH-2’s Init config parks its unused Euclid patterns on GT3/16 this way. They can still restart an LFO, or clock an arpeggiator, sequencer or shift register.'),
+    h('p', { class: 'note' }, 'Nothing comes out; they may still restart an LFO or clock a player.'),
   ];
 }
 
@@ -177,8 +177,7 @@ function jackSettings(o, edit) {
   if (o.lfoReset) rows.push(row('LFO restarts on', `${o.lfoReset.type}`));
   return [
     section('Jack settings', rows),
-    h('p', { class: 'note' }, (preset ? 'The stored level is what comes out when nothing else drives this jack; it’s kept in the preset. ' : 'Open or pull a preset to set the stored level and smoothing. ')
-      + 'Gate levels are used when the jack carries gates, triggers or clocks. Volts assume an uncalibrated output.'),
+    preset ? null : h('p', { class: 'note' }, 'No preset loaded: no stored level or smoothing.'),
   ];
 }
 

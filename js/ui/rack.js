@@ -202,7 +202,7 @@ export function renderStage(view, colors, selected, onSelect) {
   const r = view.resources;
   const pill = (name, v) => v && h('span', { class: 'pill' }, `${name} ${v[0]}/${v[1]}`);
   nodes.push(h('div', { class: 'stage-foot', style: `left:${RX}px;top:${RY + PANEL_H + 20}px;width:${rackW}px` },
-    h('p', { class: 'note' }, 'Click a source or a jack. Jack settings can be changed now; adding and editing sources comes next.'),
+
     h('div', { class: 'pills', 'aria-label': 'FH-2 resources in use' },
       pill('MIDI→CV', r.converters), pill('Clocks', r.clocks), pill('Triggers', r.triggers), pill('Euclid', r.euclids),
       pill('Random', r.randoms), pill('CC maps', r.mappings), r.lfos && h('span', { class: 'pill' }, `LFOs ${r.lfos[0]}`))));

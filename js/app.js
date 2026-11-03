@@ -159,7 +159,7 @@ function load({ config, preset, presets, scene = 0, names, hardware, slots, scen
 // “Scenes only” is on.
 function edit(label, changes, { force = false } = {}) {
   if (state.scenesOnly && !force && changes.some((c) => c.dump === 'config')) {
-    state.status = 'That changes the setup, which all scenes share. Switch off “Scenes only” to change it.';
+    state.status = 'Setup locked: Scenes only is on';
     state.warn = true;
     return render();
   }
@@ -216,7 +216,7 @@ async function rename(id, now, original) {
   const input = h('input', { type: 'text', class: 'text', value: now, maxlength: 40, 'aria-label': 'Name' });
   const ok = modal($('dialog'), {
     title: `Rename ${now}`,
-    body: [input, h('p', { class: 'note' }, `Leave it empty for the FH-2’s own name${original ? ` (${original})` : ''}. Names are kept in the project file, not on the module.`)],
+    body: [input, h('p', { class: 'note' }, `Empty: back to ${original ?? 'its own name'}.`)],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Rename', value: true, primary: true }],
   });
   input.focus();
@@ -269,7 +269,7 @@ function setScene(i) {
 
 // A new scene starts as a copy of the one in view.
 function addScene() {
-  if (!state.preset) return status('Open or get a preset first: scenes are presets.', true);
+  if (!state.preset) return status('No preset to copy', true);
   const copy = structuredClone(state.preset);
   const letter = 'ABCDEFGHIJKLMNOP'[state.scenes.length] ?? String(state.scenes.length + 1);
   copy.values.name = `Scene ${letter}`;
@@ -280,7 +280,7 @@ function addScene() {
   state.preset = copy;
   const lock = state.scenes.length === 2 && !state.scenesOnly;
   if (lock) state.scenesOnly = true;
-  status(`Added scene ${letter}, a copy of ${sceneName(state.scene - 1)}${lock ? '. “Scenes only” is on: the config stays as it is' : ''}`);
+  status(`Added scene ${letter}${lock ? ' · Scenes only on' : ''}`);
   update();
 }
 
@@ -289,7 +289,7 @@ async function removeScene() {
   const name = sceneName(state.scene);
   const ok = await modal($('dialog'), {
     title: `Remove scene ${name}?`,
-    body: h('p', { class: 'note' }, 'Its levels, LFOs, patterns and voice settings go with it. This can’t be undone.'),
+    body: h('p', { class: 'note' }, 'This can’t be undone.'),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }],
   });
   if (!ok) return;
@@ -313,7 +313,7 @@ function shiftSteps(from, by) {
 
 function toggleScenesOnly() {
   state.scenesOnly = !state.scenesOnly;
-  status(state.scenesOnly ? '“Scenes only” is on: only what a scene holds can change' : '“Scenes only” is off: the config can change too, for every scene');
+  status(state.scenesOnly ? 'Scenes only: on' : 'Scenes only: off');
   update();
 }
 
@@ -356,7 +356,7 @@ async function saveAll() {
     readModule(r);
     Object.assign(state, { link: 'connected', port: pair.name });
     update();
-    status(`Saved the config to slot ${state.slots.config} and ${state.scenes.length} ${state.scenes.length === 1 ? 'scene' : 'scenes'} to their slots on ${pair.name}`);
+    status(`Saved config and ${state.scenes.length} ${state.scenes.length === 1 ? 'scene' : 'scenes'} to flash`);
   });
 }
 
@@ -364,7 +364,7 @@ async function renameScene() {
   const input = h('input', { type: 'text', class: 'text', value: sceneName(state.scene), maxlength: 16, 'aria-label': 'Scene name' });
   const ok = modal($('dialog'), {
     title: 'Rename this scene',
-    body: [input, h('p', { class: 'note' }, 'It is the preset’s name on the FH-2 too (16 characters).')],
+    body: [input],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Rename', value: true, primary: true }],
   });
   input.focus();
@@ -384,7 +384,7 @@ async function openFiles(files) {
         const project = projectFromJson(await f.text());
         if (!(await dropUnsent('Opening'))) return;
         load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly }, f.name);
-        return status(`Opened project ${f.name}: ${project.scenes.length} ${project.scenes.length === 1 ? 'scene' : 'scenes'}`);
+        return status(`Opened ${f.name}`);
       } catch (e) {
         return status(`${f.name}: ${e.message}`, true);
       }
@@ -418,7 +418,7 @@ async function openFiles(files) {
 function saveProject() {
   const name = (state.view.globals.name || 'fh2').trim().replace(/[^\w.-]+/g, '_');
   download(projectToJson(project()), name + PROJECT_EXTENSION);
-  status(`Saved the project: config, ${state.scenes.length} ${state.scenes.length === 1 ? 'scene' : 'scenes'}, names`);
+  status('Project saved');
 }
 
 function pickFiles() {
@@ -432,7 +432,7 @@ async function dropUnsent(what) {
   if (!state.history.canUndo || !state.unsent) return true;
   return modal($('dialog'), {
     title: 'Replace your changes?',
-    body: h('p', { class: 'note' }, `${what} replaces what you see, and your changes aren’t on the FH-2. Save the project first to keep them.`),
+    body: h('p', { class: 'note' }, 'Your changes aren’t on the FH-2. Save the project first to keep them.'),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Drop them', value: true, primary: true }],
   });
 }
@@ -443,13 +443,13 @@ async function pickFh2() {
   status('Looking for the FH-2…');
   const pairs = await fh2Ports();
   if (!pairs.length) {
-    status('No MIDI ports found. Is the FH-2 connected over USB C?', true);
+    status('No MIDI ports: is the FH-2 connected?', true);
     return null;
   }
   if (looksLikeFh2(pairs[0])) return pairs[0];
   const pick = await modal($('dialog'), {
     title: 'Which port is the FH-2?',
-    body: h('p', { class: 'note' }, 'No port is called “FH-2”. Pick the one it is connected to (it may have been renamed in its settings).'),
+    body: h('p', { class: 'note' }, 'No port is called “FH-2”.'),
     buttons: [...pairs.map((p, i) => ({ label: p.name, value: i })), { label: 'Cancel', value: null }],
   });
   if (pick == null) {
@@ -466,7 +466,7 @@ async function withFh2(work) {
     const pair = await pickFh2();
     if (pair) await work(pair);
   } catch (e) {
-    status(refused(e) ? 'This browser didn’t allow MIDI access. Allow it for this page (the icon in the address bar), or use Chrome or Edge.'
+    status(refused(e) ? 'No MIDI access in this browser'
       : `The FH-2 didn’t answer: ${e.message}`, true);
   } finally {
     state.busy = false;
@@ -479,14 +479,14 @@ async function withFh2(work) {
 
 function get() {
   return withFh2(async (pair) => {
-    status(`Asking ${pair.name} for its config and preset…`);
+    status(`Reading ${pair.name}…`);
     const r = await pullFromFh2(pair);
     readModule(r);
     Object.assign(state, { link: 'connected', port: pair.name });
     const odd = r.config.versionOk ? '' : ' · unexpected config version';
     if (!state.config || !state.preset) {
       load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
-      return status(`Got the patch from ${pair.name} (${r.version})${odd}`, !!odd);
+      return status(`Got the patch from ${pair.name}${odd}`, !!odd);
     }
     const changes = [...changesTowards('config', state.config, r.config.values), ...changesTowards('preset', state.preset, r.preset.values)];
     if (!changes.length) {
@@ -515,7 +515,7 @@ async function connect() {
     Object.assign(state, { link: 'connected', port: pair.name });
     if (!state.config) {
       load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
-      state.status = `Got the patch from ${pair.name} (${r.version})`;
+      state.status = `Got the patch from ${pair.name}`;
     }
   } catch (e) {
     Object.assign(state, { link: refused(e) ? 'no-midi' : 'offline', module: null });
@@ -555,7 +555,7 @@ function send() {
     state.module = snapshot();
     Object.assign(state, { link: 'connected', port: pair.name });
     update();
-    status(`Sent to ${pair.name} and read back: the FH-2 now holds this patch (in RAM, not yet in flash)`);
+    status(`Sent to ${pair.name}`);
   });
 }
 
@@ -564,18 +564,18 @@ function send() {
 async function readModuleSettings() {
   const ok = await modal($('dialog'), {
     title: 'Read the FH-2’s settings?',
-    body: h('p', { class: 'note' }, 'Night Shift operates the module’s menus remotely, as you would at the panel, and opens and closes each setting of the three General pages without changing it. It takes about half a minute; please don’t touch the module meanwhile. It ends back on the overview.'),
+    body: h('p', { class: 'note' }, 'Night Shift steps through the FH-2’s Settings pages without changing anything (about half a minute). Don’t touch the module meanwhile.'),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Read them', value: true, primary: true }],
   });
   if (!ok) return;
   await withFh2(async (pair) => {
-    status(`Reading ${pair.name}’s settings…`);
-    const pages = await readFh2Settings(pair, (s) => status(`Reading ${pair.name}’s settings: ${s}`));
+    status('Reading settings…');
+    const pages = await readFh2Settings(pair, (s) => status(`Reading ${s}`));
     state.fh2Settings = { at: new Date().toISOString(), port: pair.name, pages };
     try {
       localStorage.setItem(FH2_SETTINGS_KEY, JSON.stringify(state.fh2Settings));
     } catch {}
-    status(`Read ${pages.reduce((n, p) => n + p.items.length, 0)} settings from ${pair.name}; nothing was changed`);
+    status(`Read ${pages.reduce((n, p) => n + p.items.length, 0)} settings`);
   });
 }
 
@@ -585,13 +585,13 @@ async function saveFlash() {
   const where = (n, what) => (n ? `${what} slot ${n}` : `the ${what} slot it was last loaded from or saved to`);
   const ok = await modal($('dialog'), {
     title: 'Save to the FH-2’s flash?',
-    body: h('p', { class: 'note' }, `This stores the config and the preset the FH-2 holds now (scene ${sceneName(state.scene)}), so they survive switching off: into ${where(configSlot, 'config')} and ${where(presetSlot, 'preset')}, replacing what is there. To save every scene into a slot of its own, use Save all on the Scenes page.`),
+    body: h('p', { class: 'note' }, `Config → ${where(configSlot, 'config')}; scene ${sceneName(state.scene)} → ${where(presetSlot, 'preset')}. Replaces what is there.`),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Save to flash', value: true, primary: true }],
   });
   if (!ok) return;
   await withFh2(async (pair) => {
     await saveToFlash(pair, { configSlot, presetSlot });
-    status(`Saved to ${pair.name}’s flash: ${where(configSlot, 'config')}, ${where(presetSlot, 'preset')}`);
+    status('Saved to flash');
   });
 }
 
@@ -611,7 +611,7 @@ async function editHardware() {
     h('div', { class: 'hw-row' }, [0, 1, 2, 3, 4, 5, 6, 7].map((b) => h('label', {}, box(hw.gt, b), `${blockName(b)} (${b & 1 ? 'ESX-8GT' : 'FHX-8GT'})`))));
   const ok = await modal($('dialog'), {
     title: 'Your rack',
-    body: [h('p', { class: 'note' }, 'Tick what is connected. In the rack they are called CV1, CV2… and GT1, GT2… in this order. An FHX-8GT gives the first 8 outputs of its jumper address (GT0/1–8 for address 0); an ESX-8GT on its “To ESX-8GT” header gives the other 8 (GT0/9–16).'), body],
+    body: [h('p', { class: 'note' }, 'In rack order: CV1, CV2… and GT1, GT2…'), body],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Use this', value: true, primary: true }],
   });
   if (!ok) return;
@@ -631,7 +631,7 @@ function select(sel) {
   render();
   // clicking a free jack asks what should come out of it
   if (!same && sel?.output != null && sel.sources && isFree(state.view.outputs[sel.output])) {
-    if (state.scenesOnly) status('Adding a source changes the setup, which all scenes share. Switch off “Scenes only” to add one.', true);
+    if (state.scenesOnly) status('Setup locked: Scenes only is on', true);
     else addTo(sel.output);
   }
 }
@@ -666,7 +666,7 @@ function bar() {
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)' }, 'Undo'),
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)' }, 'Redo')),
     h('div', { class: 'grow' }),
-    state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status' }, state.status),
+    state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status', title: state.status }, state.status),
     h('button', { type: 'button', class: 'btn', onclick: editHardware }, 'Rack…'),
     fileMenu(v),
     h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, title: 'Its config and preset become what you see (undoable)' }, 'Get from FH-2'),
@@ -692,7 +692,7 @@ function fileMenu(v) {
 async function loadExample() {
   if (!(await dropUnsent('The example'))) return;
   load(examplePatch(), 'example');
-  status('Example patch (not kept in this browser: Save project to keep it)');
+  status('Example patch (not kept)');
 }
 
 function saveSyx() {
@@ -719,10 +719,10 @@ function jackIcon() {
 // Nothing to show: no patch kept in this browser, and no FH-2 (yet).
 function empty() {
   const why = state.link === 'connecting' ? 'Reading the FH-2…'
-    : state.link === 'no-midi' ? 'This browser doesn’t allow MIDI, so it can’t reach the FH-2. Use Chrome or Edge, and allow MIDI for this page.'
-    : 'No FH-2 found. Connect it over USB C: Night Shift reads it as soon as it appears.';
+    : state.link === 'no-midi' ? 'No MIDI in this browser (use Chrome or Edge).'
+    : 'No FH-2 found. Connect it over USB C.';
   return h('section', { class: 'empty' }, h('p', {}, why),
-    h('p', { class: 'note' }, 'Or open a project or .syx dumps (File, or drop them here), or look at the example patch. Unofficial: not made or supported by Expert Sleepers.'),
+    h('p', { class: 'note' }, 'Unofficial: not made or supported by Expert Sleepers.'),
     h('div', { class: 'actions' },
       h('button', { type: 'button', class: 'btn', onclick: pickFiles }, 'Open…'),
       h('button', { type: 'button', class: 'btn', onclick: loadExample }, 'Example patch')));
@@ -782,7 +782,7 @@ const kept = stored();
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');
 else if (kept) {
   load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly }, 'browser');
-  state.status = 'Your last patch, kept in this browser';
+  state.status = 'Last patch restored';
 }
 render();
 connect().then(watch);

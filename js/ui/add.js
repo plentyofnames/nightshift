@@ -56,7 +56,7 @@ export async function addToJack(view, values, o) {
   const where = `jack ${o.jack}`;
   const pending = modal($('dialog'), {
     title: `What should come out of ${where}?`,
-    body: [h('p', { class: 'note' }, `${o.gate ? 'Gate jack: clocks, transport and rhythms.' : `CV jack, ${o.range}: anything goes.`} You can change everything later.`), tiles, details],
+    body: [h('p', { class: 'note' }, o.gate ? 'Gate jack' : `CV jack, ${o.range}`), tiles, details],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, primary: true }],
   });
   draw();

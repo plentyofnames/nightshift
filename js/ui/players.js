@@ -48,7 +48,7 @@ export function playerInspector(view, colors, id, onSelect, act) {
   const plays = (p.kind === 'arp' ? [`converter:${p.index}`] : p.plays).map((sid) => view.sources.find((s) => s.id === sid)).filter(Boolean); // an arp plays its own voice
   parts.push(section('Plays inside the FH-2', plays.length
     ? plays.map((s) => h('div', { class: 'row' }, h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(`ch ${p.channel + 1}`, colors.get(s.id))))
-    : h('p', { class: 'note' }, p.internal ? `Nothing in the FH-2 listens on ch ${p.channel + 1}. Wire it from a voice or trigger kit (“Played by”).` : 'Nothing: it doesn’t send to the FH-2 itself.')));
+    : h('p', { class: 'note' }, p.internal ? `Nothing listens on ch ${p.channel + 1}.` : 'Doesn’t send to the FH-2.')));
 
   // its clock
   if (f.rate && p.rate != null) {
@@ -58,7 +58,7 @@ export function playerInspector(view, colors, id, onSelect, act) {
       // the clock source only counts at rate Ext, so it only shows then
       p.rate === 0 ? field('Clock source', selectInput(`Clock source of ${p.name}`, p.clock, [[0, 'External clock'],
         ...Array.from({ length: 16 }, (_, i) => [i + 1, `Euclid ${i + 1}${euclids.some((s) => s.index === i) ? '' : ' (not set up)'}`])], (v) => set('Clock source', { clock: v }))) : null),
-    h('p', { class: 'note' }, p.rate === 0 ? `It steps on each pulse of ${p.clock ? `Euclid ${p.clock}` : 'the external clock'}.` : 'It follows the FH-2’s tempo. Set the rate to Ext to clock it from the external clock or a Euclid.')));
+    null));
   }
 
   // the drum sequencer's lanes and which triggers they hit
@@ -70,7 +70,7 @@ export function playerInspector(view, colors, id, onSelect, act) {
       h('span', { class: 'lane-hit' }, hit(n) ? `→ ${hit(n)}` : '—'))))));
   }
 
-  if (p.kind === 'input') parts.push(h('p', { class: 'note' }, `Input ${'XY'[p.index]} becomes ${p.type}${p.type === 'CC' ? ` ${p.number}` : ''}. Its scaling is set in the config tool for now.`));
+  if (p.kind === 'input') parts.push(h('p', { class: 'note' }, 'Scaling: in the config tool for now.'));
   parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn',
     onclick: () => act.edit(`Stopped ${p.name}`, setPlayer(p.id, { dests: Object.fromEntries(Object.keys(f.dests).map((d) => [d, false])) })) }, 'Stop sending')));
   return parts;
@@ -129,8 +129,7 @@ export function playedBy(view, s, act, onSelect, colors) {
   if (s.players.length) {
     const quiet = suggestChannel(values.config);
     const canMove = quiet !== s.channel && !(s.kind === 'voice' && s.channels.length > 1); // an MPE zone stays put
-    rows.push(h('p', { class: 'note' }, `Anything else sending on ${ch} plays it too (a keyboard, Logic). `),
-      canMove
+    rows.push(canMove
         ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.edit(`${s.name} and its players moved to ch ${quiet + 1}`, moveToChannel(s, quiet)) },
           `Keep it to the FH-2: move to ch ${quiet + 1}`))
         : null);
@@ -160,7 +159,7 @@ export async function setUpPlayerDialog(view, values) {
     h('label', { class: 'field' }, h('span', {}, 'MIDI channel'), selectInput('MIDI channel', f.channel, CHANNELS, (v) => { f.channel = v; })),
     h('div', { class: 'field wide' }, h('span', {}, 'Sends to'), h('div', { class: 'checks' }, Object.entries(DEST_NAMES).map(([d, name]) =>
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!f.dests[d], onchange: (e) => { f.dests[d] = e.target.checked; } }), name)))),
-    h('p', { class: 'note' }, 'For gear outside the FH-2 (a Disting on DIN, say), leave “FH-2 (internal)” off. To play a voice or trigger kit, use “Played by” on it instead.'));
+    h('p', { class: 'note' }, 'For gear outside the FH-2, leave “FH-2 (internal)” off.'));
   const ok = await modal($('dialog'), {
     title: 'Set up a player',
     body,
