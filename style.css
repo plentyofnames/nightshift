@@ -161,3 +161,32 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .hw-row { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .hw-row label { display: inline-flex; align-items: center; gap: 5px; }
 .modal .note { max-width: 560px; }
+
+/* editing */
+.sync { font-size: 12px; color: var(--dim); padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
+.sync.unsent { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.undo { display: flex; gap: 6px; }
+.row .v input.num { width: 92px; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg); font: 500 12.5px var(--mono); text-align: right; }
+.row .v select { padding: 4px 6px; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg); font-size: 12.5px; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; }
+.row .v .remove { margin-left: 6px; width: 22px; height: 22px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--dim); cursor: pointer; line-height: 1; }
+.row .v .remove:hover { color: var(--warn); border-color: var(--warn); }
+
+/* the "+ add" dialog */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; min-width: min(720px, 80vw); }
+.tile-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tile-head { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.tile { display: flex; align-items: flex-start; gap: 10px; min-height: 56px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel2); text-align: left; cursor: pointer; }
+.tile svg { flex: none; margin-top: 1px; stroke: var(--dim); }
+.tile span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tile b { font-size: 13px; }
+.tile span span { font-size: 11.5px; line-height: 15px; color: var(--dim); }
+.tile[aria-pressed='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tile:disabled { opacity: 0.45; cursor: default; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line); }
+.field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--dim); }
+.field input.num, .field select { box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 7px; background: var(--bg); color: var(--text); font-size: 13px; }
+.field input.num { width: 110px; font-family: var(--mono); }
+.field small { font-size: 11.5px; line-height: 16px; color: var(--faint); }
+@media (max-width: 700px) { .tiles { grid-template-columns: 1fr; } }
+.field .with-unit { display: flex; align-items: center; gap: 6px; color: var(--text); }

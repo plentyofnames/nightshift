@@ -8,6 +8,8 @@
 // model, or model loosely (padding of names, unused mapping slots), come back unchanged.
 
 export const u7 = {
+  min: 0,
+  max: 127,
   size: 1,
   read: (b, o) => b[o],
   write: (b, o, v) => { b[o] = v & 0x7f; },
@@ -15,6 +17,8 @@ export const u7 = {
 
 // Signed, two's complement in 7 bits (transpose).
 export const s7 = {
+  min: -64,
+  max: 63,
   size: 1,
   read: (b, o) => (b[o] & 0x40 ? b[o] - 128 : b[o]),
   write: (b, o, v) => { b[o] = v & 0x7f; },
@@ -22,12 +26,16 @@ export const s7 = {
 
 // 14 bits as two 7-bit bytes, low first (the official tools' sysexSafeShort).
 export const u14 = {
+  min: 0,
+  max: 16383,
   size: 2,
   read: (b, o) => b[o] | (b[o + 1] << 7),
   write: (b, o, v) => { b[o] = v & 0x7f; b[o + 1] = (v >> 7) & 0x7f; },
 };
 
 export const s14 = {
+  min: -8192,
+  max: 8191,
   size: 2,
   read: (b, o) => {
     const v = b[o] | (b[o + 1] << 7);
@@ -38,6 +46,8 @@ export const s14 = {
 
 // 28 bits as four 7-bit bytes, low first (versions, tempo × 10).
 export const u28 = {
+  min: 0,
+  max: 0xfffffff,
   size: 4,
   read: (b, o) => b[o] | (b[o + 1] << 7) | (b[o + 2] << 14) | (b[o + 3] << 21),
   write: (b, o, v) => { for (let i = 0; i < 4; i++) b[o + i] = (v >> (7 * i)) & 0x7f; },
@@ -65,6 +75,8 @@ export const name16 = {
 export const bits = (shift, width) => {
   const mask = ((1 << width) - 1) << shift;
   return {
+    min: 0,
+    max: (1 << width) - 1,
     size: 1,
     bit: true,
     read: (b, o) => (b[o] & mask) >> shift,

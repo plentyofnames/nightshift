@@ -1,6 +1,18 @@
 // Names for the FH-2's stored values, as Expert Sleepers' config tool and manual use them.
 
 export const RANGES = ['0–10 V', '±5 V', '0–1 V', '0–5 V', '0–8 V'];
+export const RANGE_VOLTS = [[0, 10], [-5, 5], [0, 1], [0, 5], [0, 8]];
+
+// A 14-bit DAC code (direct level, gate levels) as volts in an output's range, and back.
+// Linear over the range; the module's calibration may shift it slightly.
+export function levelToVolts(level, range) {
+  const [lo, hi] = RANGE_VOLTS[range] ?? RANGE_VOLTS[0];
+  return lo + (level / 16383) * (hi - lo);
+}
+export function voltsToLevel(volts, range) {
+  const [lo, hi] = RANGE_VOLTS[range] ?? RANGE_VOLTS[0];
+  return Math.max(0, Math.min(16383, Math.round(((volts - lo) / (hi - lo)) * 16383)));
+}
 export const CONVERTER_TYPES = ['mono', 'poly', 'MPE'];
 export const ALLOCATIONS = ['Round robin', 'Lowest voice', 'Unison', 'Unison 2', 'Note range', 'Alternating', 'Random'];
 export const SUSTAIN = ['Off', 'Sustain', 'Sostenuto', 'Sustain + sostenuto'];
@@ -69,3 +81,8 @@ export const durationName = (pulses) => DURATIONS[pulses] || `${pulses}/24 beat`
 // The manual: LFO speed runs from 0.1 Hz to 10 Hz on a logarithmic scale over the 14-bit value.
 // The exact curve is not documented, so this is an approximation.
 export const lfoHz = (v) => 0.1 * Math.pow(100, v / 16383);
+export const hzToLfo = (hz) => Math.max(0, Math.min(16383, Math.round((16383 * Math.log(hz / 0.1)) / Math.log(100))));
+
+// Note values a clock, a Euclid pattern or a synced LFO can run at, in 24 ppqn pulses.
+export const DIVISIONS = [[96, '1/1'], [48, '1/2'], [24, '1/4'], [16, '1/4T'], [12, '1/8'], [8, '1/8T'], [6, '1/16'],
+  [4, '1/16T'], [3, '1/32'], [2, '1/32T'], [1, '24 ppqn']];

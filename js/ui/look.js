@@ -6,9 +6,16 @@ import { noteName } from '../patch/tables.js';
 const PALETTE = ['#F5A524', '#C4A1FF', '#FF7A66', '#3DD6C6', '#7FD0FF', '#B6E35A', '#6FA8FF', '#FF6FB5', '#FFD84D',
   '#4FD98A', '#E58CFF', '#F8B4A0', '#9AE6B4', '#B8BEC9'];
 
-export function colorsFor(sources) {
+// A colour per source. Sources in `previous` keep theirs, so adding one doesn't recolour the
+// rest; a new source gets the least used colour.
+export function colorsFor(sources, previous = new Map()) {
   const map = new Map();
-  sources.forEach((s, i) => map.set(s.id, PALETTE[i % PALETTE.length]));
+  for (const s of sources) if (previous.has(s.id)) map.set(s.id, previous.get(s.id));
+  for (const s of sources) {
+    if (map.has(s.id)) continue;
+    const uses = PALETTE.map((c) => [...map.values()].filter((x) => x === c).length);
+    map.set(s.id, PALETTE[uses.indexOf(Math.min(...uses))]);
+  }
   return map;
 }
 

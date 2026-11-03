@@ -1,9 +1,11 @@
-// The read-only inspector: an overview when nothing is selected, a source's details, or a jack's.
+// The inspector: an overview when nothing is selected, a source's details, or a jack's,
+// with the jack's settings and adding and removing sources.
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, KIND_NAMES } from './look.js';
-import { PARAM_NAMES, noteName } from '../patch/tables.js';
+import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
 import { outputNumber, internalName } from '../patch/hardware.js';
+import { setRange, setDirectLevel, setSmoothing, setGateLevels } from '../patch/edit.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -11,12 +13,17 @@ const ccLabel = (m) => `← ch ${m.channel + 1} · CC ${m.cc}${m.relative ? ' (r
 const param = (p) => PARAM_NAMES[p] ?? p;
 const yes = (b) => (b ? 'on' : 'off');
 
-export function renderInspector(view, colors, selected, onSelect) {
+// Sources that can be removed so far (M2a).
+const REMOVABLE = new Set(['level', 'knobs', 'lfo', 'clock', 'euclid']);
+
+// `act` is { edit(label, changes), add(output), remove(source, port?) }; each changes the
+// patch through edit.js and redraws.
+export function renderInspector(view, colors, selected, onSelect, act) {
   if (selected?.source) {
     const s = view.sources.find((x) => x.id === selected.source);
-    if (s) return sourceInspector(view, colors, s, onSelect);
+    if (s) return sourceInspector(view, colors, s, onSelect, act);
   }
-  if (selected?.output != null) return jackInspector(view, colors, view.outputs[selected.output], onSelect);
+  if (selected?.output != null) return jackInspector(view, colors, view.outputs[selected.output], onSelect, act);
   if (selected?.parked) return parkedInspector(view, colors, onSelect);
   return overview(view);
 }
@@ -52,7 +59,7 @@ function kindLine(s) {
   return KIND_NAMES[s.kind] ?? s.kind;
 }
 
-function sourceInspector(view, colors, s, onSelect) {
+function sourceInspector(view, colors, s, onSelect, act) {
   const color = colors.get(s.id);
   const parts = [header(s, color)];
 
@@ -75,6 +82,10 @@ function sourceInspector(view, colors, s, onSelect) {
 
   if (s.controls.length) {
     parts.push(section('Controlled by MIDI', s.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
+  }
+  if (REMOVABLE.has(s.kind)) {
+    parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.remove(s) },
+      s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
   }
   return parts;
 }
@@ -133,30 +144,65 @@ function parkedInspector(view, colors, onSelect) {
   ];
 }
 
-function jackInspector(view, colors, o, onSelect) {
+// Inputs that commit on change (Enter or leaving the field), not on every keystroke.
+function numberInput(label, value, { min, max, step = 1 }, commit) {
+  return h('input', {
+    type: 'number', class: 'num', 'aria-label': label, 'data-key': label, min, max, step, value,
+    onchange: (e) => {
+      const v = parseFloat(e.target.value);
+      if (Number.isFinite(v)) commit(Math.min(max, Math.max(min, v)));
+    },
+  });
+}
+
+function voltsInput(label, level, range, commit) {
+  const [lo, hi] = RANGE_VOLTS[range] ?? RANGE_VOLTS[0];
+  return [numberInput(label, levelToVolts(level, range).toFixed(3), { min: lo, max: hi, step: 0.001 }, (v) => commit(voltsToLevel(v, range))), ' V'];
+}
+
+function jackSettings(o, edit) {
+  const r = o.rangeIndex;
+  const where = `jack ${o.jack}`;
+  const rangeSelect = h('select', { 'aria-label': `Range of ${where}`, 'data-key': `range ${where}`, onchange: (e) => edit(`Range of ${where}: ${RANGES[+e.target.value]}`, setRange(o.index, +e.target.value)) },
+    RANGES.map((name, i) => h('option', { value: i, selected: i === r }, name)));
+  const preset = o.directLevel != null;
+  const rows = [
+    row('Range', rangeSelect),
+    row('Stored level', preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
+      preset ? `code ${o.directLevel}` : null),
+    row('Smoothing', preset ? numberInput(`Smoothing of ${where}`, o.smoothing, { min: 0, max: 127 }, (v) => edit(`Smoothing of ${where}: ${v}`, setSmoothing(o.index, v))) : '—'),
+    row('Gate low', voltsInput(`Gate low level of ${where}`, o.gateLevels.low, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, v, o.gateLevels.high)))),
+    row('Gate high', voltsInput(`Gate high level of ${where}`, o.gateLevels.high, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, o.gateLevels.low, v)))),
+  ];
+  if (o.lfoReset) rows.push(row('LFO restarts on', `${o.lfoReset.type}`));
+  return [
+    section('Jack settings', rows),
+    h('p', { class: 'note' }, (preset ? 'The stored level is what comes out when nothing else drives this jack; it’s kept in the preset. ' : 'Open or pull a preset to set the stored level and smoothing. ')
+      + 'Gate levels are used when the jack carries gates, triggers or clocks. Volts assume an uncalibrated output.'),
+  ];
+}
+
+function jackInspector(view, colors, o, onSelect, act) {
   const parts = [
     h('div', { class: 'ins-head' }, h('div', {}, h('h2', {}, `Jack ${o.jack}`),
       h('span', { class: 'kind' }, `${o.gate ? 'Gate' : 'CV'} · ${internalName(o.index)} in the FH-2 app · output ${outputNumber(o.index)} in its menus${o.present ? '' : ' · not in your rack'}`))),
   ];
   const portRow = (p) => {
     const s = view.sources.find((x) => x.id === p.source);
-    return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(p.name, colors.get(s.id)));
+    const port = s.ports.find((x) => x.output === o.index && x.name === p.name);
+    const remove = !p.standby && REMOVABLE.has(s.kind) && port
+      && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${p.name} from jack ${o.jack}`, title: 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
+    return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), [chip(p.name, colors.get(s.id)), remove]);
   };
   const active = o.ports.filter((p) => !p.standby);
   const standby = o.ports.filter((p) => p.standby);
   parts.push(section('Comes out of', active.length
     ? active.map(portRow)
-    : h('p', { class: 'note' }, o.lfo?.alone ? 'An LFO on its own (see Sources).' : 'Nothing: this jack is free.')));
+    : [h('p', { class: 'note' }, 'Nothing: this jack is free.'),
+      o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn primary', onclick: () => act.add(o.index) }, 'Add a source…'))]));
   if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
   if (o.lfo && !o.lfo.alone) parts.push(section('LFO on top', row('Rate', o.lfo.rate), row('Depth', String(o.lfo.level))));
-  if (!o.gate) {
-    parts.push(section('Jack settings',
-      row('Range', o.range),
-      row('Offset (direct level)', o.directLevel == null ? '—' : String(o.directLevel)),
-      row('Smoothing', o.smoothing == null ? '—' : String(o.smoothing)),
-      row('Gate levels', `${o.gateLevels.low} – ${o.gateLevels.high}`),
-      o.lfoReset && row('LFO restarts on', `${o.lfoReset.type}`)));
-  }
+  if (!o.gate) parts.push(...jackSettings(o, act.edit));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;
 }

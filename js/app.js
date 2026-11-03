@@ -1,24 +1,31 @@
-// Night Shift, read-only patch view (milestone M1): open a config and preset from .syx
-// files, pull them from an FH-2, or try the example; see the rack and what comes out of
-// every jack.
+// Night Shift: open a config and preset from .syx files, pull them from an FH-2, or try the
+// example; see the rack and what comes out of every jack; edit, undo, and send the result
+// back to the module.
 
 import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
 import { parseDump, buildDump, splitSysex, commandOf, DUMPS } from './fh2/sysex.js';
+import { diff } from './fh2/layout.js';
 import { derive } from './patch/derive.js';
+import { History, removePort, removeSource } from './patch/edit.js';
 import { examplePatch } from './patch/example.js';
 import { DEFAULT_HARDWARE, validHardware, blockName } from './patch/hardware.js';
 import { colorsFor } from './ui/look.js';
 import { renderStage } from './ui/rack.js';
 import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
-import { fh2Ports, pullFromFh2 } from './ui/connect.js';
+import { addToJack } from './ui/add.js';
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash } from './ui/connect.js';
 
 const HW_KEY = 'nightshift.hardware';
 const state = {
-  config: null, // parsed dumps (sysex.js parseDump)
+  config: null, // parsed dumps (sysex.js parseDump); their values are what gets edited
   preset: null,
   from: '',
   hardware: loadHardware(),
+  history: new History(),
+  sent: null, // the values the FH-2 holds, as far as we know: { config, preset }, or null
+  unsent: false, // what you see differs from what the FH-2 holds (or we don't know what it holds)
+  busy: false,
   view: null,
   colors: new Map(),
   selected: null,
@@ -47,18 +54,94 @@ function status(text, warn = false) {
   render();
 }
 
+const patch = () => ({ config: state.config, preset: state.preset });
+const values = () => ({ config: state.config.values, preset: state.preset?.values ?? null });
+const snapshot = () => structuredClone({ config: state.config?.values ?? null, preset: state.preset?.values ?? null });
+
+function unsent() {
+  if (!state.sent) return true;
+  return ['config', 'preset'].some((k) => {
+    const d = state[k];
+    if (!d) return false;
+    return !state.sent[k] || diff(DUMPS[d.cmd].layout, d.values, state.sent[k]).length > 0;
+  });
+}
+
 function update() {
   state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware) : null;
-  state.colors = state.view ? colorsFor(state.view.sources) : new Map();
+  state.colors = state.view ? colorsFor(state.view.sources, state.colors) : new Map();
+  state.unsent = state.config ? unsent() : false;
   render();
 }
 
-function load({ config, preset }, from) {
+// `sent`: whether these are what the FH-2 holds right now (true after a pull).
+function load({ config, preset }, from, sent = false) {
   if (config) state.config = config;
   if (preset) state.preset = preset;
   state.from = from;
   state.selected = null;
+  state.colors = new Map(); // a new patch gets fresh colours
+  state.history = new History();
+  state.sent = sent ? snapshot() : null;
   update();
+}
+
+// ---- editing
+
+function edit(label, changes) {
+  try {
+    if (state.history.do(patch(), label, changes)) {
+      state.status = label;
+      state.warn = false;
+    }
+  } catch (e) {
+    state.status = `Couldn’t change that: ${e.message}`;
+    state.warn = true;
+  }
+  update();
+}
+
+// The "+ add" dialog for an empty jack.
+async function addTo(output) {
+  try {
+    const r = await addToJack(values(), state.hardware, state.view.outputs[output]);
+    if (r) edit(r.label, r.changes);
+  } catch (e) {
+    status(`Couldn’t add that: ${e.message}`, true);
+  }
+}
+
+// Takes `source` off one jack (`port`), or off all of its jacks.
+function remove(source, port) {
+  try {
+    const where = port ? ` from jack ${port.jack}` : '';
+    edit(`Removed ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}`,
+      port ? removePort(values(), source, port) : removeSource(values(), source));
+    if (!port) state.selected = null;
+    render();
+  } catch (e) {
+    status(`Couldn’t remove that: ${e.message}`, true);
+  }
+}
+
+const isFree = (o) => o.present && !o.ports.some((p) => !p.standby);
+
+function undo() {
+  const label = state.history.undo(patch());
+  if (label) {
+    state.status = `Undid: ${label}`;
+    state.warn = false;
+    update();
+  }
+}
+
+function redo() {
+  const label = state.history.redo(patch());
+  if (label) {
+    state.status = `Redid: ${label}`;
+    state.warn = false;
+    update();
+  }
 }
 
 // ---- opening .syx files
@@ -86,6 +169,7 @@ async function openFiles(files) {
     status(notes.join(' · ') || 'Open a config dump (it may come with a preset).', true);
     return;
   }
+  if (!(await dropUnsent('Opening'))) return;
   load(found, [...files].map((f) => f.name).join(', '));
   status(['Opened ' + Object.keys(found).join(' and '), ...notes].join(' · '), notes.length > 0);
 }
@@ -96,30 +180,92 @@ function pickFiles() {
   input.click();
 }
 
-// ---- pulling from the FH-2
+// Asks before throwing away edits that haven't been sent or saved.
+async function dropUnsent(what) {
+  if (!state.history.canUndo || !state.unsent) return true;
+  return modal($('dialog'), {
+    title: 'Drop your changes?',
+    body: h('p', { class: 'note' }, `${what} replaces what you see, and your changes haven’t been sent to the FH-2. Save .syx first to keep them.`),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Drop them', value: true, primary: true }],
+  });
+}
 
-async function pull() {
+// ---- the FH-2
+
+async function pickFh2() {
+  status('Looking for the FH-2…');
+  const pairs = await fh2Ports();
+  if (!pairs.length) {
+    status('No MIDI ports found. Is the FH-2 connected over USB C?', true);
+    return null;
+  }
+  if (looksLikeFh2(pairs[0])) return pairs[0];
+  const pick = await modal($('dialog'), {
+    title: 'Which port is the FH-2?',
+    body: h('p', { class: 'note' }, 'No port is called “FH-2”. Pick the one it is connected to (it may have been renamed in its settings).'),
+    buttons: [...pairs.map((p, i) => ({ label: p.name, value: i })), { label: 'Cancel', value: null }],
+  });
+  if (pick == null) {
+    status('');
+    return null;
+  }
+  return pairs[pick];
+}
+
+async function withFh2(work) {
+  if (state.busy) return;
+  state.busy = true;
   try {
-    status('Looking for the FH-2…');
-    const pairs = await fh2Ports();
-    if (!pairs.length) return status('No MIDI ports found. Is the FH-2 connected over USB C?', true);
-    let pair = pairs[0];
-    if (!/fh-?2/i.test(pair.name)) {
-      const pick = await modal($('dialog'), {
-        title: 'Which port is the FH-2?',
-        body: h('p', { class: 'note' }, 'No port is called “FH-2”. Pick the one it is connected to (it may have been renamed in its settings).'),
-        buttons: [...pairs.map((p, i) => ({ label: p.name, value: i })), { label: 'Cancel', value: null }],
-      });
-      if (pick == null) return status('');
-      pair = pairs[pick];
-    }
+    const pair = await pickFh2();
+    if (pair) await work(pair);
+  } catch (e) {
+    const refused = e.name === 'SecurityError' || e.name === 'NotAllowedError' || /permission/i.test(e.message);
+    status(refused ? 'This browser didn’t allow MIDI access. Allow it for this page (the icon in the address bar), or use Chrome or Edge.'
+      : `The FH-2 didn’t answer: ${e.message}`, true);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+function pull() {
+  return withFh2(async (pair) => {
+    if (!(await dropUnsent('Pulling'))) return status('');
     status(`Asking ${pair.name} for its config and preset…`);
     const r = await pullFromFh2(pair);
-    load(r, `${pair.name}, ${r.version}`);
+    load(r, `${pair.name}, ${r.version}`, true);
     status(`Pulled from ${pair.name} (${r.version})` + (r.config.versionOk ? '' : ' · unexpected config version'), !r.config.versionOk);
-  } catch (e) {
-    status(`Couldn’t pull from the FH-2: ${e.message}`, true);
-  }
+  });
+}
+
+function send() {
+  return withFh2(async (pair) => {
+    status(`Sending to ${pair.name}…`);
+    const r = await sendToFh2(pair, patch());
+    const off = Object.entries(r).filter(([, d]) => d.length);
+    if (off.length) {
+      const list = off.map(([k, d]) => `${k}: ${d.slice(0, 3).map((x) => x.path.join('.')).join(', ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`);
+      state.sent = null;
+      update();
+      return status(`Sent, but the FH-2 holds something else for ${list.join('; ')}`, true);
+    }
+    state.sent = snapshot();
+    update();
+    status(`Sent to ${pair.name} and read back: the FH-2 now holds this patch (in RAM, not yet in flash)`);
+  });
+}
+
+async function saveFlash() {
+  const ok = await modal($('dialog'), {
+    title: 'Save to the FH-2’s flash?',
+    body: h('p', { class: 'note' }, 'This stores the config and preset the FH-2 holds now, so they survive switching off. They go into the slots they were last loaded from or saved to, replacing what is there.'),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Save to flash', value: true, primary: true }],
+  });
+  if (!ok) return;
+  await withFh2(async (pair) => {
+    await saveToFlash(pair);
+    status(`Saved to ${pair.name}’s flash`);
+  });
 }
 
 // ---- rack setup
@@ -155,21 +301,32 @@ function select(sel) {
   const same = sel && state.selected && sel.source === state.selected.source && sel.output === state.selected.output;
   state.selected = same ? null : sel;
   render();
+  // clicking a free jack asks what should come out of it
+  if (!same && sel?.output != null && sel.sources && isFree(state.view.outputs[sel.output])) addTo(sel.output);
 }
 
 function bar() {
   const v = state.view;
   const tab = (id, label) => h('button', { type: 'button', 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => { state.tab = id; render(); } }, label);
+  const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : '') },
+    state.unsent ? (state.sent ? 'changed since sent' : 'not on the FH-2') : 'same as the FH-2');
   return h('header', { class: 'bar' },
     h('div', { class: 'brand' }, jackIcon(), 'Night Shift'),
     v && h('div', { class: 'patch-name' }, 'Config ', h('b', {}, v.globals.name || 'untitled'), v.globals.presetName ? [' · preset ', h('b', {}, v.globals.presetName)] : ''),
+    sync,
     v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('midi', 'MIDI map')),
+    v && h('div', { class: 'undo' },
+      h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)' }, 'Undo'),
+      h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)' }, 'Redo')),
     h('div', { class: 'grow' }),
     state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status' }, state.status),
     h('button', { type: 'button', class: 'btn', onclick: editHardware }, 'Rack…'),
     h('button', { type: 'button', class: 'btn', onclick: pickFiles }, 'Open .syx…'),
     v && h('button', { type: 'button', class: 'btn', onclick: saveSyx }, 'Save .syx'),
-    h('button', { type: 'button', class: 'btn primary', onclick: pull }, 'Pull from FH-2'));
+    h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: pull }, 'Pull from FH-2'),
+    v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send }, 'Send to FH-2'),
+    v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
+      title: state.unsent ? 'Send to the FH-2 first: saving stores what the module holds' : 'Store what the FH-2 holds in its flash' }, 'Save to flash'));
 }
 
 function saveSyx() {
@@ -197,7 +354,7 @@ function welcome() {
   const choice = (title, text, onclick) => h('button', { type: 'button', class: 'choice', onclick }, h('b', {}, title), h('span', {}, text));
   return h('section', { class: 'welcome' },
     h('h1', {}, 'Night Shift'),
-    h('p', { class: 'note' }, 'An output-first editor for the Expert Sleepers FH-2. This first version shows what your config and preset do, jack by jack. It doesn’t change anything on the module yet.'),
+    h('p', { class: 'note' }, 'An output-first editor for the Expert Sleepers FH-2. Pull your config and preset, see what comes out of every jack, change it and send it back.'),
     h('div', { class: 'choices' },
       choice('Pull from FH-2', 'Connect it over USB C. Needs Chrome or Edge. Only reads.', pull),
       choice('Open .syx', 'A config dump, with or without its preset, from the FH-2 or Expert Sleepers’ tools. Or drop it here.', pickFiles),
@@ -216,13 +373,13 @@ function render() {
   else {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select)),
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove })),
     ];
   }
   replace($('#app'), bar(), h('main', {}, content));
 }
 
-// ---- drop files anywhere
+// ---- drop files anywhere, keys
 
 document.addEventListener('dragover', (e) => {
   e.preventDefault();
@@ -237,7 +394,18 @@ document.addEventListener('drop', (e) => {
   if (e.dataTransfer.files.length) openFiles(e.dataTransfer.files);
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.selected && !document.querySelector('dialog[open]')) select(null);
+  if (document.querySelector('dialog[open]')) return;
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
+    return;
+  }
+  if (e.key === 'Escape' && state.selected) select(null);
+});
+window.addEventListener('beforeunload', (e) => {
+  if (state.history.canUndo && state.unsent) e.preventDefault();
 });
 
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');

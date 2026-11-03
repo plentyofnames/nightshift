@@ -17,6 +17,7 @@ export function derive(config, preset = null, hardware = DEFAULT_HARDWARE) {
     gate: isGate(i),
     present: isPresent(hardware, i),
     range: i < 64 ? RANGES[config.outputRange[i].value] ?? `range ${config.outputRange[i].value}` : null,
+    rangeIndex: i < 64 ? config.outputRange[i].value : null,
     gateLevels: i < 64 ? config.gateLevel[i] : null,
     ports: [], // what generates the voltage
     lfo: null,

@@ -135,6 +135,17 @@ None of these touch the page, so they work unchanged. That gives one implementat
 
 **Done when** you can build the example patch from scratch on the real FH-2, it behaves as the mockups say, and the official tool opens what Night Shift wrote.
 
+**Built in two halves (decided 2026-11-03):**
+- **M2a:**
+  1. The edit core: every edit is a list of field changes, so undo and redo come for free.
+  2. Send to FH-2 (config and preset into RAM, then read back and compared) and save to flash, with a mark when Night Shift and the module differ. Sending is a button for now; sending as you edit waits for check 7.
+  3. Jack settings: range, offset, smoothing, gate levels.
+     - Steps 1–3 done 2026-11-03. You tested Send to FH-2 on the module from Chrome: it worked.
+  4. The "+ add" flow on an empty jack, and removing a source, for: fixed voltage, MIDI knob, LFO, clock, transport, Euclid. `alloc.js` finds free FH-2 slots (a parked Euclid counts as free) and suggests CCs.
+     - Done 2026-11-03: clicking a free jack opens the dialog; gate jacks offer only clocks, transport and Euclid. A × on each row of a jack's inspector takes that source off the jack; a source's inspector can remove it from all its jacks. Source colours now stay put when sources are added.
+  5. Editors for those sources (artboard 3 for the LFO, with its waveform).
+- **M2b:** voices (poly, stride, base gate), triggers, players (sequencers, external gear like the Disting, "clocked by"), scenes A/B/C, project files with names, learning a knob.
+
 ### M3: EC4 pages and live link (v0.2)
 - Lilypad submodule and EC4 connection.
 - Night Shift owns setup 16: it reads, changes and writes only that setup, never the others.
