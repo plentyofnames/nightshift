@@ -5,7 +5,8 @@
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
-import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, arpModeOf, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
+import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, RANGE_VOLTS, arpModeOf, lfoHz, hzToLfo, durationName, noteName,
+  levelToVolts } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
   setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack } from '../patch/edit.js';
 import { freeCcs, voicePlan, freeEuclid } from '../patch/alloc.js';
@@ -41,18 +42,29 @@ export function clockSourceInput(view, act, label, current, pick) {
 const W = 360;
 const H = 110;
 
-function wavePath(samples) {
-  return samples.map((v, i) => `${i ? 'L' : 'M'} ${((i / (samples.length - 1)) * W).toFixed(1)} ${(H / 2 - v * (H / 2 - 8)).toFixed(1)}`).join(' ');
+// Where a sample (−1…1, scaled by depth) is drawn. An LFO on its own swings around the jack's
+// stored level, within the jack's range and cut off where the range ends (full depth taken as
+// half the range either way, a guess); on top of another source, around the middle.
+function waveY(o) {
+  const mid = (v) => H / 2 - v * (H / 2 - 8);
+  if (!o.lfo?.alone || o.directLevel == null || o.rangeIndex == null) return mid;
+  const [lo, hi] = RANGE_VOLTS[o.rangeIndex] ?? RANGE_VOLTS[0];
+  const centre = levelToVolts(o.directLevel, o.rangeIndex);
+  return (v) => H - 8 - ((Math.max(lo, Math.min(hi, centre + (v * (hi - lo)) / 2)) - lo) / (hi - lo)) * (H - 16);
 }
 
-function waveSvg(samples, color) {
+function wavePath(samples, y) {
+  return samples.map((v, i) => `${i ? 'L' : 'M'} ${((i / (samples.length - 1)) * W).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+}
+
+function waveSvg(samples, color, y) {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.setAttribute('class', 'wave');
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', 'Two cycles of the LFO, as mixed from its shapes');
-  svg.innerHTML = `<path d="M 0 ${H / 2} H ${W}" class="centre"/><path class="trace" stroke="${color}"/>`;
-  svg.lastChild.setAttribute('d', wavePath(samples));
+  svg.innerHTML = `<path d="M 0 ${y(0).toFixed(1)} H ${W}" class="centre"/><path class="trace" stroke="${color}"/>`;
+  svg.lastChild.setAttribute('d', wavePath(samples, y));
   return svg;
 }
 
@@ -62,8 +74,9 @@ export function lfoEditor(view, o, act, color) {
   const where = `LFO on jack ${o.jack}`;
   const set = (what, obj) => act.edit(`${what} of the ${where}`, setLfo(o.index, obj));
   const L = (text, param) => ec4Label(text, `output:${o.index}:${param}`, act.ec4);
-  const svg = waveSvg(lfoSamples(r), color);
-  const preview = (key, map = (v) => v) => (v) => svg.lastChild.setAttribute('d', wavePath(lfoSamples({ ...r, [key]: map(v) })));
+  const y = waveY(o);
+  const svg = waveSvg(lfoSamples(r), color, y);
+  const preview = (key, map = (v) => v) => (v) => svg.lastChild.setAttribute('d', wavePath(lfoSamples({ ...r, [key]: map(v) }), y));
   const shape = (label, key) => sfield(L(label, key), slider(`${label} of the ${where}`, r[key], { min: 0, max: 127, show: (v) => `${Math.round((v / 127) * 100)}%`, preview: preview(key) },
     (v) => set(label, { [key]: v })));
   const sawShow = (v) => (v === 0 ? 'off' : v > 0 ? `rising ${Math.round((v / 63) * 100)}%` : `falling ${Math.round((-v / 64) * 100)}%`);
@@ -76,6 +89,9 @@ export function lfoEditor(view, o, act, color) {
       : [sfield(L('Rate', 'lfoSpeed'), numberInput(`Rate of the ${where}`, lfoHz(r.lfoSpeed).toFixed(2), { min: 0.1, max: 10, step: 0.01 }, (v) => set('Rate', { lfoSpeed: hzToLfo(v) })), ' Hz')]),
     sfield(L('Depth', 'lfoLevel'), slider(`Depth of the ${where}`, Math.round((r.lfoLevel / 16383) * 100), { min: 0, max: 100, show: (v) => `${v}%`, preview: preview('lfoLevel', (v) => Math.round((v / 100) * 16383)) },
       (v) => set('Depth', { lfoLevel: Math.round((v / 100) * 16383) }))),
+    // on its own it swings around the jack's stored level: that is its offset
+    o.lfo?.alone && o.directLevel != null && sfield(L('Centre', 'directLevel'), voltsInput(`Centre of the ${where}`, o.directLevel, o.rangeIndex,
+      (v) => act.edit(`Centre of the ${where}`, setDirectLevel(o.index, v)))),
   ];
   const shapes = [
     shape('Sine', 'lfoSine'),
@@ -98,7 +114,7 @@ export function lfoEditor(view, o, act, color) {
   if (r.lfoSynced && o.lfoReset?.typeIndex === 6) {
     notes.push(h('p', { class: 'note' }, 'Synced and restarted by a clock: may jump twice per cycle (check 14).'));
   }
-  return [h('div', { class: 'wave-box' }, svg, h('span', { class: 'wave-cap' }, 'Two cycles, approximate')),
+  return [h('div', { class: 'wave-box' }, svg, h('span', { class: 'wave-cap' }, o.lfo?.alone ? `Two cycles in ${o.range}, approximate` : 'Two cycles, approximate')),
     h('div', { class: 'erows' }, rows), h('h4', {}, 'Shape mix'), h('div', { class: 'erows' }, shapes), h('div', { class: 'erows' }, more), notes];
 }
 

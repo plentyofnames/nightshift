@@ -29,6 +29,7 @@ import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
 import { getPath, setPath } from './fh2/layout.js';
+import { settingsByName } from './fh2/menu.js';
 import { fromModule, anotherPatch, dueIn, Transport, MERGE_MAX } from './fh2/live.js';
 
 const HW_KEY = 'nightshift.hardware';
@@ -1261,7 +1262,8 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status, ec4 })),
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status, ec4,
+        loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }
   document.body.classList.toggle('scenes-only', !!(v && state.scenesOnly));

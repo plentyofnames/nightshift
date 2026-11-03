@@ -164,7 +164,11 @@ function parkedInspector(view, colors, onSelect) {
   ];
 }
 
-function jackSettings(o, edit, ec4) {
+// `driver`: the name of what drives the jack instead of its stored level (a voice, clock, trigger,
+// Euclid, random), or null. The FH-2 puts the stored level only on a jack nothing else drives;
+// with its setting "Always load direct" on (`loadDirect`, as last read), also on the others when
+// a preset loads, until what drives them sends something.
+function jackSettings(o, edit, ec4, { driver = null, loadDirect = false } = {}) {
   const r = o.rangeIndex;
   const where = `jack ${o.jack}`;
   const rangeSelect = h('select', { 'aria-label': `Range of ${where}`, 'data-key': `range ${where}`, onchange: (e) => edit(`Range of ${where}: ${RANGES[+e.target.value]}`, setRange(o.index, +e.target.value)) },
@@ -172,8 +176,10 @@ function jackSettings(o, edit, ec4) {
   const preset = o.directLevel != null;
   const rows = [
     row('Range', rangeSelect),
-    perScene(row(ec4Label('Stored level', `output:${o.index}:directLevel`, ec4), preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
-      preset ? `code ${o.directLevel}` : null)),
+    // on a driven jack it would only last until the next note, so it's offered only with "Always load direct"
+    (!driver || loadDirect) && perScene(row(ec4Label('Stored level', `output:${o.index}:directLevel`, ec4), preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`Stored level of ${where}`, setDirectLevel(o.index, v))) : '—',
+      driver ? h('span', { class: 'unused', title: 'With the FH-2’s “Always load direct” on, a preset load puts the stored level on this jack too.' }, `until ${driver} sends`)
+        : preset ? `code ${o.directLevel}` : null)),
     perScene(row(ec4Label('Smoothing', `output:${o.index}:smoothing`, ec4), preset ? numberInput(`Smoothing of ${where}`, o.smoothing, { min: 0, max: 127 }, (v) => edit(`Smoothing of ${where}: ${v}`, setSmoothing(o.index, v))) : '—')),
     row('Gate low', voltsInput(`Gate low level of ${where}`, o.gateLevels.low, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, v, o.gateLevels.high)))),
     row('Gate high', voltsInput(`Gate high level of ${where}`, o.gateLevels.high, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, o.gateLevels.low, v)))),
@@ -213,7 +219,9 @@ function jackInspector(view, colors, o, onSelect, act) {
     parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',
       onclick: () => act.edit(`LFO on top of jack ${o.jack}`, addLfo(o.index, { shape: 'sine', rate: { hz: 5 }, depth: 0.05 })) }, 'Add an LFO on top')));
   }
-  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4));
+  // what drives the jack instead of its stored level (a knob or an LFO on its own uses it)
+  const driver = active.map((p) => view.sources.find((x) => x.id === p.source)).find((s) => s && !['level', 'knobs', 'lfo'].includes(s.kind));
+  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: driver?.name ?? null, loadDirect: act.loadDirect }));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;
 }

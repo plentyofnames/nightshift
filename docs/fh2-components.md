@@ -194,7 +194,7 @@ all correct.
 
 ## 13. LFOs (one per CV output)
 all correct
-- [ ] **L1** [manual] Each CV output has its own LFO, added to whatever the output carries. With nothing else on the output, it swings around the direct level.
+- [x] **L1** [manual] Each CV output has its own LFO, added to whatever the output carries. With nothing else on the output, it swings around the direct level. Confirmed (your test, 2026-11-03): the direct level is its offset.
 - [ ] **L2** [manual] Speed is 0.1–10 Hz on a log scale, or synced (base × multiplier). Whichever was set last wins.
 - [ ] **L3** [guess] (NS) The preset's "use musical" flag says whether the LFO is synced. i think so - if set it uses the tempo based settings otherwise the speed.
 - [ ] **L4** [manual] Shape: a mix of sine, square (with pulse width), triangle, saw (64 = none, below 64 falling), random and noise. Plus an overall level, phase, and fade-in after a restart.

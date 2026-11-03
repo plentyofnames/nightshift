@@ -46,6 +46,8 @@ The design mockups live on a private design canvas.
 **Other layout rules**
 - An "Acc Trig" or "Acc Gate" trigger also uses output + 1 for the accent.
 - A clock or Euclid pattern used only to reset an LFO can point at an unused expander slot. The manual suggests this workaround itself; the editor should hide it.
+- A stored level doesn't reach a jack a voice drives (your test, 2026-11-03, with "Always load direct" off): the voice replaces it, at the latest with the next note. So Night Shift only offers the stored level on a jack something drives while "Always load direct" is on ("until Voice 1 sends").
+- An LFO on its own is added to the jack's stored level (your test, 2026-11-03): the stored level is the LFO's offset, and a knob mapped to it moves the offset live.
 - A Euclid pattern with both outputs None still runs; it only stops with no pulses (your note, 2026-11-03). Clocking a shift register from a Euclid pattern without a jack is the usual way to step it.
 
 **MIDI routing: the transparency problem**
