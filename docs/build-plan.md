@@ -160,7 +160,17 @@ None of these touch the page, so they work unchanged. That gives one implementat
     - New voices write the gap between voices explicitly, as the Init config does, instead of relying on stride 0 (check 11); while the gap is "back to back" it follows the outputs.
     - Fixed: the blank preset had transpose 0 (64 semitones down) and envelope settings unlike Init's; it now uses Init's (64 = middle).
     - Fixed: in the add dialog, choosing a "No"/"off" option (knob Relative, gates on CV jacks) actually set it to yes.
+    - Glide (your question): the manual (v2.0, "Portamento") says it's always fingered, a glide time between notes played legato, on mono voices and in Unison only; there is no mode to pick. The editor says so, and says when a voice won't glide.
+    - Fixed: "Mono retrig" was labelled as retriggering each note. The manual: it decides whether a note that sounds again when you release a key (another one still held) fires the trigger and envelope. Now "Returning note".
+    - Added the global "Legato velocity" (mono voices keep the first note's velocity through a phrase) and "Envelope zero start" to the voice editor.
   - **USB gamepad and keyboard entries can be switched off** (your request, 2026-11-03): one at a time with the × on a jack, or all at once from the source. It sets Usage or Type to "--" and leaves the output alone, so the official tool's `0xFF` bug can't happen. Sending that to the module is hardware check 16.
+
+### Next UI round (your ideas, stashed 2026-11-03)
+- **No start screen.** Night Shift connects to the real FH-2 as soon as it opens and pulls its config and preset. The example and opening a `.syx` move into the bar (or a menu).
+- **Keep the last patch in the browser.** Store the config and preset (and whether they were sent) in the browser's storage after every change. If the FH-2 can't be reached on start, open that copy instead, marked "not on the FH-2", so a patch can be made away from the rack and sent later.
+  - No popup for which to keep (your call): Night Shift shows the stored copy, reads the FH-2 in the background, and the mark beside the patch name says whether they differ. **Send to FH-2** and **Get from FH-2** (today's Pull) decide. Getting could become an undoable step, so it needs no "drop your changes?" question either.
+  - Today's mark compares with what Night Shift last sent or pulled, so it can't see changes made on the module's panel or in another tool. Reading the module on start (and after a reconnect) fixes that.
+  - Browser storage can be cleared or blocked (private windows), so Save .syx stays the safe copy.
 
 ### M3: EC4 pages and live link (v0.2)
 - Lilypad submodule and EC4 connection.

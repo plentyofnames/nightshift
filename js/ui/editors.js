@@ -6,7 +6,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
 import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, lfoHz, hzToLfo, durationName, noteName } from '../patch/tables.js';
-import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, VOICE_OUTPUTS } from '../patch/edit.js';
+import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS } from '../patch/edit.js';
 import { freeCcs, voicePlan } from '../patch/alloc.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -282,8 +282,14 @@ export function voiceEditor(view, s, act, color) {
     pf && field('Transpose', numberInput(`Transpose of ${s.name}`, pf.transpose - 64, { min: -64, max: 63 }, (v) => pset('Transpose', { transpose: v + 64 })), ' semitones'),
     pf && field('Glide', slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),
     field('Sustain pedal', selectInput(`Sustain of ${s.name}`, cv.sustain, SUSTAIN.map((n, i) => [i, n]), (v) => set('Sustain pedal', { sustain: v }))),
-    field('Retrigger', selectInput(`Mono retrigger of ${s.name}`, cv.monoRetrigger, [[0, 'No'], [1, 'Yes: each new note']], (v) => set('Retrigger', { monoRetrigger: v }))),
-    field('Legato gate', selectInput(`Interrupt gate of ${s.name}`, cv.interruptGate, [[0, 'Stays high'], [1, 'Short dip for each note']], (v) => set('Legato gate', { interruptGate: v })))));
+    field('Legato gate', selectInput(`Interrupt gate of ${s.name}`, cv.interruptGate, [[0, 'Stays high'], [1, 'Short dip on legato notes']], (v) => set('Legato gate', { interruptGate: v }))),
+    cv.type === 0 && field('Returning note', selectInput(`Mono retrigger of ${s.name}`, cv.monoRetrigger, [[0, 'Fires trigger and envelope'], [1, 'Doesn’t fire them']], (v) => set('Returning note', { monoRetrigger: v }))),
+    cv.type === 0 && field('Legato velocity', selectInput('Legato velocity (all mono voices)', act.values().config.legatoVelocity, [[0, 'Each note’s own'], [1, 'First note of a phrase']],
+      (v) => act.edit('Legato velocity (all mono voices)', fields('config', [], { legatoVelocity: v }))))));
+  const unison = cv.allocation === 2 || cv.allocation === 3;
+  parts.push(h('p', { class: 'note' }, 'Glide slides only between notes played legato (fingered portamento), on mono voices and poly voices set to Unison. '
+    + (cv.type !== 0 && !unison ? 'This voice isn’t, so it won’t glide. ' : '')
+    + (cv.type === 0 ? '“Returning note”: when you let go of a key while another is held, that note sounds again; this says whether it fires the trigger and envelope. Legato velocity is one setting for all mono voices.' : '')));
 
   // the envelope
   if (pf) {
@@ -302,7 +308,8 @@ export function voiceEditor(view, s, act, color) {
         env('Attack shape', 'attackShape', 'envAttackShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
         env('Decay shape', 'decayShape', 'envDecayShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
         env('Release shape', 'releaseShape', 'envReleaseShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
-        field('Time range', numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v })))));
+        field('Time range', numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v }))),
+        field('Each note', selectInput(`Envelope start of ${s.name}`, cv.envZeroStart, [[0, 'Rises from where it is'], [1, 'Starts from zero']], (v) => set('Envelope start', { envZeroStart: v })))));
   } else {
     parts.push(h('p', { class: 'note' }, 'Glide, transpose and the envelope live in the preset: open or pull one to edit them.'));
   }
