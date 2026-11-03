@@ -34,6 +34,34 @@ export function targetOf(slot) {
   }
 }
 
+// The other way round: { target, index } for a mapping slot that controls `t` ({ kind, index,
+// param } as targetOf gives it), or null if no mapping can.
+export function encodeTarget(t) {
+  const at = (list) => list.indexOf(t.param);
+  if (t.kind === 'output') {
+    const low = at(OUTPUT_TARGETS_LOW);
+    if (low >= 0) return { target: low, index: t.index };
+    const high = Object.entries(OUTPUT_TARGETS_HIGH).find(([, p]) => p === t.param);
+    return high ? { target: Number(high[0]), index: 64 + t.index } : null;
+  }
+  const by = (target, list, shift = 3) => (at(list) >= 0 ? { target, index: (t.index << shift) | at(list) } : null);
+  switch (t.kind) {
+    case 'converter':
+      return by(9, ARP_PARAMS) ?? by(11, COMMANDS) ?? by(12, ENV_PARAMS) ?? by(16, SHAPE_PARAMS);
+    case 'euclid': return by(10, EUCLID_PARAMS);
+    case 'noteSequencer': return by(13, SEQ_PARAMS, 4);
+    case 'drumSequencer': return at(DRUM_PARAMS) >= 0 ? { target: 13, index: (4 << 4) | at(DRUM_PARAMS) } : null;
+    case 'drumLane': return by(14, LANE_PARAMS, 4);
+    case 'srr': return by(15, SRR_PARAMS);
+    case 'global': {
+      const g = Object.entries(GLOBAL_TARGETS).find(([, p]) => p === t.param);
+      return g ? { target: Number(g[0]), index: 0 } : null;
+    }
+    default:
+      return null;
+  }
+}
+
 // The used slots, decoded.
 export function mappingsOf(config) {
   const out = [];

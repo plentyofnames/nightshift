@@ -1,7 +1,8 @@
 // Talking to an FH-2 over Web MIDI: pulling its config and preset, sending them back into
 // its RAM, and saving them to its flash.
 
-import { midiAccess, midiTransport } from '../../vendor/lilypad/js/midi.js';
+import { midiAccess, midiTransport, portPairs, EC4_NAME } from '../../vendor/lilypad/js/midi.js';
+import { Device } from '../../vendor/lilypad/js/device.js';
 import { Fh2 } from '../fh2/client.js';
 import { readSettings } from '../fh2/menu.js';
 
@@ -123,6 +124,28 @@ export async function learnCc(timeoutMs = 15000) {
 // Reads the FH-2's own settings by walking its menus (menu.js); changes nothing.
 export function readFh2Settings(pair, onStep, log) {
   return withClient(pair, log, (client) => readSettings(client, { onStep }));
+}
+
+// ---- the EC4, through controlfrog's protocol (Lilypad's device.js)
+
+export async function ec4Port() {
+  return portPairs(await midiAccess()).find((p) => EC4_NAME.test(p.name)) ?? null;
+}
+
+// Opens the EC4 for `work(device, info)`; controlfrog has to answer IDENTIFY first.
+export async function withEc4(pair, work, log) {
+  const device = new Device(midiTransport(pair.in, pair.out), { log });
+  try {
+    let info;
+    try {
+      info = await device.identify({ busyMs: 3000 });
+    } catch (e) {
+      throw new Error(e.name === 'TimeoutError' ? 'no answer (controlfrog on it? Lilypad closed?)' : e.message);
+    }
+    return await work(device, info);
+  } finally {
+    device.close();
+  }
 }
 
 // Calls `onChange('connected' | 'disconnected')` when a port named like the FH-2 comes or goes.

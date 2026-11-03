@@ -48,7 +48,7 @@ js/
     scenes.js         one config, several presets
     project.js        project file: config bytes + scene preset bytes + sidecar (JSON)
   ec4/       controller side
-    pages.js          page templates per source type, the LIVE page, pages → EC4 setup 16
+    pages.js          page templates per source type, the LIVE page, pages → EC4 setup 15
     link.js           SELECT / STATE / TOUCH / TEXT live link, value texts in FH-2 units, thru on/off
   ui/        views: rack, sources, inspector, add flow, jack chain, voice, MIDI map,
              controllers, source page, connections; Lilypad-style h()/replace() helpers
@@ -62,7 +62,7 @@ test/                Deno tests + hardware check scripts
 - `proto.js` (controlfrog protocol);
 - `device.js` (request/reply client);
 - `midi.js` (Web MIDI transport);
-- `model.js` (EC4 memory map, for writing setup 16);
+- `model.js` (EC4 memory map, for writing setup 15);
 - `mock.js`, `demo.js` and `syx.js` (the demo EC4).
 
 None of these touch the page, so they work unchanged. That gives one implementation of the controlfrog protocol, and fixes flow both ways.
@@ -232,7 +232,7 @@ Hardware results: learning a knob works (2026-11-03).
 
 ### M3: EC4 pages and live link (v0.2)
 - Lilypad submodule and EC4 connection.
-- Night Shift owns setup 16: it reads, changes and writes only that setup, never the others.
+- Night Shift owns **setup 15** (your call, 2026-11-03: setup 16 is the MDMM's): it reads, changes and writes only that setup, never the others.
 - **Pages:**
   - a page template per source type, made when the source is added, plus the LIVE page;
   - the page editor (artboard 8) and the Controllers view (artboard 6).
@@ -269,6 +269,16 @@ Hardware results: learning a knob works (2026-11-03).
   - controlfrog's own SysEx passing through Logic without upsetting the FH-2.
 
 **Done when** the EC4 follows the editor and the other way round, in both the setting-up and the Logic setup, and works on its own on the FH-2's USB A.
+
+**EC4 pages, first part built (2026-11-03):**
+- An **EC4** tab: the pages (EC4 groups) on the left, the 16 knobs of one laid out like the EC4 with its display above, and the knob in view on the right (what it controls, its channel and CC, 7- or 14-bit).
+- `js/ec4/pages.js`: a page per source from a template (voice: envelope if it has an envelope output, glide where it glides, arp, transpose; Euclid; random; LFO; "CC → CV" knobs, 16 to a page), then the note sequencers and the clock (tempo, swing). At most 16 pages; the rest are listed as not fitting. Pages can be renamed (4 characters).
+- **LIVE:** "Put on LIVE" on any knob; LIVE comes first. It shares the knob's CC, so both stay on one value. Kept with the names, so it undoes and goes into the project.
+- **CCs:** a knob uses the config's own mapping for its setting if there is one. "Give n knobs a CC" adds the rest as one undoable edit: absolute, on ch 2 (or the first channel nothing but CC mappings uses), then the next free channel when ch 2 is full. Direct levels, LFO rate and LFO depth get a free pair below 32 (14-bit); the rest take CCs from 64 up. Never used: bank select, data entry, sustain, sostenuto, (N)RPN, channel mode, and CC 119 (free knobs send it, relative, so turning one does nothing).
+- **Send to EC4** (`js/ec4/setup.js`): reads setup 15, says what it holds, and after a yes writes only the bytes that changed, then reloads the EC4 and turns it to setup 15, page 1. Every write is checked against setup 15's bytes and its name before it goes out. 14-bit knobs are CCAh with Acc2 (display 0–1000, ±500 on a ±5 V jack), 7-bit ones CCAb with Acc1 (ON/OFF for arp latch), relative ones CCR1. Pushes are off.
+- The example patch has 76 settings on its pages, so ch 2 fills up and ch 3 takes the rest.
+- Tested against Lilypad's mock EC4: setup 15 written, every other byte of the EEPROM unchanged, a second send writes nothing. Not tried on your EC4 yet (needs Chrome).
+- Not yet: "send values on group change" stays off (with it, the EC4 would send its own values, 0 after power-on, to the FH-2 on every page change until the two are in step); values in FH-2 units, SELECT/STATE and touch (the live link); moving knobs between pages; pushes.
 
 ### M4 and later (v0.3+)
 - Full shift-register editing.

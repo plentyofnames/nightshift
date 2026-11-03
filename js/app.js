@@ -17,10 +17,13 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings } from './ui/connect.js';
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, ec4Port, withEc4 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
+import { pagesOf, mapPages, toggleLive, liveKeys, pageNameKey, SETUP } from './ec4/pages.js';
+import { readSetup, setupImage, setupState, writesFor, writeSetup } from './ec4/setup.js';
+import { renderEc4 } from './ui/ec4.js';
 
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
@@ -47,6 +50,7 @@ const state = {
   colors: new Map(),
   selected: null,
   tab: 'patch',
+  ec4: { sel: null, note: '' }, // the EC4 tab: the knob in view ({ page, knob }), and one line on the EC4
   status: '',
   warn: false,
 };
@@ -211,9 +215,10 @@ async function setUpPlayer() {
   }
 }
 
-// Renaming a source or player: Night Shift keeps the name beside the dumps.
-async function rename(id, now, original) {
-  const input = h('input', { type: 'text', class: 'text', value: now, maxlength: 40, 'aria-label': 'Name' });
+// Renaming a source or player (or an EC4 page, in `max` 4 characters): Night Shift keeps the
+// name beside the dumps.
+async function rename(id, now, original, max = 40) {
+  const input = h('input', { type: 'text', class: 'text', value: now, maxlength: max, 'aria-label': 'Name' });
   const ok = modal($('dialog'), {
     title: `Rename ${now}`,
     body: [input, h('p', { class: 'note' }, `Empty: back to ${original ?? 'its own name'}.`)],
@@ -595,6 +600,63 @@ async function saveFlash() {
   });
 }
 
+// ---- the EC4 pages (setup 15)
+
+const ec4Model = () => pagesOf(state.view, state.names);
+
+// Gives every knob without one a CC mapping (one undoable edit of the config).
+function mapEc4() {
+  const r = mapPages(state.config.values, state.view, ec4Model());
+  if (!r.changes.length) return status(r.left.length ? `No room for ${r.left.length} knobs` : 'Every knob has a CC', r.left.length > 0);
+  edit(`${r.mapped} knobs got a CC${r.left.length ? `; no room for ${r.left.length}` : ''}`, r.changes);
+}
+
+function liveEc4(key) {
+  const changes = toggleLive(state.names, key);
+  if (!changes) return status('LIVE is full', true);
+  edit(liveKeys(state.names).includes(key) ? 'Taken off LIVE' : 'Put on LIVE', changes);
+}
+
+function renameEc4Page(id) {
+  const page = ec4Model().pages.find((p) => p.id === id);
+  if (page) rename(pageNameKey(id), page.name, page.defaultName, 4);
+}
+
+// Reads setup 15 from the EC4, says what it holds, and after a yes writes the pages there.
+async function sendEc4() {
+  const model = ec4Model();
+  if (state.busy) return;
+  if (model.unmapped.length) return status('Give every knob a CC first', true);
+  state.busy = true;
+  try {
+    const pair = await ec4Port();
+    if (!pair) return status('No EC4 found', true);
+    status(`Reading EC4 setup ${SETUP + 1}…`);
+    await withEc4(pair, async (device, info) => {
+      state.ec4.note = `controlfrog ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
+      const base = await readSetup(device, (k, n) => status(`Reading EC4 setup ${SETUP + 1}… ${Math.round((100 * k) / n)} %`));
+      const img = setupImage(base, model.pages, state.view, model.channel);
+      const writes = writesFor(img, base);
+      if (!writes.length) return status('The EC4 has these pages already');
+      const now = setupState(base);
+      const holds = now.ours ? 'Night Shift’s pages' : now.free ? 'nothing of yours' : `“${now.name.trim()}” (${now.groups.slice(0, 4).map((g) => g.trim()).join(', ')}…)`;
+      const ok = await modal($('dialog'), {
+        title: `Write the pages to EC4 setup ${SETUP + 1}?`,
+        body: h('p', { class: 'note' }, `Setup ${SETUP + 1} holds ${holds}; it is replaced. The other setups stay as they are.`),
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Write', value: true, primary: true }],
+      });
+      if (!ok) return status('');
+      await writeSetup(device, img, base, (k, n) => status(`Writing the EC4… ${k}/${n}`));
+      status(`Pages on the EC4, setup ${SETUP + 1}`);
+    });
+  } catch (e) {
+    status(refused(e) ? 'No MIDI access in this browser' : `The EC4 didn’t answer: ${e.message}`, true);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 // ---- rack setup
 
 async function editHardware() {
@@ -661,7 +723,7 @@ function bar() {
     v && h('div', { class: 'patch-name' }, 'Config ', h('b', {}, v.globals.name || 'untitled')),
     scenes,
     sync,
-    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('settings', 'Settings'), tab('midi', 'MIDI map')),
+    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), tab('ec4', 'EC4')),
     v && h('div', { class: 'undo' },
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)' }, 'Undo'),
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)' }, 'Redo')),
@@ -733,6 +795,9 @@ function render() {
   let content;
   if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
+  else if (state.tab === 'ec4') content = renderEc4(v, ec4Model(), state.colors, state.ec4.sel, {
+    select: (page, knob) => { state.ec4.sel = { page, knob }; render(); },
+    map: mapEc4, send: sendEc4, live: liveEc4, rename: renameEc4Page, busy: state.busy, note: state.ec4.note });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,

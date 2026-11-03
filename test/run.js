@@ -4,6 +4,7 @@ import './core.test.js';
 import './patch.test.js';
 import './edit.test.js';
 import './menu.test.js';
+import './ec4.test.js';
 
 const root = new URL('../', import.meta.url);
 const failed = await runTests((path) => Deno.readFile(new URL(path, root)).catch(() => null));

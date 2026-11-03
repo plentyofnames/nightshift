@@ -161,7 +161,7 @@ The controllers plug into the FH-2's USB A port; the editor talks to the FH-2 ov
 
 **Programming it from Night Shift**
 - The setup SysEx format is documented. See `doc/faderfox sysex data format EC4 V2.txt` in github.com/privatepublic-de/faderfox-editor (MIT, made with Faderfox; EC4 firmware 2.00).
-- Plan: Night Shift writes its own EC4 setup (e.g. setup 16) and leaves the user's other setups alone.
+- Plan: Night Shift writes its own EC4 setup (setup 15; setup 16 is the MDMM's) and leaves the user's other setups alone.
 - Setup names can only be sent along with "all setups"; group and encoder names can be sent per setup.
 
 **Learning a knob on the EC4**
@@ -181,7 +181,7 @@ The user already runs **controlfrog**, their own custom EC4 firmware, together w
 ### controlfrog features Night Shift would use
 
 Framing is `F0 7D 45 43 34 <cmd> … F7`. The EEPROM layout is unchanged from stock.
-- **READ / WRITE / RELOAD:** write only Night Shift's setup (e.g. setup 16 "FH2"). Groups become pages: one page per source, plus a mixed "LIVE" page.
+- **READ / WRITE / RELOAD:** write only Night Shift's setup (setup 15, "FH-2"). Groups become pages: one page per source, plus a mixed "LIVE" page.
 - **SELECT and the `21` STATE event:** a two-way live link. Selecting a source in Night Shift turns the EC4 to that source's page. Changing group on the EC4 selects that source in Night Shift.
 - **TOUCH events (`31`):** "touch a knob to pick it", with no MIDI forwarding needed.
 - **`28` TEXT (firmware 0.10):** per-cell 4-character labels and value texts. Values can show in FH-2 units (1BAR, SAW, 5/16). These texts are RAM only and dropped on every group change, so Night Shift resends them after each STATE.
@@ -207,7 +207,7 @@ There are three situations. The patch, pages and channels are the same in all of
    - Night Shift's thru must be off, so nothing is sent twice.
    - The live link still works while Night Shift is open.
 3. **Live:** EC4 and Launchpad on the FH-2's USB A, through a hub, with no computer.
-   - Names come from setup 16 stored on the EC4.
+   - Names come from setup 15 stored on the EC4.
    - Values show in EC4 scales, so Night Shift should pick scales that read well alone (ON/OFF, ±63, %).
    - Pages are switched on the EC4 itself.
    - Scene sync relies on the FH-2's "Send CCs on preset ld" going out to USB A.
@@ -215,7 +215,7 @@ There are three situations. The patch, pages and channels are the same in all of
 **Pre-gig checklist** (mocked in artboard 9).
 
 Night Shift can do these:
-- write and select EC4 setup 16;
+- write and select EC4 setup 15;
 - turn on the EC4's "send values on group change";
 - save the config and presets to FH-2 flash (18H / 19H);
 - check the channels.
