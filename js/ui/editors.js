@@ -332,14 +332,16 @@ export function voiceEditor(view, s, act, color) {
   const unison = cv.allocation === 2 || cv.allocation === 3;
   if (cv.type !== 0 && !unison) parts.push(h('p', { class: 'note' }, 'Glide works on mono voices and in Unison only.'));
 
-  // the arpeggiator: its settings live in the preset, its clock source and MIDI out in the config
+  // the arpeggiator: it takes over the notes this voice hears and plays them on its jacks. Its
+  // settings live in the preset, its clock source in the config. Its copy out as MIDI (USB C,
+  // USB A, DIN) isn't offered; one set elsewhere is shown, with a way to switch it off.
   if (pf) {
     const a = pf.arpRaw;
+    const heard = `${s.channels.length > 1 ? `ch ${s.channels[0] + 1}–${s.channels.at(-1) + 1}` : `ch ${s.channel + 1}`}, ${noteName(s.notes[0])}–${noteName(s.notes[1])}`;
     const rows = [sfield(L('Mode', 'arpMode'), selectInput(`Arp mode of ${s.name}`, arpModeOf(a.mode)[0], ARP_MODES, (v) => pset('Arp mode', { arpMode: v })))];
     if (a.mode > 10) {
-      const out = (k, name) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!cv[k], 'data-key': `${s.name} ${k}`,
-        onchange: (e) => set(`Arp MIDI out to ${name}`, { [k]: e.target.checked ? 1 : 0 }) }), name);
-      rows.push(
+      const o = s.arpOut;
+      rows.push(field('Arpeggiates', `notes on ${heard}`),
         sfield(L('Range', 'arpRange'), selectInput(`Arp range of ${s.name}`, Math.max(1, Math.min(3, a.range)), [[1, '1 octave'], [2, '2 octaves'], [3, '3 octaves']], (v) => pset('Arp range', { arpRange: v }))),
         sfield(L('Rate', 'arpRate'), selectInput(`Arp rate of ${s.name}`, a.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => pset('Arp rate', { arpRate: v }))),
         a.rate === 0 ? field('Clock source', clockSourceInput(view, act, `Arp clock source of ${s.name}`, cv.arpClock,
@@ -347,8 +349,8 @@ export function voiceEditor(view, s, act, color) {
         sfield(L('Gate', 'arpGate'), slider(`Arp gate of ${s.name}`, a.gate, { min: 0, max: 127, show: (v) => (v ? `${Math.round((v / 128) * 100)}%` : 'trigger') }, (v) => pset('Arp gate', { arpGate: v }))),
         sfield(L('Latch', 'arpLatch'), selectInput(`Arp latch of ${s.name}`, a.latch ? 1 : 0, [[0, 'Off'], [1, 'On: holds until a new chord']], (v) => pset('Arp latch', { arpLatch: v }))),
         sfield(L('Reset', 'arpReset'), numberInput(`Arp reset of ${s.name}`, a.reset, { min: 0, max: 127 }, (v) => pset('Arp reset', { arpReset: v })), ' quarter notes (0 = never)'),
-        field('MIDI out', selectInput(`Arp MIDI channel of ${s.name}`, cv.arpChannel, Array.from({ length: 16 }, (_, c) => [c, `ch ${c + 1}`]), (v) => set('Arp MIDI channel', { arpChannel: v }))),
-        h('div', { class: 'checks' }, out('arpToUsbC', 'USB C'), out('arpToUsbA', 'USB A'), out('arpToDin', 'DIN')),
+        o && field('Also sends out', `ch ${o.channel + 1} → ${[o.usbC && 'USB C', o.usbA && 'USB A', o.din && 'DIN'].filter(Boolean).join(', ')}`,
+          h('button', { type: 'button', class: 'btn small', onclick: () => set('Arp MIDI out', { arpToUsbC: 0, arpToUsbA: 0, arpToDin: 0 }) }, 'Switch off')),
         // the commands (pushes on the EC4) and truncate (a knob): no stored value, only the EC4
         act.ec4 && field('On the EC4', h('span', { class: 'ec4-cmds' }, [['arpAdd', 'Add'], ['arpRemove', 'Remove'], ['arpRest', 'Rest'],
           ['arpTranspose', 'Transpose'], ['arpTransposeInKey', 'In key'], ['arpSetRoot', 'Set root'], ['arpTruncate', 'Truncate']].map(([p, t]) => L(t, p)))));

@@ -328,6 +328,8 @@ Hardware results: learning a knob works (2026-11-03).
 - Every clock-source picker (players, the random source's new Clock section, a voice's arp) and the LFO restart offer the Euclids that exist, with or without a jack, and "A new Euclid (no jack)": a free pattern, 4 of 16 at 1/16, made and linked in one step. **Set up a player…** can make one too ("A Euclid (no jack)", with pulses, steps and step rate), to link afterwards. A free pattern is now one nothing clocks from or restarts on.
 - Remove takes a Euclid's jacks and its links (what it clocked goes back to the external clock, LFOs stop restarting on it) and stops it in the scene in view. Taking it off its last jack stops it too, unless something still follows it: then it stays, without a jack.
 
+**Arpeggiators belong to their voice** (your call, 2026-11-03): an arp takes over the notes its voice hears (the voice's channel and note range, from any source) and plays them on the voice's jacks, so it is set up in the voice editor only. Its first row says what it arpeggiates ("notes on ch 1, C1–C8"). Its copy out as MIDI (USB C, USB A, DIN, on its own channel) isn't offered any more, and the arp is no longer a player: a config that has it on (made elsewhere) shows "Also sends out: ch 5 → DIN" in the voice, with Switch off. Envelopes are part of the voice as before (a trigger of type Envelope borrows one voice's settings).
+
 ### M4 and later (v0.3+)
 - Full shift-register editing.
 - Drum triggers with accent, velocity and envelope types.

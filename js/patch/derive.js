@@ -71,6 +71,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
         monoRetrigger: !!cv.monoRetrigger, interruptGate: !!cv.interruptGate, envZeroStart: !!cv.envZeroStart,
       },
       performance: preset ? converterPreset(preset.converter[i]) : null,
+      // the arp plays this voice; a copy of it to USB C, USB A or DIN is only shown, not offered
       arpOut: cv.arpToUsbC || cv.arpToUsbA || cv.arpToDin
         ? { channel: cv.arpChannel, usbC: !!cv.arpToUsbC, usbA: !!cv.arpToUsbA, din: !!cv.arpToDin } : null,
       players: [],
@@ -329,8 +330,8 @@ function gateFriendly(sources, p) {
 const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
 
 // What Euclid pattern `i` clocks: players, shift registers (as the random source they are on
-// their jacks, the usual case), and arpeggiators that only play their own voice, whose clock
-// source it is, with what selecting one shows. `now`: their rate is Ext, so it does.
+// their jacks, the usual case), and arpeggiators (as their voice), whose clock source it is,
+// with what selecting one shows. `now`: their rate is Ext, so it does.
 function clockedBy(config, preset, players, names, i) {
   const onJacks = (r) => r.cvOutput || !r.changeOutputHigh || !r.triggerOutputHigh;
   const out = players.filter((p) => p.clock === i + 1 && !(p.kind === 'random' && onJacks(config.srr[p.index])))
@@ -341,7 +342,7 @@ function clockedBy(config, preset, players, names, i) {
     out.push({ id, name: names[id] ?? `Random ${k + 1}`, now: preset?.srr[k].rate === 0, select: { source: id } });
   });
   config.converter.forEach((cv, k) => {
-    if (!cv.enable || cv.arpClock !== i + 1 || players.some((p) => p.id === `arp:${k}`)) return;
+    if (!cv.enable || cv.arpClock !== i + 1) return;
     const a = preset?.converter[k];
     const id = `converter:${k}`;
     out.push({ id, name: `${names[id] ?? `Voice ${k + 1}`}’s arpeggiator`, now: !!a && a.arpRate === 0 && arpModeOf(a.arpMode)?.[1] !== 'Off', select: { source: id } });
@@ -349,10 +350,10 @@ function clockedBy(config, preset, players, names, i) {
   return out;
 }
 
-// Things inside the FH-2 that make MIDI.
 // Things inside the FH-2 that make MIDI. Each sends on one channel to some of internal, USB C,
-// USB A, DIN and Select. Sequencers, shift registers and arps step at `rate` (24 ppqn pulses, from
-// the preset); at rate 0 they follow `clock`: 0 the external clock, n Euclid pattern n.
+// USB A, DIN and Select. Sequencers and shift registers step at `rate` (24 ppqn pulses, from the
+// preset); at rate 0 they follow `clock`: 0 the external clock, n Euclid pattern n. An arpeggiator
+// isn't one: it plays its own voice (its copy out as MIDI is on the voice, `arpOut`).
 // Players that send nowhere are left out (`all: true` lists every slot, for picking one).
 export function playersOf(config, preset, { all = false, names = {} } = {}) {
   const players = [];
@@ -377,12 +378,6 @@ export function playersOf(config, preset, { all = false, names = {} } = {}) {
     if (!used(d)) return;
     players.push({ id: `srrNotes:${i}`, kind: 'random', index: i, name: `Random ${i + 1} notes`, channel: r.channel, ...d,
       clock: r.clock, rate: preset ? preset.srr[i].rate : null });
-  });
-  config.converter.forEach((cv, i) => {
-    if (!cv.enable || !(cv.arpToUsbC || cv.arpToUsbA || cv.arpToDin)) return;
-    players.push({ id: `arp:${i}`, kind: 'arp', index: i, name: `Voice ${i + 1}’s arpeggiator`, channel: cv.arpChannel,
-      internal: false, usbC: !!cv.arpToUsbC, usbA: !!cv.arpToUsbA, din: !!cv.arpToDin, select: false,
-      clock: cv.arpClock, rate: preset ? preset.converter[i].arpRate : null });
   });
   config.cvMidi.forEach((c, i) => {
     if (!c.enable) return;

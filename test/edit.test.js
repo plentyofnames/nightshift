@@ -518,3 +518,15 @@ test('a Euclid without a jack clocks a shift register or restarts an LFO, and go
   v = derive(p.config.values, p.preset.values);
   eq([euclid(v, e.index), p.config.values.srr[0].clock, p.config.values.lfoReset[3].type, p.config.values.euclid[e.index].outputHigh], [undefined, 0, 0, 1]);
 });
+
+test('an arpeggiator belongs to its voice: no player of its own, even with MIDI out set elsewhere', () => {
+  const p = examplePatch();
+  const cv = (k, value) => ({ dump: 'config', path: ['converter', 0, k], value });
+  const pre = (k, value) => ({ dump: 'preset', path: ['converter', 0, k], value });
+  apply(p, [cv('arpToDin', 1), cv('arpChannel', 4), cv('arpClock', 1), pre('arpMode', 11), pre('arpRate', 0)]);
+  const v = derive(p.config.values, p.preset.values);
+  eq(v.players.some((x) => x.id === 'arp:0'), false, 'not a player');
+  eq(v.sources.find((s) => s.id === 'converter:0').arpOut, { channel: 4, usbC: false, usbA: false, din: true }, 'shown on the voice');
+  eq(v.sources.find((s) => s.id === 'euclid:0').clocks.find((c) => c.id === 'converter:0'),
+    { id: 'converter:0', name: 'Voice 1’s arpeggiator', now: true, select: { source: 'converter:0' } }, 'clocked as its voice');
+});

@@ -52,7 +52,7 @@ export function icon(kind, size = 18) {
   return svg;
 }
 
-export const KIND_NAMES = { sequencer: 'Note sequencer', drums: 'Drum sequencer', arp: 'Arpeggiator out', input: 'CV → MIDI',
+export const KIND_NAMES = { sequencer: 'Note sequencer', drums: 'Drum sequencer', input: 'CV → MIDI',
   voice: 'Voice', triggers: 'Triggers', lfo: 'LFO', random: 'Random (shift register)', knobs: 'CC → CV',
   level: 'Stored levels', clock: 'Clock & transport', euclid: 'Euclidean rhythm', hid: 'USB device' };
 

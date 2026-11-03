@@ -343,7 +343,7 @@ export const setTriggerEnvSet = (i, envSet) => setTrigger(i, { envSetHigh: envSe
 
 const DESTS = { internal: 'toInternal', usbC: 'toUsbC', usbA: 'toUsbA', din: 'toDin', select: 'toSelect' };
 
-// Where a player's settings live. `id` is a player id from derive ('noteSequencer:1', 'arp:3'…).
+// Where a player's settings live. `id` is a player id from derive ('noteSequencer:1', 'srrNotes:3'…).
 export function playerFields(id) {
   const [kind, n] = id.split(':');
   const i = Number(n) || 0;
@@ -351,7 +351,6 @@ export function playerFields(id) {
     case 'noteSequencer': return { base: ['noteSequencer', i], channel: 'channel', dests: DESTS, clock: 'clock', rate: ['noteSequencer', i, 'rate'] };
     case 'drumSequencer': return { base: ['drumSequencer', 0], channel: 'channel', dests: DESTS };
     case 'srrNotes': return { base: ['srr', i], channel: 'channel', dests: DESTS, clock: 'clock', rate: ['srr', i, 'rate'] };
-    case 'arp': return { base: ['converter', i], channel: 'arpChannel', dests: { usbC: 'arpToUsbC', usbA: 'arpToUsbA', din: 'arpToDin' }, clock: 'arpClock', rate: ['converter', i, 'arpRate'] };
     case 'cvMidi': return { base: ['cvMidi', i], channel: 'channel', dests: DESTS };
     default: throw new Error(`no player ${id}`);
   }
