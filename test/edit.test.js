@@ -259,3 +259,19 @@ test('envelope drawings rise, fall to sustain, and release', () => {
   const inverted = envelopePoints({ ...env, depth: 1 }, 10);
   eq(Math.min(...inverted.map(([, y]) => y)), -1, 'depth below 64 turns it upside down');
 });
+
+test('USB gamepad and keyboard entries are switched off, not pointed at None', () => {
+  const p = patch();
+  Object.assign(p.config.values.gamepad[1], { usage: 21, output: 1 });
+  Object.assign(p.config.values.gamepad[2], { usage: 22, output: 2 });
+  Object.assign(p.config.values.keyboard[0], { type: 1, key: 30, output: 0 });
+  let v = derive(p.config.values, p.preset.values);
+  const pad = v.sources.find((s) => s.id === 'gamepad');
+  apply(p, removePort(values(p), pad, pad.ports[0]));
+  eq(derive(p.config.values, p.preset.values).sources.find((s) => s.id === 'gamepad').ports.map((x) => x.name), ['Z'], 'one entry off');
+  v = derive(p.config.values, p.preset.values);
+  for (const s of v.sources) apply(p, removeSource(values(p), s));
+  eq(derive(p.config.values, p.preset.values).sources, [], 'all off');
+  eq([p.config.values.gamepad[1].output, p.config.values.keyboard[0].output], [1, 0], 'outputs untouched');
+  assert(bodyOf(buildDump(p.config)).every((b) => b < 0x80), 'no byte outside 7 bits');
+});

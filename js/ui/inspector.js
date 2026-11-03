@@ -16,7 +16,7 @@ const param = (p) => PARAM_NAMES[p] ?? p;
 const yes = (b) => (b ? 'on' : 'off');
 
 // Sources that can be removed so far (M2a).
-const REMOVABLE = new Set(['voice', 'level', 'knobs', 'lfo', 'clock', 'euclid']);
+const REMOVABLE = new Set(['voice', 'level', 'knobs', 'lfo', 'clock', 'euclid', 'hid']);
 
 // `act` is { edit(label, changes), add(output), remove(source, port?) }; each changes the
 // patch through edit.js and redraws.
@@ -77,7 +77,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
 
   parts.push(section('Comes out of', s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))));
   if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed-out jacks are on expanders that aren’t in your rack (set it under Rack…). Clocks there often only restart LFOs.'));
-  if (s.standby) parts.push(h('p', { class: 'note' }, `Only does something while a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} is plugged into USB A; then it sets these jacks on top of what else is there. The FH-2’s Init config sets these up. To switch one off, set its ${s.id === 'gamepad' ? 'Usage' : 'Type'} to “--”: setting its output to None in Expert Sleepers’ config tool doesn’t work.`));
+  if (s.standby) parts.push(h('p', { class: 'note' }, `Only does something while a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} is plugged into USB A; then it sets these jacks on top of what else is there. The FH-2’s Init config sets these up. Switching one off here sets its ${s.id === 'gamepad' ? 'Usage' : 'Type'} to “--” (setting its output to None in Expert Sleepers’ config tool doesn’t work).`));
 
   const editor = editorOf(view, s, act, color);
   if (editor) parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), editor));
@@ -91,7 +91,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
   }
   if (REMOVABLE.has(s.kind)) {
     parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.remove(s) },
-      s.kind === 'voice' ? 'Remove this voice' : s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
+      s.kind === 'voice' ? 'Remove this voice' : s.kind === 'hid' ? `Switch all ${s.ports.length} off` : s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
   }
   return parts;
 }
@@ -193,9 +193,10 @@ function jackInspector(view, colors, o, onSelect, act) {
   const portRow = (p) => {
     const s = view.sources.find((x) => x.id === p.source);
     const port = s.ports.find((x) => x.output === o.index && x.name === p.name);
-    const remove = !p.standby && REMOVABLE.has(s.kind) && port
+    const remove = REMOVABLE.has(s.kind) && port
       && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${p.name} from jack ${o.jack}`,
-        title: s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
+        title: s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up'
+          : s.kind === 'hid' ? 'Switch this entry off' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
     return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), [chip(p.name, colors.get(s.id)), remove]);
   };
   const active = o.ports.filter((p) => !p.standby);

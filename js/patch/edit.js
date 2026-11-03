@@ -189,6 +189,10 @@ export function removePort(values, source, port) {
       const k = port.name === 'Pulses' ? 'output' : 'offOutput';
       return [config(['euclid', source.index, k], 127), config(['euclid', source.index, k + 'High'], 1)];
     }
+    case 'hid':
+      // Usage (gamepad) or Type (keyboard) "--" switches an entry off; its output stays as it is.
+      // (Setting the output to None is what breaks in Expert Sleepers' tool: it sends 0xFF.)
+      return [source.id === 'gamepad' ? config(['gamepad', port.slot, 'usage'], 0) : config(['keyboard', port.slot, 'type'], 0)];
     case 'voice': {
       // A voice's outputs come as a set: turning one off moves the ones after it up.
       const k = outputSwitch(port.role);

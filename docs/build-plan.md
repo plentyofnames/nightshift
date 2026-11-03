@@ -160,6 +160,7 @@ None of these touch the page, so they work unchanged. That gives one implementat
     - New voices write the gap between voices explicitly, as the Init config does, instead of relying on stride 0 (check 11); while the gap is "back to back" it follows the outputs.
     - Fixed: the blank preset had transpose 0 (64 semitones down) and envelope settings unlike Init's; it now uses Init's (64 = middle).
     - Fixed: in the add dialog, choosing a "No"/"off" option (knob Relative, gates on CV jacks) actually set it to yes.
+  - **USB gamepad and keyboard entries can be switched off** (your request, 2026-11-03): one at a time with the × on a jack, or all at once from the source. It sets Usage or Type to "--" and leaves the output alone, so the official tool's `0xFF` bug can't happen. Sending that to the module is hardware check 16.
 
 ### M3: EC4 pages and live link (v0.2)
 - Lilypad submodule and EC4 connection.

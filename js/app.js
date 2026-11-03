@@ -114,8 +114,8 @@ async function addTo(output) {
 // Takes `source` off one jack (`port`), or off all of its jacks.
 function remove(source, port) {
   try {
-    const where = port ? ` from jack ${port.jack}` : '';
-    edit(`Removed ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}`,
+    const where = port ? ` ${source.kind === 'hid' ? 'on' : 'from'} jack ${port.jack}` : '';
+    edit(`${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}`,
       port ? removePort(values(), source, port) : removeSource(values(), source));
     if (!port) state.selected = null;
     render();
