@@ -71,6 +71,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
         monoRetrigger: !!cv.monoRetrigger, interruptGate: !!cv.interruptGate, envZeroStart: !!cv.envZeroStart,
       },
       performance: preset ? converterPreset(preset.converter[i]) : null,
+      arpWaits: preset ? arpWaitsOf(cv, preset.converter[i], preset) : null,
       // the arp plays this voice; a copy of it to USB C, USB A or DIN is only shown, not offered
       arpOut: cv.arpToUsbC || cv.arpToUsbA || cv.arpToDin
         ? { channel: cv.arpChannel, usbC: !!cv.arpToUsbC, usbA: !!cv.arpToUsbA, din: !!cv.arpToDin } : null,
@@ -78,6 +79,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
       controls: [],
     };
     if (cv.minNote > cv.maxNote) problems.push({ kind: 'notes', source: s.id, message: `${s.name}: lowest note is above the highest, so it plays nothing` });
+    if (s.arpWaits?.stopped) problems.push({ kind: 'arp-clock', source: s.id, message: `${s.name}’s arp follows ${s.arpWaits.clock}, which has no pulses, so it plays nothing` });
     addSource(s);
   });
 
@@ -328,6 +330,16 @@ function gateFriendly(sources, p) {
 }
 
 const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
+
+// What an arpeggiator that is on waits for at rate Ext, or null: { clock, stopped }. The voice
+// plays only its arpeggio, so without that clock it plays nothing: the external clock may not
+// be running, and a Euclid pattern with no pulses never steps (`stopped`).
+function arpWaitsOf(cv, p, preset) {
+  if (!p || arpModeOf(p.arpMode)?.[1] === 'Off' || p.arpRate !== 0) return null;
+  if (!cv.arpClock) return { clock: 'the external clock', stopped: false };
+  const e = preset.euclid[cv.arpClock - 1];
+  return { clock: `Euclid ${cv.arpClock}`, stopped: !e || e.pulses === 0 };
+}
 
 // What Euclid pattern `i` clocks: players, shift registers (as the random source they are on
 // their jacks, the usual case), and arpeggiators (as their voice), whose clock source it is,

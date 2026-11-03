@@ -51,7 +51,7 @@ export function renderStage(view, colors, selected, onSelect) {
         style: `top:${y}px;left:${GX}px;--src:${color}`, onclick: () => onSelect({ source: s.id }),
       },
       h('span', { class: 'icon' }, icon(s.kind)),
-      h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name), h('span', { class: 'sub' }, subline(s))),
+      h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name), h('span', { class: 'sub' + (s.arpWaits ? ' warn' : '') }, subline(s))),
       h('span', { class: 'count' }, `${s.ports.length} ${s.ports.length === 1 ? 'jack' : 'jacks'}`)));
       nodes.push(h('span', { class: 'anchor' + (on ? ' on' : ''), style: `left:${GX + CARD_W - 4}px;top:${y + 23}px;--src:${color}` }));
       y += CARD_STEP;

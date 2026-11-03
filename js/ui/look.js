@@ -70,6 +70,7 @@ export function subline(s) {
     case 'voice': {
       const who = s.players[0]?.name ?? `ch ${s.channel + 1}`;
       const voices = s.voices > 1 ? ` ${s.voices}` : '';
+      if (s.arpWaits) return `${s.mode}${voices} · ${who} · ${s.arpWaits.stopped ? `arp: ${s.arpWaits.clock} off` : 'arp on Ext'}`;
       return `${s.mode}${voices} · ${who} · ${noteName(s.notes[0])}–${noteName(s.notes[1])}`;
     }
     case 'triggers': return `${s.ports.length} · ${s.players[0]?.name ?? `MIDI ch ${s.channel + 1}`}`;

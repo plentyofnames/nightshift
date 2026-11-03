@@ -530,3 +530,19 @@ test('an arpeggiator belongs to its voice: no player of its own, even with MIDI 
   eq(v.sources.find((s) => s.id === 'euclid:0').clocks.find((c) => c.id === 'converter:0'),
     { id: 'converter:0', name: 'Voice 1’s arpeggiator', now: true, select: { source: 'converter:0' } }, 'clocked as its voice');
 });
+
+test('a voice whose arp waits for a clock says so: it plays nothing without one', () => {
+  const p = examplePatch();
+  const cv = (k, value) => ({ dump: 'config', path: ['converter', 0, k], value });
+  const pre = (k, value) => ({ dump: 'preset', path: ['converter', 0, k], value });
+  const voice = () => derive(p.config.values, p.preset.values).sources.find((s) => s.id === 'converter:0');
+  eq(voice().arpWaits, null, 'arp off');
+  apply(p, [pre('arpMode', 11), pre('arpRate', 0), cv('arpClock', 0)]);
+  eq(voice().arpWaits, { clock: 'the external clock', stopped: false });
+  apply(p, [pre('arpRate', 12)]);
+  eq(voice().arpWaits, null, 'at its own rate it runs');
+  apply(p, [pre('arpRate', 0), cv('arpClock', 2), { dump: 'preset', path: ['euclid', 1, 'pulses'], value: 0 }]);
+  const v = derive(p.config.values, p.preset.values);
+  eq(v.sources.find((s) => s.id === 'converter:0').arpWaits, { clock: 'Euclid 2', stopped: true });
+  assert(v.problems.some((x) => x.kind === 'arp-clock'), 'a stopped Euclid is a problem');
+});

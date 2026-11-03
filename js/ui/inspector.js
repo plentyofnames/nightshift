@@ -68,6 +68,11 @@ function sourceInspector(view, colors, s, onSelect, act) {
   const color = colors.get(s.id);
   const parts = [header(s, color, act)];
 
+  if (s.arpWaits) {
+    parts.push(h('p', { class: 'problem' }, s.arpWaits.stopped
+      ? `Its arp follows ${s.arpWaits.clock}, which has no pulses: it plays nothing.`
+      : `Its arp is on at rate Ext: it plays only while ${s.arpWaits.clock} runs.`));
+  }
   if (s.kind === 'voice' || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors));
 
   parts.push(section('Comes out of', s.ports.length ? s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))
