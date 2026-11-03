@@ -185,6 +185,13 @@ None of these touch the page, so they work unchanged. That gives one implementat
     - Not tried on the module yet: learning with the EC4 on the Mac (needs Chrome), and a scene sent and saved. Saving each scene to its own flash slot isn't offered yet: send a scene, then save, which uses the slot last loaded or saved.
   - **USB gamepad and keyboard entries can be switched off** (your request, 2026-11-03): one at a time with the × on a jack, or all at once from the source. It sets Usage or Type to "--" and leaves the output alone, so the official tool's `0xFF` bug can't happen. Sending that to the module is hardware check 16.
 
+### Next, in this order (your call, 2026-11-03)
+1. The UI round below.
+2. **Saving to flash properly.** Today Save to flash stores the FH-2's current config and preset in the slots it last loaded or saved, so a second scene saved later overwrites the first. Instead: pick the config slot, give each scene its own preset slot (the save commands 18H/19H take a slot number), save them all; maybe the preset program change too, to switch scenes live.
+3. **A Settings tab:** the config's global options (trigger length, transpose, legato velocity, external clock multiplier and run control, preset program change, soft takeover, tap tempo, start/stop, tempo CC and range), the preset's (tempo, swing), and the FH-2's menu settings through the remote menus (from M3, read first, then set).
+
+Hardware results: learning a knob works (2026-11-03).
+
 ### Next UI round (your ideas, stashed 2026-11-03)
 - **No start screen.** Night Shift connects to the real FH-2 as soon as it opens and pulls its config and preset. The example and opening a `.syx` move into the bar (or a menu).
 - **Keep the last patch in the browser.** Store the config and preset (and whether they were sent) in the browser's storage after every change. If the FH-2 can't be reached on start, open that copy instead, marked "not on the FH-2", so a patch can be made away from the rack and sent later.
