@@ -3,6 +3,7 @@
 
 import { midiAccess, midiTransport } from '../../vendor/lilypad/js/midi.js';
 import { Fh2 } from '../fh2/client.js';
+import { readSettings } from '../fh2/menu.js';
 
 const FH2_NAME = /fh-?2/i;
 const SETTLE_MS = 500; // after an install, before reading it back (as tools/fh2dump.py does)
@@ -117,6 +118,11 @@ export async function learnCc(timeoutMs = 15000) {
     const timer = setTimeout(() => done(null, new Error('no knob turned')), timeoutMs);
     for (const i of inputs) i.addEventListener('midimessage', on);
   });
+}
+
+// Reads the FH-2's own settings by walking its menus (menu.js); changes nothing.
+export function readFh2Settings(pair, onStep, log) {
+  return withClient(pair, log, (client) => readSettings(client, { onStep }));
 }
 
 // Calls `onChange('connected' | 'disconnected')` when a port named like the FH-2 comes or goes.

@@ -20,6 +20,11 @@ export const CMD = {
   MESSAGE: 0x32, // the reply to REQUEST_VERSION
   REQUEST_SCREEN_TEXT: 0x41,
   SCREEN_TEXT: 0x42,
+  REQUEST_ITEM_NAME: 0x43, // the name of the menu item open on the display
+  REQUEST_ITEM_VALUE: 0x44, // and its value
+  ITEM_NAME: 0x45,
+  ITEM_VALUE: 0x46,
+  REMOTE: 0x48, // simulates the panel: see REMOTE_EVENTS
   REQUEST_CONFIG_NAME: 0x49, // the reply uses the same number
   REQUEST_PRESET_NAME: 0x4A, // likewise
 };
@@ -40,6 +45,10 @@ const ascii = (s) => [...s].map((c) => c.charCodeAt(0) & 0x7f);
 
 export const displayMessage = (text) => message(CMD.DISPLAY_MESSAGE, [...ascii(text), 0]);
 export const saveConfig = (slot = 0) => message(CMD.SAVE_CONFIG, [slot]); // 0 = the slot last loaded or saved
+
+// 48H: an encoder press or turn, or a left-button press or long hold.
+export const REMOTE_EVENTS = { press: 1, cw: 2, ccw: 3, left: 4, home: 5 };
+export const remote = (event) => message(CMD.REMOTE, [REMOTE_EVENTS[event]]);
 export const savePreset = (slot = 0) => message(CMD.SAVE_PRESET, [slot]);
 
 // Text replies (32H, 49H, 4AH): ASCII after the command, up to a 0 or the F7.
@@ -49,13 +58,19 @@ export function textOf(msg, skip = 0) {
   return s;
 }
 
-// 42H: display mode, then 4 lines of 32 characters.
+// 42H: display mode, then 4 lines of 32 characters. Blank characters come as 0 bytes, so this
+// reads all 128, not up to the first 0.
 export function screenTextOf(msg) {
   const mode = msg[6];
-  const text = textOf(msg, 1).padEnd(128, ' ');
+  let text = '';
+  for (let i = 7; i < msg.length - 1 && i < 7 + 128; i++) text += msg[i] ? String.fromCharCode(msg[i]) : ' ';
+  text = text.padEnd(128, ' ');
   const lines = [0, 1, 2, 3].map((i) => text.slice(32 * i, 32 * i + 32));
   return { mode, lines };
 }
+
+// 46H: whether the item is a name, then its value as text.
+export const itemValueOf = (msg) => ({ isName: !!msg[6], text: textOf(msg, 1).trim() });
 
 // Config and preset dumps: 8 header bytes (… cmd 00 00), the body, F7.
 

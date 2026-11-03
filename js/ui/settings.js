@@ -5,6 +5,7 @@
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, selectInput, slider, perScene } from './controls.js';
 import { TAP_TYPES, START_STOP_TYPES, PARAM_NAMES, noteName } from '../patch/tables.js';
+import { settingsByName, settingsWarnings } from '../fh2/menu.js';
 
 const section = (title, note, ...rows) => h('section', { class: 'settings-section' }, h('h3', {}, title), note && h('p', { class: 'note' }, note), rows);
 const field = (label, control, hint) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control, hint && h('small', {}, hint)));
@@ -67,7 +68,23 @@ export function renderSettings(view, c, p, sceneName, act) {
       tuplet ? sfield('16th positions', [1, 2, 3].map((n) => numberInput(`Swing position ${n}`, p[`swingPosition${n}`], { min: 0, max: 127 }, pre(`Swing position ${n}`, `swingPosition${n}`)))) : null),
     h('p', { class: 'note' }, 'Swing applies to everything on the FH-2’s own clock: clocks, Euclid patterns, sequencers.' + (tuplet ? ' With a tuplet swing, the three numbers place the 2nd, 3rd and 4th 16th notes within the beat.' : '')));
 
-  const module = section('The FH-2’s own settings', 'Settings in the module’s Settings menu (MIDI routing, USB, clock sources, the display, the left button…) aren’t in the config or the preset, so no file or dump carries them. Night Shift will read them through the module’s remote control next; until then, set them on the module.');
+  const module = moduleSettings(view, act);
 
   return h('div', { class: 'settings-page' }, scene, config, controls, module);
+}
+
+// The FH-2's own settings (its Settings menu, General pages 1–3): no dump carries them, so they
+// are read by walking the module's menus (menu.js). Read only for now; set them on the module.
+function moduleSettings(view, act) {
+  const read = act.fh2;
+  const button = h('button', { type: 'button', class: 'btn', disabled: act.busy, onclick: act.readFh2 }, read ? 'Read again' : 'Read them from the FH-2');
+  if (!read) {
+    return section('The FH-2’s own settings', 'Its Settings menu (MIDI clock and DIN out, local off and ignored clocks per port, startup config and preset, 14-bit byte order…) isn’t in the config or the preset. Night Shift can read it by operating the module’s menus, changing nothing.', h('div', { class: 'actions' }, button));
+  }
+  const warnings = settingsWarnings(settingsByName(read.pages), view);
+  const when = new Date(read.at).toLocaleString();
+  return section('The FH-2’s own settings', `As read from ${read.port}, ${when}. Change them on the module for now.`,
+    warnings.map((w) => h('p', { class: w.level === 'warn' ? 'problem' : 'note' }, w.text)),
+    read.pages.map((p) => [h('h4', {}, p.page), h('div', { class: 'erows' }, p.items.map((i) => field(i.name, h('span', { class: 'dim' }, i.value))))]),
+    h('div', { class: 'actions' }, button));
 }

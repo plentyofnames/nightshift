@@ -17,13 +17,14 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2 } from './ui/connect.js';
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
+const FH2_SETTINGS_KEY = 'nightshift.fh2settings'; // the FH-2's own settings, as last read
 const state = {
   config: null, // parsed dumps (sysex.js parseDump); their values are what gets edited
   preset: null, // the scene in view: scenes[scene]
@@ -38,6 +39,7 @@ const state = {
   module: null, // the values the FH-2 holds, as last read or sent: { config, preset }, or null
   link: 'unknown', // 'connecting', 'connected', 'offline' (no FH-2 port) or 'no-midi' (the browser refuses)
   port: '',
+  fh2Settings: storedSettings(), // { at, port, pages } as last read from the module's menus, or null
   sync: null, // how what you see compares with the FH-2: { kind: 'same' | 'scene' | 'differs' | 'unknown', scene }
   unsent: false, // what you see isn't what the FH-2 holds (or we don't know what it holds)
   busy: false,
@@ -48,6 +50,14 @@ const state = {
   status: '',
   warn: false,
 };
+
+function storedSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(FH2_SETTINGS_KEY)) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 function loadHardware() {
   try {
@@ -549,6 +559,26 @@ function send() {
   });
 }
 
+// The FH-2's own settings (its Settings menu), read by walking the menus: it moves the display
+// for half a minute or so, changing nothing.
+async function readModuleSettings() {
+  const ok = await modal($('dialog'), {
+    title: 'Read the FH-2’s settings?',
+    body: h('p', { class: 'note' }, 'Night Shift operates the module’s menus remotely, as you would at the panel, and opens and closes each setting of the three General pages without changing it. It takes about half a minute; please don’t touch the module meanwhile. It ends back on the overview.'),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Read them', value: true, primary: true }],
+  });
+  if (!ok) return;
+  await withFh2(async (pair) => {
+    status(`Reading ${pair.name}’s settings…`);
+    const pages = await readFh2Settings(pair, (s) => status(`Reading ${pair.name}’s settings: ${s}`));
+    state.fh2Settings = { at: new Date().toISOString(), port: pair.name, pages };
+    try {
+      localStorage.setItem(FH2_SETTINGS_KEY, JSON.stringify(state.fh2Settings));
+    } catch {}
+    status(`Read ${pages.reduce((n, p) => n + p.items.length, 0)} settings from ${pair.name}; nothing was changed`);
+  });
+}
+
 async function saveFlash() {
   const configSlot = state.slots.config ?? 0;
   const presetSlot = state.slots.scenes[state.scene] ?? 0;
@@ -703,7 +733,8 @@ function render() {
   let content;
   if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
-  else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene), { edit });
+  else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
+    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
     setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
   else {
