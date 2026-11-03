@@ -1,6 +1,6 @@
 // Operating the FH-2's menus remotely, like a person at the panel: 48H presses and turns, and
 // reading back where it is (41H the screen, 43H/44H the open item). Used for the settings that
-// no dump carries (the Settings menu's General pages). See fh2-notes.md, "The FH-2's menus over
+// no dump carries (the Settings menu). See fh2-notes.md, "The FH-2's menus over
 // the remote control".
 //
 // Every step is checked before the next: it only turns while nothing is open (a turn on an open
@@ -14,15 +14,21 @@ export class MenuError extends Error {}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Reads every setting on `pages`, changing nothing. `client` is an Fh2 (client.js).
-// Returns [{ page, items: [{ name, value }] }]. `onStep(text)` reports progress.
-export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200, onStep } = {}) {
+// Reads the FH-2's own settings, changing nothing. `client` is an Fh2 (client.js). Returns
+// [{ page, items: [{ name, value }] }]: the General pages, MIDI Forwarding (one item per route,
+// "USB A → DIN"), History Inclusion, USB Device Name, and each USB device type's page
+// ("USB: Launchpad X"). `onStep(text)` reports progress.
+export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200, onStep, more = true } = {}) {
   const step = async (event) => {
     await client.remote(event);
     await sleep(wait);
   };
   const line = async (i) => (await client.screenText()).lines[i].trim();
   const nothingOpen = async () => (await client.itemName()) === 'Sorry';
+  const expect = async (name, where) => {
+    const got = await client.itemName();
+    if (got !== name) throw new MenuError(`“${got}” where “${name}” was expected (${where})`);
+  };
   const turnTo = async (want, max) => {
     for (let k = 0; k <= max; k++) {
       if ((await line(2)) === want) return;
@@ -30,6 +36,81 @@ export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200,
       await step('cw');
     }
     throw new MenuError(`didn’t find “${want}” in the menu`);
+  };
+  const fields = (text) => text.trim().split(/\s{2,}/).filter(Boolean);
+
+  // a list of settings (a General page, a USB device): press, read, left, turn, once round
+  const readList = async (title) => {
+    const items = [];
+    let first = null;
+    for (let k = 0; k < 40; k++) {
+      if (!(await nothingOpen())) throw new MenuError('a setting is open where the list was expected');
+      const listed = await line(2);
+      if (first === null) first = listed;
+      else if (listed === first) break;
+      await step('press');
+      const name = await client.itemName();
+      const value = await client.itemValue();
+      await step('left');
+      if (name !== listed) throw new MenuError(`“${name}” opened where “${listed}” was expected`);
+      if (!(await nothingOpen())) throw new MenuError(`${name} didn’t close`);
+      items.push({ name, value: value.text });
+      onStep?.(`${title}: ${name}`);
+      await step('cw');
+    }
+    return items;
+  };
+
+  // MIDI Forwarding: one screen, "from" and "to" pick the route, its On/Off shows on the "to"
+  // line. Only "from" and "to" are ever edited; the cursor never goes to the On/Off.
+  const readForwarding = async () => {
+    await expect('MIDI Forwarding from', 'on opening');
+    await step('cw'); // cursor to "to" (nothing is being edited yet)
+    await expect('MIDI Forwarding to', 'moving to “to”');
+    const items = [];
+    const froms = [];
+    for (let k = 0; k < 8; k++) {
+      const src = fields(await line(1))[1];
+      if (froms.includes(src)) break;
+      froms.push(src);
+      await step('press'); // edit "to"
+      const tos = [];
+      for (let j = 0; j < 8; j++) {
+        const [, dst, value = '?'] = fields(await line(2));
+        if (tos.includes(dst)) break;
+        tos.push(dst);
+        items.push({ name: `${src} → ${dst}`, value });
+        onStep?.(`MIDI Forwarding: ${src} → ${dst}`);
+        await step('cw');
+        await expect('MIDI Forwarding to', 'choosing a destination');
+      }
+      await step('press'); // stop editing "to"
+      await step('ccw'); // cursor back to "from"
+      await expect('MIDI Forwarding from', 'moving back to “from”');
+      await step('press');
+      await step('cw'); // the next source
+      await step('press');
+      await step('cw'); // cursor to "to"
+      await expect('MIDI Forwarding to', 'after the next source');
+    }
+    return items;
+  };
+
+  // History Inclusion: a message type and its On/Off; only the type is ever edited.
+  const readHistory = async () => {
+    await expect('Include in history', 'on opening');
+    await step('press'); // edit the type
+    const items = [];
+    for (let k = 0; k < 20; k++) {
+      const [type, value = '?'] = fields(await line(1));
+      if (items.some((i) => i.name === type)) break;
+      items.push({ name: type, value });
+      onStep?.(`History: ${type}`);
+      await step('cw');
+      await expect('Include in history', 'choosing a type');
+    }
+    await step('press'); // stop editing
+    return items;
   };
 
   const result = [];
@@ -44,25 +125,42 @@ export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200,
       await turnTo(page, 12);
       await step('press');
       if ((await line(0)) !== page) throw new MenuError(`${page} didn’t open`);
-      const items = [];
-      let first = null;
-      for (let k = 0; k < 40; k++) {
-        if (!(await nothingOpen())) throw new MenuError('a setting is open where the list was expected');
-        const listed = await line(2);
-        if (first === null) first = listed;
-        else if (listed === first) break; // round the list once
+      result.push({ page, items: await readList(page) });
+      await step('left'); // back to the Settings list, still on this page
+    }
+    if (more) {
+      await turnTo('MIDI Forwarding', 12);
+      await step('press');
+      result.push({ page: 'MIDI Forwarding', items: await readForwarding() });
+      await step('left');
+
+      await turnTo('History Inclusion', 12);
+      await step('press');
+      result.push({ page: 'History Inclusion', items: await readHistory() });
+      await step('left');
+
+      await turnTo('USB Device Name', 12);
+      await step('press');
+      await expect('USB Device Name', 'on opening'); // a name editor: read, never turn
+      const name = (await client.itemValue()).text.split('\x01')[0].trim();
+      result.push({ page: 'USB Device Name', items: [{ name: 'Name', value: name || 'FH-2 (default)' }] });
+      await step('left');
+
+      await turnTo('USB Device Settings', 12);
+      await step('press');
+      if ((await line(0)) !== 'USB Device Settings') throw new MenuError('USB Device Settings didn’t open');
+      const devices = [];
+      for (let k = 0; k < 16; k++) {
+        const device = await line(2);
+        if (devices.includes(device)) break;
+        devices.push(device);
         await step('press');
-        const name = await client.itemName();
-        const value = await client.itemValue();
-        await step('left');
-        if (name !== listed) throw new MenuError(`“${name}” opened where “${listed}” was expected`);
-        if (!(await nothingOpen())) throw new MenuError(`${name} didn’t close`);
-        items.push({ name, value: value.text });
-        onStep?.(`${page}: ${name}`);
+        if ((await line(0)) !== device) throw new MenuError(`${device} didn’t open`);
+        result.push({ page: `USB: ${device}`, items: await readList(device) });
+        await step('left'); // back to the device list
         await step('cw');
       }
-      result.push({ page, items });
-      await step('left'); // back to the Settings list, still on this page
+      await step('left'); // back to Settings
     }
   } finally {
     try {
@@ -92,4 +190,28 @@ export function settingsWarnings(byName, view) {
   if (off('14 bit CC byte order') && fine) out.push({ level: 'note', text: '14-bit CCs are read LSB first. The EC4’s 14-bit knobs send MSB first, so for them this needs to be 1.' });
   if (on('Always load direct')) out.push({ level: 'note', text: 'Always load direct is on: a preset’s stored levels also land on jacks that carry a voice or another source.' });
   return out;
+}
+
+// A setting's value as read ('1', '0 Off', '15') in words for the Settings tab: On/Off where
+// it's a switch, the manual's words where a number stands for a choice, else as the FH-2 shows it.
+const SWITCHES = new Set(['Enable DIN MIDI out', 'Clk stop=>LFOs stop', 'Use FH-1 as expander', 'Display flip', 'Menu wrap', 'Accessibility',
+  'Wake on MIDI', 'Button exits display', 'Local off DIN', 'Local off USB A', 'Local off USB C', 'Enable MMC', 'Send CCs on preset ld',
+  'Ignore clock DIN', 'Ignore clock USB A', 'Ignore clock USB C', 'Always load direct', 'Disable X clocks', 'Disable Y clocks', 'Enable Select Bus out',
+  'Echo MIDI', 'Takeover']);
+const CHOICES = {
+  '14 bit CC byte order': ['LSB first', 'MSB first'],
+  'Auto display switch': ['Off', 'On', 'On, not from the converters'],
+  'Show counter': ['Off', 'Counter', 'Elapsed time'],
+  'MIDI tap tempo': ['Like the panel button', 'Only sets the tempo'],
+  'Enable MIDI clock out': ['Off', 'On', 'Clocks only'],
+};
+export function settingText(name, value) {
+  const m = /^(-?\d+)(?:\s+(.*))?$/.exec(value.trim());
+  if (!m) return value;
+  const n = Number(m[1]);
+  if (SWITCHES.has(name) && (n === 0 || n === 1)) return n ? 'On' : 'Off';
+  if (CHOICES[name]?.[n]) return CHOICES[name][n];
+  if (name === 'Config prog change ch') return n ? `ch ${n}` : 'Off';
+  if (/seq bank$/.test(name) && n === 0) return 'None';
+  return m[2] && !/^\d/.test(m[2]) && !/^(Startup (preset|configuration))$/.test(name) ? m[2] : value.trim();
 }

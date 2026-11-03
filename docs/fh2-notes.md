@@ -300,3 +300,10 @@ Walked with the user at the rack, reading the screen (41H) and the open item (43
 | 3 | Enable Select Bus out | 0 |
 
 The overview's line 4 ("C Ch8 St") looks like the last MIDI message received (port, channel, type): to be pinned down for check 5.
+
+**The other Settings sub-menus** (walked 2026-11-03, changing nothing)
+- **MIDI Forwarding:** one screen with three fields, "from", "to" and the route's On/Off (shown on the "to" line). A press toggles editing of the field under the cursor; a turn changes it while editing and otherwise moves the cursor. On opening, the cursor is on "from", not editing. 43H names the field ("MIDI Forwarding from" / "MIDI Forwarding to"). Reading: edit only "from" and "to", read each route off the "to" line; the cursor never goes to the On/Off. Routes: DIN, USB A, USB C and SEL (Select Bus), each to the other three, plus DIN → DIN. The user's: all Off.
+- **History Inclusion:** "Include in history" and a type (Note On/Off, CC, Pitch Bend, Real Time, Aftertouch) with its On/Off on the same line; read by editing only the type. The user's: all On.
+- **USB Device Name:** a name editor (46H says it's a name; the value ends with a cursor marker). Read, then left; never turned. The user's: blank, so the default name.
+- **USB Device Settings:** a list of device types (Generic, Launch Control, Launch Control XL, Launchpad Mini, Launchpad Pro, Launchpad Mini Mk3, Launchpad X, Launchpad Pro Mk3), each a page like the General pages with Echo MIDI and Takeover. The user's: all off, except Takeover on for the Launchpad Mini Mk3.
+- Not walked: Calibration (per-output calibrations).

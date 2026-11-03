@@ -211,6 +211,7 @@ Hardware results: learning a knob works (2026-11-03).
   - **Walked 2026-11-03 with you at the rack** (fh2-notes.md, "The FH-2's menus over the remote control"): press opens, left closes unchanged, long hold returns to the overview; all three General pages read item by item without changing anything. Check 8 answered for reading.
   - **Built 2026-11-03:** `js/fh2/menu.js` makes the same guarded walk from Night Shift (press, read, left, turn; only turns with nothing open; checks what opens; stops at a surprise; always closes and goes home). The Settings tab has "Read them from the FH-2" (after a question; about half a minute), shows the three pages as read, keeps them in the browser with date and port, and points out settings that work against the patch (DIN or Select out off while something sends there, local off, the 14-bit byte order when there are 14-bit CCs, always load direct). Tested against the stand-in's model of the menus, in which a careless turn changes a value. Not run from Chrome yet.
   - Fixed on the way: the screen text (42H) was read only up to its first 0 byte, but the FH-2 sends blanks as 0s.
+  - Extended (your request, 2026-11-03): the reader also takes MIDI Forwarding, History Inclusion, USB Device Name and the eight USB device types (walked with you first, fh2-notes.md). Values are shown in words (On/Off, LSB first…); forwarding as one row per source, USB devices one row each.
   - Setting them comes after (check 9).
 
 **The UI round is done (2026-11-03):**

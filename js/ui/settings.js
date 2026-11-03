@@ -5,7 +5,7 @@
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, selectInput, slider, perScene } from './controls.js';
 import { TAP_TYPES, START_STOP_TYPES, PARAM_NAMES, noteName } from '../patch/tables.js';
-import { settingsByName, settingsWarnings } from '../fh2/menu.js';
+import { settingsByName, settingsWarnings, settingText } from '../fh2/menu.js';
 
 const section = (title, ...rows) => h('section', { class: 'settings-section' }, h('h3', {}, title), rows);
 const field = (label, control, unit, title) => h('div', { class: 'erow', title }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control, unit));
@@ -77,7 +77,28 @@ export function renderSettings(view, c, p, sceneName, act) {
   // the FH-2's own settings, as last read (read only for now: change them on the module)
   const module = read && section('FH-2 settings',
     settingsWarnings(settingsByName(read.pages), view).map((w) => h('p', { class: w.level === 'warn' ? 'problem' : 'note' }, w.text)),
-    read.pages.map((pg) => [h('h4', {}, pg.page), h('div', { class: 'erows' }, pg.items.map((i) => field(i.name, h('span', { class: 'dim' }, i.value))))]));
+    read.pages.map((pg) => readPage(pg)));
 
   return h('div', { class: 'settings-page' }, head, scene, config, module, controls);
+}
+
+// One page of the FH-2's settings as read. MIDI Forwarding gets a row per source, the USB device
+// types one row each under a single heading; the rest a row per setting, in words.
+const shown = (name, value) => h('span', { class: 'dim', title: `As read: ${value}` }, settingText(name, value));
+function readPage(pg) {
+  if (pg.page === 'MIDI Forwarding') {
+    const bySource = new Map();
+    for (const i of pg.items) {
+      const [src, dst] = i.name.split(' → ');
+      if (!bySource.has(src)) bySource.set(src, []);
+      bySource.get(src).push(`${dst} ${i.value}`);
+    }
+    return [h('h4', {}, 'MIDI forwarding'), h('div', { class: 'erows' }, [...bySource].map(([src, list]) => field(`From ${src}`, h('span', { class: 'dim' }, list.join(' · ')))))];
+  }
+  if (pg.page.startsWith('USB: ')) {
+    const device = pg.page.slice(5);
+    const row = field(device, h('span', { class: 'dim' }, pg.items.map((i) => `${i.name} ${settingText(i.name, i.value)}`).join(' · ')));
+    return device === 'Generic' ? [h('h4', {}, 'USB devices'), h('div', { class: 'erows' }, row)] : h('div', { class: 'erows' }, row);
+  }
+  return [h('h4', {}, pg.page), h('div', { class: 'erows' }, pg.items.map((i) => field(i.name, shown(i.name, i.value))))];
 }
