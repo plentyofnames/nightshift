@@ -24,6 +24,14 @@ const GROUPS = [
   ['USB devices', ['hid']],
 ];
 
+// A small arp symbol after a voice's name while its arp is on; orange while it waits for a clock.
+function arpMark(s) {
+  if (!s.performance?.arp) return null;
+  const w = s.arpWaits;
+  return h('span', { class: 'arp-mark' + (w ? ' waits' : ''),
+    title: !w ? 'Arpeggiator on' : w.stopped ? `Arp follows ${w.clock}, which has no pulses: plays nothing` : `Arp on at rate Ext: plays only while ${w.clock} runs` }, icon('arp', 12));
+}
+
 // FH-2 jack positions inside its panel.
 const FH2_OUT = (i) => ({ x: i < 4 ? 62 : 162, y: 362 + 70 * (i % 4) });
 const EXP_OUT = (j) => ({ x: 56, y: 140 + 68 * j });
@@ -51,7 +59,7 @@ export function renderStage(view, colors, selected, onSelect) {
         style: `top:${y}px;left:${GX}px;--src:${color}`, onclick: () => onSelect({ source: s.id }),
       },
       h('span', { class: 'icon' }, icon(s.kind)),
-      h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name), h('span', { class: 'sub' + (s.arpWaits ? ' warn' : '') }, subline(s))),
+      h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name, arpMark(s)), h('span', { class: 'sub' }, subline(s))),
       h('span', { class: 'count' }, `${s.ports.length} ${s.ports.length === 1 ? 'jack' : 'jacks'}`)));
       nodes.push(h('span', { class: 'anchor' + (on ? ' on' : ''), style: `left:${GX + CARD_W - 4}px;top:${y + 23}px;--src:${color}` }));
       y += CARD_STEP;
