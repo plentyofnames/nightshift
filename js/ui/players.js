@@ -93,7 +93,7 @@ export function playedBy(view, s, act, onSelect, colors) {
     const names = now?.plays.map((id) => view.sources.find((x) => x.id === id)?.name).filter(Boolean) ?? [];
     return names.length ? `now plays ${names.join(', ')}` : playerLine(p);
   };
-  rows.push(h('div', { class: 'erows' }, field('Play it from', selectInput(`Play ${s.name} from`, '', [['', 'Choose a sequencer…'], ...candidates.map((p) => [p.id, `${p.name} · ${status(p)}`])],
+  const picker = h('div', { class: 'erows' }, field(s.players.length ? 'Also from' : 'Play it from', selectInput(`Play ${s.name} from`, '', [['', 'Choose a sequencer…'], ...candidates.map((p) => [p.id, `${p.name} · ${status(p)}`])],
     (id) => {
       if (!id) return;
       const p = candidates.find((x) => x.id === id);
@@ -104,7 +104,9 @@ export function playedBy(view, s, act, onSelect, colors) {
         if (notes.length && !notes.every((n) => p.notes.includes(n))) notes.slice(0, 8).forEach((n, lane) => changes.push(...setLaneNote(lane, n)));
       }
       act.edit(`${p.name} plays ${s.name}`, changes);
-    }))));
+    })));
+  // one player is the usual case; a second one (two sequencers into a poly voice) stays possible, out of the way
+  rows.push(s.players.length ? h('details', { class: 'more' }, h('summary', {}, 'Add another player…'), picker) : picker);
 
   if (s.players.length) {
     const quiet = suggestChannel(values.config);

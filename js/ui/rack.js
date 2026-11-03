@@ -1,15 +1,17 @@
 // The patch view's stage: source cards on the left, the rack on the right, and cables from
-// the selected source to its jacks. Everything sits at computed positions, so the cables
+// the selected source to its jacks. MIDI cables run in a gutter on the cards' left side,
+// from each player to what it plays. Everything sits at computed positions, so the cables
 // can be drawn without measuring the page.
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { rack } from '../patch/hardware.js';
 import { icon, subline, shortLabel, sourceList, playerLine } from './look.js';
 
+const GX = 40; // the gutter for MIDI cables, left of the cards
 const CARD_W = 290;
 const CARD_STEP = 64; // 56 + 8
 const HEAD = 26;
-const RX = 360;
+const RX = GX + 360;
 const RY = 40;
 const PANEL_H = 707;
 const W = { fh2: 224, cv: 112, gt: 112 };
@@ -29,57 +31,60 @@ const EXP_OUT = (j) => ({ x: 56, y: 140 + 68 * j });
 export function renderStage(view, colors, selected, onSelect) {
   const nodes = [];
   const anchors = new Map(); // source id → { x, y }
+  const midiAt = new Map(); // source or player id → y of its card's middle, for MIDI cables
 
   // ---- source cards
   let y = 40;
-  nodes.push(h('div', { class: 'stage-title', style: `left:0;width:${CARD_W}px` }, h('span', {}, 'Sources')));
+  nodes.push(h('div', { class: 'stage-title', style: `left:${GX}px;width:${CARD_W}px` }, h('span', {}, 'Sources')));
   for (const [title, kinds] of GROUPS) {
     const list = view.sources.filter((s) => kinds.includes(s.kind) && !s.parked);
     if (!list.length) continue;
-    nodes.push(h('div', { class: 'group-title', style: `top:${y}px` }, title));
+    nodes.push(h('div', { class: 'group-title', style: `top:${y}px;left:${GX}px` }, title));
     y += HEAD;
     for (const s of list) {
       const on = selected?.source === s.id || selected?.sources?.includes(s.id);
       const color = colors.get(s.id);
-      anchors.set(s.id, { x: CARD_W + 1, y: y + 28 });
+      anchors.set(s.id, { x: GX + CARD_W + 1, y: y + 28 });
+      midiAt.set(s.id, y + 28);
       nodes.push(h('button', {
         type: 'button', class: 'card' + (s.idle || s.standby ? ' idle' : ''), 'aria-pressed': on ? 'true' : 'false',
-        style: `top:${y}px;--src:${color}`, onclick: () => onSelect({ source: s.id }),
+        style: `top:${y}px;left:${GX}px;--src:${color}`, onclick: () => onSelect({ source: s.id }),
       },
       h('span', { class: 'icon' }, icon(s.kind)),
       h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name), h('span', { class: 'sub' }, subline(s))),
       h('span', { class: 'count' }, `${s.ports.length} ${s.ports.length === 1 ? 'jack' : 'jacks'}`)));
-      nodes.push(h('span', { class: 'anchor' + (on ? ' on' : ''), style: `left:${CARD_W - 4}px;top:${y + 23}px;--src:${color}` }));
+      nodes.push(h('span', { class: 'anchor' + (on ? ' on' : ''), style: `left:${GX + CARD_W - 4}px;top:${y + 23}px;--src:${color}` }));
       y += CARD_STEP;
     }
     y += 10;
   }
   // ---- players: they make MIDI, not voltage, so they have no jacks
-  nodes.push(h('div', { class: 'group-title', style: `top:${y}px` }, 'Players'));
+  nodes.push(h('div', { class: 'group-title', style: `top:${y}px;left:${GX}px` }, 'Players'));
   y += HEAD;
   for (const p of view.players) {
     const on = selected?.player === p.id;
+    midiAt.set(p.id, y + 28);
     nodes.push(h('button', {
       type: 'button', class: 'card', 'aria-pressed': on ? 'true' : 'false',
-      style: `top:${y}px;--src:${colors.get(p.id) ?? 'var(--faint)'}`, onclick: () => onSelect({ player: p.id }),
+      style: `top:${y}px;left:${GX}px;--src:${colors.get(p.id) ?? 'var(--faint)'}`, onclick: () => onSelect({ player: p.id }),
     },
     h('span', { class: 'icon' }, icon(p.kind === 'random' ? 'random' : p.kind)),
     h('span', { class: 'txt' }, h('span', { class: 'name' }, p.name), h('span', { class: 'sub' }, playerLine(p))),
     h('span', { class: 'count' }, p.plays.length ? `plays ${p.plays.length}` : '')));
     y += CARD_STEP;
   }
-  nodes.push(h('button', { type: 'button', class: 'btn add-player', style: `top:${y}px`, onclick: () => onSelect({ addPlayer: true }) }, 'Set up a player…'));
+  nodes.push(h('button', { type: 'button', class: 'btn add-player', style: `top:${y}px;left:${GX}px`, onclick: () => onSelect({ addPlayer: true }) }, 'Set up a player…'));
   y += 44 + 10;
 
   const parked = view.sources.filter((s) => s.parked);
   if (parked.length) {
     const on = selected?.parked || parked.some((s) => s.id === selected?.source);
     const jacks = [...new Set(parked.flatMap((s) => s.ports.map((p) => p.jack)))];
-    nodes.push(h('div', { class: 'group-title', style: `top:${y}px` }, 'Outside your rack'));
+    nodes.push(h('div', { class: 'group-title', style: `top:${y}px;left:${GX}px` }, 'Outside your rack'));
     y += HEAD;
     nodes.push(h('button', {
       type: 'button', class: 'card idle', 'aria-pressed': on ? 'true' : 'false',
-      style: `top:${y}px;--src:var(--faint)`, onclick: () => onSelect({ parked: true }),
+      style: `top:${y}px;left:${GX}px;--src:var(--faint)`, onclick: () => onSelect({ parked: true }),
     },
     h('span', { class: 'icon' }, icon(parked[0].kind)),
     h('span', { class: 'txt' }, h('span', { class: 'name' }, sourceList(parked)), h('span', { class: 'sub' }, `on ${jacks.join(', ')}`)),
@@ -169,6 +174,28 @@ export function renderStage(view, colors, selected, onSelect) {
       svg.append(plug);
     }
   }
+  // ---- MIDI cables, in the gutter: faint always, bright when either end is selected
+  const pairs = view.players.flatMap((p) => p.plays.filter((sid) => midiAt.has(sid) && midiAt.has(p.id)).map((sid) => [p, sid]));
+  pairs.forEach(([p, sid], k) => {
+    const y1 = midiAt.get(p.id);
+    const y2 = midiAt.get(sid);
+    const bulge = Math.min(GX - 6, 12 + Math.abs(y1 - y2) / 14 + (k % 3) * 4);
+    const on = selected?.player === p.id || selected?.source === sid;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${GX} ${y1} C ${GX - bulge} ${y1}, ${GX - bulge} ${y2}, ${GX} ${y2}`);
+    path.setAttribute('class', 'midi' + (on ? ' on' : ''));
+    path.setAttribute('stroke', colors.get(p.id) ?? 'currentColor');
+    svg.append(path);
+    for (const yy of [y1, y2]) {
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', GX);
+      dot.setAttribute('cy', yy);
+      dot.setAttribute('r', on ? 4 : 3);
+      dot.setAttribute('fill', colors.get(p.id) ?? 'currentColor');
+      dot.setAttribute('class', 'midi-end' + (on ? ' on' : ''));
+      svg.append(dot);
+    }
+  });
   nodes.push(svg);
 
   // ---- resources under the rack

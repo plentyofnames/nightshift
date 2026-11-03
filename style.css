@@ -229,3 +229,10 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .player-box .remove { width: 22px; height: 22px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--dim); cursor: pointer; }
 .lane-hit { font: 500 11.5px var(--mono); color: var(--dim); min-width: 64px; text-align: right; }
 .section .box + .box { margin-top: 6px; }
+details.more { margin-top: 6px; font-size: 12.5px; }
+details.more summary { cursor: pointer; color: var(--link); width: max-content; }
+details.more[open] summary { margin-bottom: 4px; }
+.cables .midi { fill: none; stroke-width: 2; stroke-dasharray: 5 4; stroke-linecap: round; opacity: 0.45; }
+.cables .midi.on { stroke-width: 3; opacity: 1; }
+.cables .midi-end { opacity: 0.6; }
+.cables .midi-end.on { opacity: 1; }
