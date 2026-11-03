@@ -187,7 +187,10 @@ None of these touch the page, so they work unchanged. That gives one implementat
 
 ### Next, in this order (your call, 2026-11-03)
 1. The UI round below.
-2. **Saving to flash properly.** Today Save to flash stores the FH-2's current config and preset in the slots it last loaded or saved, so a second scene saved later overwrites the first. Instead: pick the config slot, give each scene its own preset slot (the save commands 18H/19H take a slot number), save them all; maybe the preset program change too, to switch scenes live.
+2. **Scenes and flash.**
+   - Saving: today Save to flash stores the FH-2's current config and preset in the slots it last loaded or saved, so a second scene saved later overwrites the first. Instead: pick the config slot, give each scene its own preset slot (the save commands 18H/19H take a slot number), save them all; maybe the preset program change too, to switch scenes live.
+   - Editing only a scene (your point, 2026-11-03): a "Scenes only" switch that refuses changes to the config (every edit already says which dump it changes) with a reason ("part of the setup, shared by all scenes"), and turns itself on when a second scene is added. Values a scene holds get a small dot, as the mockups planned.
+   - Making the relation visible, since the FH-2 doesn't link presets to configs (a preset is values per slot, and lands wherever the loaded config uses those slots): the project is the link (one config, its scenes, their flash slots and program changes); a scenes overview with each scene's slot and what it changes compared to the first; and a fit check when a preset comes in that wasn't made with this config ("Euclid 5 pattern, but Euclid 5 has no output", "an LFO on jack 7, where nothing is").
 3. **A Settings tab:** the config's global options (trigger length, transpose, legato velocity, external clock multiplier and run control, preset program change, soft takeover, tap tempo, start/stop, tempo CC and range), the preset's (tempo, swing), and the FH-2's menu settings through the remote menus (from M3, read first, then set).
 
 Hardware results: learning a knob works (2026-11-03).
