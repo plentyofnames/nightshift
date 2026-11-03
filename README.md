@@ -6,7 +6,13 @@ A patch editor for the **Expert Sleepers FH-2** that works from the output side:
 
 ## Status
 
-Milestone **M1**, read only: open a config and preset (from `.syx` files or pulled from the FH-2 over Web MIDI) and see your rack, what comes out of every jack, who plays each voice, and which CCs control what. Nothing is written to the module yet; editing comes with v0.1 (M2).
+Working towards v0.1 (milestone **M2**). What works now:
+- Open a config and preset (from `.syx` files, or pulled from the FH-2 over Web MIDI) and see your rack, what comes out of every jack, who plays each voice, and which CCs control what.
+- Change a jack's range, stored level, smoothing and gate levels.
+- Click a free jack to add a fixed voltage, a MIDI knob, an LFO, a clock, a transport signal or a Euclidean rhythm; remove sources from jacks. Undo and redo all of it.
+- Send the result to the FH-2 (it's read back and compared), and save it to the module's flash.
+
+Still to come in v0.1: editors for each source's settings, voices, sequencers and other players, and scenes. Changes go into the FH-2's RAM until you save to flash; Save .syx keeps a copy on your computer.
 
 **Try it:** [plentyofnam.es/nightshift](https://plentyofnam.es/nightshift/) (Chrome or Edge for Web MIDI), or the [example patch](https://plentyofnam.es/nightshift/?example).
 
@@ -40,8 +46,10 @@ python3 tools/fh2dump.py pull   # needs: pip install python-rtmidi
 | `js/fh2/sysex.js` | FH-2 SysEx framing, commands, dump parsing and building |
 | `js/fh2/client.js` | talks to an FH-2 over a MIDI transport, one request at a time |
 | `js/patch/derive.js` | turns a config and preset into sources, jacks, players, mappings and problems |
+| `js/patch/edit.js` | edits as lists of field changes, checked and undoable; adding and removing sources |
+| `js/patch/alloc.js` | finds free FH-2 slots and CCs for new sources |
 | `js/patch/example.js` | the example patch from the mockups, built as a real config and preset |
-| `js/ui/`, `js/app.js` | the read-only patch view and MIDI map |
+| `js/ui/`, `js/app.js` | the patch view, jack editing, the "+ add" dialog, the MIDI map, talking to the FH-2 |
 | `test/` | Deno/browser tests, the official tools as fixtures, a stand-in FH-2 |
 | `tools/fh2dump.py` | pulls dumps from the real module and sends them back (hardware check H0) |
 
