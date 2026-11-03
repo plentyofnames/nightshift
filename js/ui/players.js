@@ -8,8 +8,8 @@ import { selectInput, perScene, ec4Label } from './controls.js';
 import { clockSourceInput } from './editors.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
-import { suggestChannel } from '../patch/alloc.js';
-import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, moveToChannel, setLaneNote, setName, deviceKey } from '../patch/edit.js';
+import { suggestChannel, freeEuclid } from '../patch/alloc.js';
+import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, moveToChannel, setLaneNote, setName, deviceKey, addEuclidWithoutJack } from '../patch/edit.js';
 
 const DEST_NAMES = { internal: 'FH-2 (internal)', usbC: 'USB C', usbA: 'USB A', din: 'DIN', select: 'Select bus' };
 const CHANNELS = Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]);
@@ -162,26 +162,49 @@ export function euclidClocks(view, s, onSelect) {
   ];
 }
 
-// ---- setting up a player that sends nowhere yet (e.g. a sequencer for a Disting on DIN)
+// ---- setting up a player that sends nowhere yet (e.g. a sequencer for a Disting on DIN), or a
+// Euclid pattern without a jack, to clock players and shift registers or restart LFOs
+
+const EUCLID = 'euclid';
 
 export async function setUpPlayerDialog(view, values) {
   const kinds = ['sequencer', 'drums', 'random'];
   const free = allPlayers(values).filter((p) => kinds.includes(p.kind) && !(p.internal || p.usbC || p.usbA || p.din || p.select)
     && (p.kind !== 'random' || view.sources.some((s) => s.id === `srr:${p.index}`)));
-  if (!free.length) throw new Error('every sequencer already sends somewhere');
-  const f = { id: free[0].id, channel: suggestChannel(values.config), dests: { din: true } };
-  const body = h('div', { class: 'fields' },
-    h('label', { class: 'field' }, h('span', {}, 'Player'), selectInput('Player', f.id, free.map((p) => [p.id, p.name]), (v) => { f.id = v; })),
+  const euclid = freeEuclid(values.config, view.hardware) >= 0;
+  if (!free.length && !euclid) throw new Error('every sequencer already sends somewhere, and every Euclid is in use');
+  const f = { id: free[0]?.id ?? EUCLID, channel: suggestChannel(values.config), dests: { din: true }, pulses: 4, steps: 16, rate: 6 };
+  const num = (key, min, max) => h('input', { type: 'number', class: 'num', min, max, value: f[key], 'aria-label': key,
+    oninput: (e) => { f[key] = Math.max(min, Math.min(max, Number(e.target.value) || 0)); } });
+  const forPlayer = h('div', { class: 'fields' },
     h('label', { class: 'field' }, h('span', {}, 'MIDI channel'), selectInput('MIDI channel', f.channel, CHANNELS, (v) => { f.channel = v; })),
     h('div', { class: 'field wide' }, h('span', {}, 'Sends to'), h('div', { class: 'checks' }, Object.entries(DEST_NAMES).map(([d, name]) =>
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!f.dests[d], onchange: (e) => { f.dests[d] = e.target.checked; } }), name)))),
     h('p', { class: 'note' }, 'For gear outside the FH-2, leave “FH-2 (internal)” off.'));
+  const forEuclid = h('div', { class: 'fields' },
+    h('label', { class: 'field' }, h('span', {}, 'Pulses'), num('pulses', 1, 32)),
+    h('label', { class: 'field' }, h('span', {}, 'Steps'), num('steps', 1, 32)),
+    h('label', { class: 'field' }, h('span', {}, 'Step rate'), selectInput('Step rate', f.rate, DIVISIONS, (v) => { f.rate = v; })),
+    h('p', { class: 'note' }, 'No jack: pick it as a clock source or an LFO restart.'));
+  const show = () => { // style, not `hidden`: .fields sets its own display
+    forPlayer.style.display = f.id === EUCLID ? 'none' : '';
+    forEuclid.style.display = f.id === EUCLID ? '' : 'none';
+  };
+  const choices = [...free.map((p) => [p.id, p.name]), ...(euclid ? [[EUCLID, 'A Euclid (no jack)']] : [])];
+  const body = h('div', { class: 'fields' },
+    h('label', { class: 'field' }, h('span', {}, 'Player'), selectInput('Player', f.id, choices, (v) => { f.id = v; show(); })),
+    forPlayer, forEuclid);
+  show();
   const ok = await modal($('dialog'), {
     title: 'Set up a player',
     body,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Set up', value: true, primary: true }],
   });
   if (!ok) return null;
+  if (f.id === EUCLID) {
+    const e = addEuclidWithoutJack(values, view.hardware, { pulses: f.pulses, steps: f.steps, rate: f.rate });
+    return { select: { source: `euclid:${e.index}` }, label: `Euclid ${e.index + 1}, ${f.pulses} of ${f.steps}, without a jack`, changes: e.changes };
+  }
   const p = free.find((x) => x.id === f.id);
   const dests = Object.fromEntries(Object.keys(playerFields(f.id).dests).map((d) => [d, !!f.dests[d]]));
   return { id: f.id, label: `${p.name} sends on ch ${f.channel + 1}`, changes: setPlayer(f.id, { channel: f.channel, dests }) };

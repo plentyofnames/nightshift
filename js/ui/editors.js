@@ -19,7 +19,7 @@ const divisionOptions = (extra = []) => [...extra, ...DIVISIONS.map(([p, name]) 
 // ---- clock sources: the external clock or a Euclid pattern, which needs no jack for this
 
 const NEW_EUCLID = -1;
-const euclidsOf = (view) => view.sources.filter((s) => s.kind === 'euclid' && !s.parked);
+const euclidsOf = (view) => view.sources.filter((s) => s.kind === 'euclid' && (!s.parked || s.pattern?.pulses > 0)); // with a jack, without, or running outside the rack
 const patternOf = (s) => (s.pattern ? ` · ${s.pattern.pulses} of ${s.pattern.steps}` : '');
 
 // What a sequencer, shift register or arpeggiator follows at rate Ext: the external clock, a

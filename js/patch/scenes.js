@@ -36,7 +36,7 @@ export function sceneDifferences(a, b, hardware) {
 // that the preset was made for another config. Each as a short sentence.
 export function fitProblems(view, config, preset) {
   const out = [];
-  const euclidUsed = (i) => view.sources.some((s) => s.id === `euclid:${i}` && !s.parked)
+  const euclidUsed = (i) => view.sources.some((s) => s.id === `euclid:${i}` && !s.parked && (!s.jackless || s.used))
     || view.players.some((p) => p.clock === i + 1)
     || view.outputs.some((o) => o.lfoReset?.typeIndex === 7 && o.lfoReset.number === i);
   preset.euclid.forEach((e, i) => {

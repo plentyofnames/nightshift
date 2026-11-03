@@ -105,8 +105,9 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   }
 
   // ---- Euclidean patterns. One without a jack still counts when it is a player's or an
-  // arpeggiator's clock source, or restarts an LFO (`jackless` below, shown among the players).
-  // Its pattern alone doesn't: that is in the preset, which may come from another config.
+  // arpeggiator's clock source, restarts an LFO, or runs: it has pulses in the preset in view
+  // (`jackless` below, shown among the players). One that only runs drives nothing yet; the
+  // fit check (scenes.js) says so, as the preset may come from another config.
   const players = playersOf(config, preset, { names });
   config.euclid.forEach((e, i) => {
     const ports = [];
@@ -116,7 +117,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     const clocks = clockedBy(config, preset, players, names, i);
     const restarts = config.lfoReset.flatMap((r, o) => (r.type === LFO_RESET_EUCLID && r.number === i ? [o] : []));
     const used = clocks.length > 0 || restarts.length > 0;
-    if (!ports.length && !used) return;
+    if (!ports.length && !used && !(p?.pulses > 0)) return;
     addSource({
       id: `euclid:${i}`, kind: 'euclid', index: i, name: `Euclid ${i + 1}`, ports, controls: [], clocks, restarts, used,
       pattern: p ? { pulses: p.pulses, steps: p.steps, rotation: p.rotation, rate: p.rate ? durationName(p.rate) : 'external clock', ratePulses: p.rate, gate: p.gate, accent: p.accent, reset: p.reset } : null,
@@ -192,7 +193,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   // Euclid without a jack instead, as is one with no jack at all.
   for (const s of sources) {
     s.parked = s.ports.length > 0 && s.ports.every((p) => p.present === false);
-    if (s.kind === 'euclid' && s.used && s.ports.every((p) => p.present === false)) {
+    if (s.kind === 'euclid' && s.ports.every((p) => p.present === false) && (s.used || !s.ports.length)) {
       s.parked = false;
       s.jackless = true;
     }

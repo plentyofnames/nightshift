@@ -499,9 +499,13 @@ test('a Euclid without a jack clocks a shift register or restarts an LFO, and go
   eq([s.ports, s.jackless, s.parked, s.pattern.pulses], [[], true, false, 5]);
   eq(s.clocks, [{ id: 'srr:0', name: 'Random 1', now: true, select: { source: 'srr:0' } }], 'the random source, not a player');
   assert(freeEuclid(p.config.values, EXAMPLE_HARDWARE) !== e.index, 'a clock source is not free');
-  // a pattern alone (it is in the preset) is not a Euclid of this config
+  // unlinked it still runs (it has pulses), so it stays, offered as a clock source; the fit
+  // check says it drives nothing, as the preset may come from another config
   apply(p, [{ dump: 'config', path: ['srr', 0, 'clock'], value: 0 }]);
-  eq(euclid(derive(p.config.values, p.preset.values), e.index), undefined);
+  v = derive(p.config.values, p.preset.values);
+  s = euclid(v, e.index);
+  eq([s.jackless, s.used], [true, false]);
+  assert(fitProblems(v, p.config.values, p.preset.values).includes(`Euclid ${e.index + 1} has a pattern, but no jack and nothing it clocks`), 'fit check');
   // restarting an LFO is a use too; parked outside the rack, it shows without a jack as well
   apply(p, [{ dump: 'config', path: ['lfoReset', 3, 'type'], value: 7 }, { dump: 'config', path: ['lfoReset', 3, 'number'], value: e.index },
     { dump: 'config', path: ['euclid', e.index, 'output'], value: 127 }, { dump: 'config', path: ['euclid', e.index, 'outputHigh'], value: 0 }]);

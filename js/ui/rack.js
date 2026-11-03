@@ -83,7 +83,7 @@ export function renderStage(view, colors, selected, onSelect) {
     },
     h('span', { class: 'icon' }, icon(s.kind)),
     h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name), h('span', { class: 'sub' }, `${subline(s)} · no jack`)),
-    h('span', { class: 'count' }, s.clocks.length ? `clocks ${s.clocks.length}` : `restarts ${s.restarts.length}`)));
+    h('span', { class: 'count' }, s.clocks.length ? `clocks ${s.clocks.length}` : s.restarts.length ? `restarts ${s.restarts.length}` : '')));
     y += CARD_STEP;
   }
   nodes.push(h('button', { type: 'button', class: 'btn add-player', style: `top:${y}px;left:${GX}px`, onclick: () => onSelect({ addPlayer: true }) }, 'Set up a player…'));

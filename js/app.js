@@ -276,7 +276,7 @@ async function setUpPlayer() {
     const r = await setUpPlayerDialog(state.view, values());
     if (!r) return;
     edit(r.label, r.changes);
-    state.selected = { player: r.id };
+    state.selected = r.select ?? { player: r.id };
     render();
   } catch (e) {
     status(`Couldn’t set that up: ${e.message}`, true);

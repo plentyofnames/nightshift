@@ -231,8 +231,10 @@ export function removePort(values, source, port) {
     case 'triggers':
       return setTrigger(port.trigger, { type: 0 }); // with an accent type, its second jack goes too
     case 'euclid': {
+      // off its last jack it stops (no pulses), unless something still follows it
       const k = port.name === 'Pulses' ? 'output' : 'offOutput';
-      return [config(['euclid', source.index, k], 127), config(['euclid', source.index, k + 'High'], 1)];
+      const stop = source.ports.length === 1 && !source.used && values.preset ? [preset(['euclid', source.index, 'pulses'], 0)] : [];
+      return [config(['euclid', source.index, k], 127), config(['euclid', source.index, k + 'High'], 1), ...stop];
     }
     case 'hid':
       // Usage (gamepad) or Type (keyboard) "--" switches an entry off; its output stays as it is.
@@ -250,13 +252,14 @@ export function removePort(values, source, port) {
 }
 
 // A whole source. A Euclid pattern loses its jacks and its links too (what it clocks goes back
-// to the external clock), else one without a jack would stay.
+// to the external clock), and stops in the scene in view, else it would stay without a jack.
 export function removeSource(values, source) {
   if (source.kind === 'voice') return setConverter(source.index, { enable: 0 }); // its settings stay, for when it comes back
   if (source.kind === 'euclid') {
     const i = source.index;
     return [config(['euclid', i, 'output'], 127), config(['euclid', i, 'outputHigh'], 1),
-      config(['euclid', i, 'offOutput'], 127), config(['euclid', i, 'offOutputHigh'], 1), ...unlinkEuclid(values.config, i)];
+      config(['euclid', i, 'offOutput'], 127), config(['euclid', i, 'offOutputHigh'], 1), ...unlinkEuclid(values.config, i),
+      ...(values.preset ? [preset(['euclid', i, 'pulses'], 0)] : [])];
   }
   return source.ports.flatMap((p) => removePort(values, source, p));
 }
