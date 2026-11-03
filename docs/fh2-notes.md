@@ -241,3 +241,62 @@ The user must do these by hand, because FH-2 Settings can't be set over SysEx:
 - Which Launchpad Mini generation does the user have?
 - Where does "Send CCs on preset ld" send? On 2026-11-01 nothing came out on USB C. Either it sends only to USB A / DIN, or the setting wasn't on yet. Live scene sync depends on USB A.
 - What made the FH-2 stop answering SysEx on USB C after the preset-load test, and does it happen again?
+
+## The FH-2's menus over the remote control (walked 2026-11-03, firmware 2.0.0)
+
+Walked with the user at the rack, reading the screen (41H) and the open item (43H/44H) after every event, changing nothing.
+
+**How the menus move**
+- On the overview (display mode 0), an **encoder press** (48H 1) opens the main menu (display mode 1).
+- In a menu, a **turn** (2 clockwise, 3 counter-clockwise) moves to the next or previous item; menus wrap around (the user's "Menu wrap" is 1).
+- **Pressing a submenu** opens it; **pressing a setting** opens it for editing: line 1 shows its name, line 3 its value, and 43H/44H return them ("Contrast", "127"). A turn now would change the value.
+- **Left** (4) closes an open setting unchanged (nothing was turned), or goes up one menu level.
+- **Long hold on left** (5) goes straight back to the overview, from inside a settings page too. (Not tried with a setting open.)
+- With nothing open, 43H answers "Sorry".
+
+**Main menu** (clockwise, wraps): Presets, Configurations, Sequencer Banks, Calibrations, Settings, Misc, Resets.
+
+**Settings** (wraps): General page 1, General page 2, General page 3, Calibration, MIDI Forwarding, History Inclusion, USB Device Name, USB Device Settings, Reset Settings. **Never press Reset Settings.**
+
+**Reading a page safely:** for each item: press, read 43H/44H (and check the name is the one the list showed), left, check nothing is open, turn clockwise; stop when the first item comes round again.
+
+**The user's settings as read (2026-11-03)**
+
+| page | setting | value |
+|---|---|---|
+| 1 | Contrast | 127 |
+| 1 | Top-level encoder | 1 Tempo |
+| 1 | Top-level button | 0 Off |
+| 1 | Startup preset | 1 Init |
+| 1 | Startup configuration | 1 Init |
+| 1 | Enable MIDI clock out | 0 Off |
+| 1 | Enable DIN MIDI out | **0** (DIN out is off: a sequencer sending to DIN reaches nothing) |
+| 1 | Clk stop=>LFOs stop | 1 |
+| 1 | Display blank | 15 |
+| 1 | Use FH-1 as expander | 0 |
+| 1 | Constrain rates | 0 Off |
+| 1 | Display flip | 0 |
+| 1 | USB reset time | 1 |
+| 1 | Tuner pitch reference | 440.0 |
+| 1 | Menu wrap | 1 |
+| 1 | Accessibility | 0 Off |
+| 2 | Wake on MIDI | 1 |
+| 2 | Auto display switch | 1 |
+| 2 | Button exits display | 1 |
+| 2 | Config prog change ch | 0 |
+| 2 | Local off DIN / USB A / USB C | 0 / 0 / 0 |
+| 2 | SysEx Device ID | 0 |
+| 2 | Enable MMC | 0 |
+| 3 | Send CCs on preset ld | 1 |
+| 3 | Ignore clock DIN / USB A / USB C | 0 / **1** / 0 |
+| 3 | Show counter | 0 |
+| 3 | Always load direct | 0 |
+| 3 | 14 bit CC byte order | **0** (LSB first: the EC4's 14-bit knobs need 1, MSB first) |
+| 3 | Nudge amount | 10 |
+| 3 | Disable X clocks / Y clocks | 1 / 1 |
+| 3 | Max smoothing | 1 |
+| 3 | Startup note / drum seq bank | 0 / 0 (none) |
+| 3 | MIDI tap tempo | 0 |
+| 3 | Enable Select Bus out | 0 |
+
+The overview's line 4 ("C Ch8 St") looks like the last MIDI message received (port, channel, type): to be pinned down for check 5.

@@ -202,6 +202,15 @@ Hardware results: learning a knob works (2026-11-03).
 - Slots and the switch are kept in the project file (and the browser).
 - Not checked on the module yet: Save all, and which slot a program change loads (check 17).
 
+**Settings tab, first half done (2026-11-03):**
+- Scene (kept per scene, with dots): name, tempo in BPM, swing type and amount, the 16th positions for tuplet swings.
+- Config (shared): name, trigger length, global transpose, legato velocity, soft takeover, Euclid accent, scenes by program change, external clock (multiplier, run control), tap tempo and start/stop by MIDI (channel and note/CC shown when needed), the tempo CC range (shown 1–128 as Expert Sleepers' tool does; what it means in BPM is check 18).
+- "Controlled by MIDI": the CCs mapped to tempo, swing and display.
+- **Second half, the FH-2's own settings** (Settings menu: about 50 items over three pages: MIDI clock out, DIN out, local off and ignore clock per port, startup config and preset, config program change, send CCs on preset load, 14-bit byte order, always load direct, disable X/Y clocks…). None are in any dump; the only way is the module's remote control: `48H` presses and turns (1 encoder press, 2 turn CW, 3 turn CCW, 4 left press, 5 left long hold) and reading back `41H` (screen as 4 × 32 characters), `43H`/`45H` (current item's name), `44H`/`46H` (its value).
+  - Read-only probe (2026-11-03): on the overview the screen reads "Clk: None · 120.1bpm" and on line 4 "C Ch8 St", which looks like the last MIDI message received (port, channel, type): promising for check 5. With no item open, 43H answers "Sorry".
+  - **Walked 2026-11-03 with you at the rack** (fh2-notes.md, "The FH-2's menus over the remote control"): press opens, left closes unchanged, long hold returns to the overview; all three General pages read item by item without changing anything. Check 8 answered for reading.
+  - Next: `menu.js` does the same walk from Night Shift (the guarded steps: press, read, left, turn; stop on any surprise) and shows the settings in the Settings tab, with warnings where they matter (DIN out off while something sends to DIN; 14-bit byte order for the EC4). Setting them comes after (check 9).
+
 **The UI round is done (2026-11-03):**
 - No start screen. On opening, Night Shift shows the patch kept in this browser (config, scenes, names, rack: stored as a project after every change), then reads the FH-2 in the background. With nothing kept, the FH-2's patch is shown. With neither, one line says why (no FH-2 found, or a browser without MIDI) and offers Open… and the example.
 - Plugging the FH-2 in (or out) is noticed, and it's read again.
@@ -295,6 +304,7 @@ Each item is listed with the milestone that needs it.
 | 15 | Arpeggio notes keep the held note's velocity (A6); still unclear, low priority | later | — |
 | 16 | Gamepad and keyboard entries with Usage/Type "--" do nothing on their output, whatever output is set. (The official tool's "None" for these outputs sends `0xFF` inside the SysEx; see fh2-notes.md, "The existing tools") | M2 | Night Shift never writes None there: it switches an entry off through Usage/Type, and keeps every byte 7-bit |
 | 17 | Preset program change: does program change N load preset slot N, or N + 1 (0- or 1-based)? And does Save all leave every scene in its slot (load each from the panel)? | M2 | Night Shift shows "program change N → slot N" until then |
+| 18 | Tempo CC range (config tempoMin/tempoMax, 0–127, shown 1–128 by the official tool): what tempo in BPM does each value mean? Your Init has both at 59 | later | Shown as the official tool numbers it |
 
 ## From your review of fh2-components.md (2026-11-01)
 

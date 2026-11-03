@@ -19,6 +19,7 @@ import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
 import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
+import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 
 const HW_KEY = 'nightshift.hardware';
@@ -630,7 +631,7 @@ function bar() {
     v && h('div', { class: 'patch-name' }, 'Config ', h('b', {}, v.globals.name || 'untitled')),
     scenes,
     sync,
-    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('midi', 'MIDI map')),
+    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('settings', 'Settings'), tab('midi', 'MIDI map')),
     v && h('div', { class: 'undo' },
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)' }, 'Undo'),
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)' }, 'Redo')),
@@ -702,6 +703,7 @@ function render() {
   let content;
   if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
+  else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene), { edit });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
     setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
   else {

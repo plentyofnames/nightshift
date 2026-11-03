@@ -277,3 +277,13 @@ body.scenes-only .inspector .wave-box, body.scenes-only .inspector .steps { opac
 .scenes-table .warn, .scenes-table small.warn { color: var(--warn); font-size: 12px; }
 .scenes-table .dim { color: var(--faint); }
 .tag.on-module { margin-left: 8px; font-size: 11px; color: var(--accent-ink); background: var(--accent); }
+
+/* the Settings tab */
+.settings-page { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.settings-section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.settings-section h3 { margin: 0; font-size: 15px; }
+.settings-section h4 { margin: 8px 0 0; font-size: 12px; font-weight: 600; color: var(--dim); }
+.settings-section .erow { grid-template-columns: 150px minmax(0, 1fr); }
+.settings-section .erow .v small { flex-basis: 100%; text-align: right; font-size: 11.5px; color: var(--faint); }
+.settings-section .dim { color: var(--dim); font: 500 12px var(--mono); }
+body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opacity: 0.4; pointer-events: none; }
