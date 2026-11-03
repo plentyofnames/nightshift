@@ -41,17 +41,38 @@ export function pullFromFh2(pair, log) {
 }
 
 // Makes `config` (and `preset`, if given) the FH-2's current ones, in RAM, then reads each
-// back. Returns the fields that came back different, by dump: { config: [...], preset: [...] }.
+// back. The values are copied first, so edits made meanwhile wait for the next send.
+// Returns { sent: values by dump, off: the fields that came back different, by dump }.
 export function sendToFh2(pair, { config, preset }, log) {
   return withClient(pair, log, async (client) => {
-    const out = {};
+    const sent = {};
+    const off = {};
     for (const d of [config, preset].filter(Boolean)) {
-      await client.install(d);
+      const values = structuredClone(d.values);
+      await client.install(d, values);
       await new Promise((r) => setTimeout(r, SETTLE_MS));
-      out[d.kind] = await client.verifyInstall(d);
+      off[d.kind] = await client.verifyInstall(d, values);
+      sent[d.kind] = values;
     }
-    return out;
+    return { sent, off };
   });
+}
+
+// Calls `take(port id, byte)` for every clock, start, continue and stop on any input of this
+// computer, including inputs plugged in later.
+export async function watchClock(take) {
+  const acc = await midiAccess();
+  const heard = new Set();
+  const listen = (input) => {
+    if (input.type !== 'input' || heard.has(input.id)) return;
+    heard.add(input.id);
+    input.addEventListener('midimessage', (e) => {
+      const b = e.data[0];
+      if (b === 0xf8 || b === 0xfa || b === 0xfb || b === 0xfc) take(input.id, b);
+    });
+  };
+  for (const input of acc.inputs.values()) listen(input);
+  acc.addEventListener('statechange', (e) => e.port.state === 'connected' && listen(e.port));
 }
 
 // Stores the FH-2's current config and preset in flash: in `configSlot` and `presetSlot` (1–30),

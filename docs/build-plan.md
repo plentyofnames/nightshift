@@ -309,6 +309,20 @@ Hardware results: learning a knob works (2026-11-03).
 - How the FH-2 scales a 7-bit CC onto a setting with another range (Euclid pulses 0–32, swing type 0–7…) is a guess: linear (hardware check 19). Tempo isn't sent to the EC4 (its CC range is the config's, check 18).
 - Tested with a stand-in EC4 (`test/link.test.js`); not tried on your EC4 yet. The built-in browser has no MIDI, so the link only runs in Chrome. Lilypad must be closed: only one host may talk to the EC4.
 
+**Live editing, FH-2 side built (your idea, 2026-11-03)** (`js/fh2/live.js`):
+- Edits (and undo) go to the FH-2's RAM by themselves, never to its flash: 2 seconds after the last edit, at most 5 seconds after the first one waiting. Only the dump that changed is sent, then read back. **Live** in the bar switches it off (kept in the browser); then only Send to FH-2 sends. Save to flash stays a button.
+- **Only in step** (your point: also after offline edits). Night Shift remembers what the FH-2 held as it last sent or read it, for the patch kept in this browser (not for files opened or the example: those need Send or Get first).
+  - When the FH-2 comes back (plugged in, Night Shift opened), it has to hold exactly that for the edits made meanwhile to go out. Anything else: "differs from the FH-2", Get or Send.
+  - Before each send Night Shift reads the FH-2 again. What changed there since (its panel, knobs on its USB A, Logic's automation) comes into your patch first, as one undoable step ("From the FH-2: 3 values"), so a send doesn't undo it; where you changed the same value, yours wins. Another config or preset by name, or more than 32 changes at once (something loaded there), stops live editing until Get or Send.
+- **Held while music plays** (your report: an install interrupts what plays): from Start or Continue to Stop on any input of this computer, or while a clock ticks from a source that sends no Start/Stop. After Stop, what waits goes out 2 seconds later. The mark says "held while playing". Your FH-2 has MIDI clock out and all forwarding off, so today Night Shift sees no clock from the Rytm or from Logic: turning clock out on is the simplest way (check 21).
+- Switching scenes while live sends the scene in view.
+- Tested with the stand-in (`test/live.test.js`); not tried on your FH-2 yet.
+
+**Live editing, EC4 side (planned, needs controlfrog):** you don't want an EEPROM write per edit. controlfrog 0.10 keeps only the page in view in RAM (`enc_cfg`/`push_cfg`, read from EEPROM on every page change and RELOAD), and a RAM copy of all of setup 15 (about 3.9 KB) doesn't fit (0.10 uses 5.8 of 8 KB). Plan:
+- A new protocol message that sets one knob or push of the page in view in RAM only, like TEXT. Night Shift sends its version of the page after every page change (STATE), as it does with the texts.
+- Send to EC4 becomes Store: one EEPROM write when you're done, needed for playing with the EC4 on the FH-2's USB A without Night Shift.
+- Also: the EC4 writes one EEPROM byte on every page change (the last page per setup, `persist()` in `control.c`), so Night Shift following pages writes too. Skip it when the page change comes from the host.
+
 ### M4 and later (v0.3+)
 - Full shift-register editing.
 - Drum triggers with accent, velocity and envelope types.
@@ -333,10 +347,10 @@ Each item is listed with the milestone that needs it.
 | 1 | Config and preset round-trip byte-identical (**done 2026-11-03**, see H0); installing while running causes no glitches | M0 | Install only when the transport is stopped |
 | 2 | Two mappings on the same channel/CC both work (macro knob) | M3 | One mapping per CC; pages share CCs instead (already planned) |
 | 3 | "Send CCs on preset ld" reaches devices on USB A | M3 | Live mode without value sync; a snapshot from the EC4 instead |
-| 4 | 14-bit order: the EC4 sends MSB then LSB, but the FH-2 defaults to LSB first | M3 | Set FH-2 Settings › "14 bit CC byte order" to MSB first (added to the checklist), or use 7-bit |
+| 4 | 14-bit order: the EC4 sends MSB then LSB, but the FH-2 defaults to LSB first. **Your module set to MSB first (2026-11-03)**; check it survives a power cycle | M3 | Set FH-2 Settings › "14 bit CC byte order" to MSB first (added to the checklist), or use 7-bit |
 | 5 | The overview screen text (42H) contains the last received MIDI message | M2 | Learn only from controllers on the Mac, or by declaring the channel/CC |
 | 6 | Logic: EC4 thru on ch 2, recording, controlfrog SysEx arriving at the FH-2 | M3 | Filter SysEx in Logic's input settings |
-| 7 | Installing a config moves outputs (stuck notes or voltage jumps) | M2 | Warn, and offer "send on stop" |
+| 7 | Installing a config moves outputs (stuck notes or voltage jumps). **Yes, it interrupts what plays** (your report, 2026-11-03) | M2 | Live sends wait while a clock runs |
 | 8 | The menus can be walked remotely and read back reliably: 43H/44H name every Settings item, and long-holding the left button always gets back to the overview. **Done 2026-11-03** (all Settings sub-menus read from Night Shift; MIDI Forwarding and History Inclusion remember their cursor, see fh2-notes.md) | M3 | Show the checklist's settings as "check on the module" |
 | 9 | Setting a value remotely sticks and is stored with the settings (survives a power cycle). **Waits** (your call, 2026-11-03): read only for now | M3 | Read only: Night Shift reports, you change it on the panel |
 | 10 | How an output combines (O5–O7): does a converter or clock replace the direct level? Is the LFO added on top of a generator? Is an LFO on its own centred on the direct level? **How:** patch the output into input X, turn X into CV→MIDI CC on a spare channel, and read the CC values while switching the parts on and off. X takes 0–5 V and the CC is 7-bit, so set the output to 0–5 V and use small levels | M2 | Treat the direct level as "only when nothing else is there", and the LFO as added |
@@ -349,6 +363,8 @@ Each item is listed with the milestone that needs it.
 | 17 | Preset program change: does program change N load preset slot N, or N + 1 (0- or 1-based)? And does Save all leave every scene in its slot (load each from the panel)? | M2 | Night Shift shows "program change N → slot N" until then |
 | 18 | Tempo CC range (config tempoMin/tempoMax, 0–127, shown 1–128 by the official tool): what tempo in BPM does each value mean? Your Init has both at 59 | later | Shown as the official tool numbers it |
 | 19 | How a 7-bit CC maps onto a setting whose range isn't 0–127 (Euclid pulses, steps, rotation, reset; swing type; arp range and latch): linear, and how rounded? Send CC 0, 64, 127 and read the preset back | M3 | Night Shift's EC4 value texts and knob positions assume linear |
+| 20 | Does reading a dump (21H, 23H) interrupt what plays, as an install does? The EC4's read-back after a knob turn reads the preset while you play | M3 | Read back only while stopped |
+| 21 | With "Enable MIDI clock out" on: does the FH-2's clock, with Start and Stop, reach USB C, whichever device clocks it (Logic or the Rytm)? And does Logic ignore it (it mustn't sync to it)? | M3 | Logic also sends its clock to the IAC bus; for the Rytm, forwarding DIN → USB C, clock only |
 
 ## From your review of fh2-components.md (2026-11-01)
 
