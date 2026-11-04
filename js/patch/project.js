@@ -13,8 +13,9 @@ const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0))
 
 // `scenes` are parsed preset dumps; `scene` the one in view. `slots` are the flash slots
 // (1–30) for the config and for each scene, null where none is chosen; `scenesOnly` the switch
-// that keeps the config as it is.
-export function projectToJson({ config, scenes, scene, names, hardware, slots = null, scenesOnly = false }) {
+// that keeps the config as it is; `held` what Night Shift last wrote to the FH-2's flash and the
+// EC4, as fingerprints (patch/gig.js), for the pre-gig checklist.
+export function projectToJson({ config, scenes, scene, names, hardware, slots = null, scenesOnly = false, held = {} }) {
   return JSON.stringify({
     nightshift: PROJECT_VERSION,
     saved: new Date().toISOString(),
@@ -25,6 +26,7 @@ export function projectToJson({ config, scenes, scene, names, hardware, slots = 
     names,
     slots,
     scenesOnly,
+    held,
   }, null, 2);
 }
 
@@ -49,5 +51,17 @@ export function projectFromJson(text) {
     hardware: validHardware(j.hardware) ?? null,
     slots: { config: slot(j.slots?.config), scenes: scenes.map((_, i) => slot(j.slots?.scenes?.[i])) },
     scenesOnly: j.scenesOnly === true,
+    held: heldFrom(j.held),
   };
+}
+
+// `held` as stored, keeping only well-formed parts: { flash: { at, configs: { slot: fp },
+// presets: { slot: fp } }, ec4: { at, fp, fw: [major, minor] } }.
+function heldFrom(j) {
+  const out = {};
+  const fps = (o) => Object.fromEntries(Object.entries(o && typeof o === 'object' ? o : {}).filter(([k, v]) => /^\d+$/.test(k) && typeof v === 'string'));
+  if (j?.flash && typeof j.flash.at === 'string') out.flash = { at: j.flash.at, configs: fps(j.flash.configs), presets: fps(j.flash.presets) };
+  const e = j?.ec4;
+  if (e && typeof e.at === 'string' && typeof e.fp === 'string') out.ec4 = { at: e.at, fp: e.fp, fw: Array.isArray(e.fw) && e.fw.length === 2 && e.fw.every(Number.isInteger) ? e.fw : null };
+  return out;
 }

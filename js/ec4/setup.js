@@ -19,6 +19,7 @@ import * as M from '../../vendor/lilypad/js/model.js';
 import { SETUP, GROUPS, KNOBS, SWITCHES, DEAD_CC, HIRES } from './pages.js';
 import { pathOf, bandsOf } from './values.js';
 import { DUMPS, CMD } from '../fh2/sysex.js';
+import { fingerprint } from '../hash.js';
 
 export const SETUP_NAME = 'FH-2';
 const BLANK = '    ';
@@ -125,6 +126,13 @@ export function setupState(img) {
 
 // The 64-byte pages holding setup 15 and its name.
 export const SETUP_PAGES = M.pagesOf(OWNED);
+
+// A fingerprint of what Send to EC4 writes for these pages (Night Shift's bytes only, over a blank
+// EC4), so the pre-gig checklist can tell whether the EC4 still holds the pages you see.
+export function pagesFingerprint(pages, view, channel, sync = {}) {
+  const img = setupImage(new Uint8Array(M.SIZE).fill(0xff), pages, view, channel, sync);
+  return fingerprint(Uint8Array.from(SETUP_PAGES.flatMap((p) => [...img.subarray(p * M.PAGE, (p + 1) * M.PAGE)])));
+}
 
 // Reads setup 15 from the EC4 into a 64 KB image (0xFF elsewhere).
 export async function readSetup(device, onStep = () => {}) {

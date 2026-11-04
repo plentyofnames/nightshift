@@ -21,10 +21,13 @@ import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToF
   openEc4, watchEc4, fh2Output, pullPresetFromFh2 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
+import { renderGig } from './ui/gig.js';
+import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
   wholePage, strayMappings, removeMappings, toAbsolute, SETUP } from './ec4/pages.js';
-import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, SYNC_FORMAT, SYNC_MAX } from './ec4/setup.js';
+import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, SYNC_FORMAT, SYNC_MAX } from './ec4/setup.js';
+import { fingerprint } from './hash.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
@@ -46,6 +49,7 @@ const state = {
   scene: 0,
   slots: { config: null, scenes: [] }, // flash slots (1–30) for the config and each scene, null where none
   scenesOnly: false, // while on, edits that change the config are refused
+  held: {}, // what Night Shift last wrote to the FH-2's flash and the EC4, as fingerprints (patch/gig.js)
   names: {}, // Night Shift's own names beside the dumps (edit.js setName)
   from: '',
   hardware: loadHardware(),
@@ -163,7 +167,16 @@ function syncOf() {
 // ---- the patch kept in this browser (not the example, which would replace yours)
 
 const project = () => ({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware,
-  slots: state.slots, scenesOnly: state.scenesOnly });
+  slots: state.slots, scenesOnly: state.scenesOnly, held: state.held });
+const fp = (dump) => fingerprint(buildDump(dump));
+
+// What was just saved to the FH-2's flash: the config into `configSlot`, presets [{ dump, slot }].
+function heldOnFlash(configSlot, presets) {
+  const was = state.held.flash ?? { configs: {}, presets: {} };
+  state.held = { ...state.held, flash: { at: new Date().toISOString(),
+    configs: { ...was.configs, [configSlot]: fp(state.config) },
+    presets: { ...was.presets, ...Object.fromEntries(presets.map((p) => [p.slot, fp(p.dump)])) } } };
+}
 
 let storeTimer = null;
 function store() {
@@ -202,8 +215,9 @@ function update() {
 
 // `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. What
 // the FH-2 holds stays as it is: the mark compares the new patch with it.
-function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly }, from) {
+function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly, held }, from) {
   if (config) state.config = config;
+  state.held = held ?? (config ? {} : state.held);
   const scenes = presets?.length ? presets : preset ? [preset] : null;
   if (scenes) {
     state.scenes = scenes;
@@ -447,6 +461,7 @@ async function saveAll() {
       scenes: state.scenes.map((dump, i) => ({ dump, slot: state.slots.scenes[i] })), back: state.preset,
     });
     readModule(r);
+    heldOnFlash(state.slots.config, state.scenes.map((dump, i) => ({ dump, slot: state.slots.scenes[i] })));
     Object.assign(state, { link: 'connected', port: pair.name });
     update();
     status(`Saved config and ${state.scenes.length} ${state.scenes.length === 1 ? 'scene' : 'scenes'} to flash`);
@@ -474,7 +489,7 @@ async function openFiles(files) {
       try {
         const project = projectFromJson(await f.text());
         if (!(await dropUnsent('Opening'))) return;
-        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly }, f.name);
+        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly, held: project.held }, f.name);
         return status(`Opened ${f.name}`);
       } catch (e) {
         return status(`${f.name}: ${e.message}`, true);
@@ -788,6 +803,11 @@ async function saveFlash() {
   if (!ok) return;
   await withFh2(async (pair) => {
     await saveToFlash(pair, { configSlot, presetSlot });
+    // only where the slots are known (else the FH-2 used the ones it last loaded from)
+    if (configSlot && presetSlot && state.sync?.kind === 'same') {
+      heldOnFlash(configSlot, [{ dump: state.preset, slot: presetSlot }]);
+      store();
+    }
     status('Saved to flash');
   });
 }
@@ -885,6 +905,22 @@ function renameEc4Page(id) {
 }
 
 // Reads setup 15 from the EC4, says what it holds, and after a yes writes the pages there.
+// The pre-gig checklist for the patch as it is: fingerprints of what you see, against what Night
+// Shift last wrote to the FH-2's flash and the EC4 (state.held).
+function gigList() {
+  const model = state.ec4Model;
+  const fw = state.held.ec4?.fw;
+  const sync = { format: SYNC_FORMAT(fw && { fwMajor: fw[0], fwMinor: fw[1] }), tempoMin: state.config.values.tempoMin,
+    programChannel: state.config.values.presetProgramChannel };
+  return checklist({
+    config: { slot: state.slots.config, fp: fp(state.config), values: state.config.values },
+    scenes: state.scenes.map((s, i) => ({ name: sceneName(i), slot: state.slots.scenes[i], fp: fp(s) })),
+    view: state.view, fh2: state.fh2Settings, held: state.held,
+    ec4: { pages: model.pages.length, fp: model.pages.length ? pagesFingerprint(model.pages, state.view, model.channel, sync) : null,
+      synced: model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0), max: SYNC_MAX },
+  });
+}
+
 async function sendEc4() {
   const model = ec4Model();
   if (state.busy) return;
@@ -903,7 +939,14 @@ async function sendEc4() {
       const img = setupImage(base, model.pages, state.view, model.channel, sync);
       const writes = writesFor(img, base);
       const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0);
-      if (!writes.length) return status('The EC4 has these pages already');
+      const sent = () => {
+        state.held = { ...state.held, ec4: { at: new Date().toISOString(), fp: pagesFingerprint(model.pages, state.view, model.channel, sync), fw: [info.fwMajor, info.fwMinor] } };
+        store();
+      };
+      if (!writes.length) {
+        sent();
+        return status('The EC4 has these pages already');
+      }
       const now = setupState(base);
       const holds = now.ours ? 'Night Shift’s pages' : now.free ? 'nothing of yours' : `“${now.name.trim()}” (${now.groups.slice(0, 4).map((g) => g.trim()).join(', ')}…)`;
       const ok = await modal($('dialog'), {
@@ -915,6 +958,7 @@ async function sendEc4() {
       });
       if (!ok) return status('');
       await writeSetup(device, img, base, (k, n) => status(`Writing the EC4… ${k}/${n}`));
+      sent();
       status(`Pages on the EC4, setup ${SETUP + 1}`);
     });
   } catch (e) {
@@ -1167,7 +1211,7 @@ function bar() {
     v && h('div', { class: 'patch-name', title: `Config ${v.globals.name || 'untitled'}` }, h('span', { class: 'lbl' }, 'Config '), h('b', {}, v.globals.name || 'untitled')),
     scenes,
     sync,
-    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), tab('ec4', 'EC4')),
+    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), tab('ec4', 'EC4'), tab('gig', 'Gig')),
     v && h('div', { class: 'undo' },
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)', 'aria-label': 'Undo' }, '↶'),
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)', 'aria-label': 'Redo' }, '↷')),
@@ -1268,6 +1312,8 @@ function render() {
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy, ec4 });
+  else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,
+    scenes: () => { state.tab = 'scenes'; render(); }, checks: () => open('checks.html', '_blank'), busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
     setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
   else {
@@ -1323,7 +1369,7 @@ document.addEventListener('keydown', (e) => {
 const kept = stored();
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');
 else if (kept) {
-  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly }, 'browser');
+  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly, held: kept.held }, 'browser');
   state.status = 'Last patch restored';
 }
 render();
