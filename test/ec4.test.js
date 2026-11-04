@@ -285,3 +285,26 @@ test('knobs Night Shift maps are relative, except 14-bit settings and the comman
   apply(p, r.changes);
   eq(modelOf(p).mapOf(key('euclid', 0, 'gate')).relative, true);
 });
+
+test('every CV jack’s level and smoothing can go on the EC4: a free jack’s, and a voice’s offset', () => {
+  const p = fresh();
+  const v = viewOf(p);
+  const model = modelOf(p);
+  const free = v.outputs.find((o) => o.index < 64 && o.present && !o.gate && !o.ports.length && !o.lfo);
+  const lvl = key('output', free.index, 'directLevel');
+  assert(model.known.has(lvl) && model.known.has(key('output', free.index, 'smoothing')), 'a free jack’s level and smoothing');
+  const r = on(p, lvl);
+  const m = modelOf(p).mapOf(lvl);
+  eq([r.where.page, m.channel], [`knobs:${modelOf(p).channel}`, modelOf(p).channel], 'it gets a CC on the pages channel, on that channel’s CC → CV page');
+  eq(viewOf(p).outputs[free.index].ports.map((x) => x.source), [`knobs:${m.channel}`], 'and the jack is a MIDI knob now');
+  // a voice's velocity jack: its offset and smoothing go with the voice; its pitch jack only smoothing
+  const voice = v.sources.find((s) => s.kind === 'voice' && s.ports.some((x) => x.name === 'Velocity' && x.present));
+  const vel = voice.ports.find((x) => x.name === 'Velocity');
+  const pitch = voice.ports.find((x) => /^Pitch/.test(x.name) && x.present && !v.outputs[x.output].lfo);
+  const page = (k) => model.objects.find((o) => o.knobs.some((c) => c.key === k))?.page;
+  eq(page(key('output', vel.output, 'directLevel')), voice.id, 'velocity: an offset, on the voice’s page');
+  if (pitch) {
+    eq(page(key('output', pitch.output, 'directLevel')), undefined, 'pitch replaces the level: no offset');
+    eq(page(key('output', pitch.output, 'smoothing')), voice.id, 'but its smoothing');
+  }
+});

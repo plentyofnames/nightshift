@@ -170,7 +170,41 @@ export function objectsOf(view) {
   obj({ id: 'clock', name: 'Clock', defaultName: 'CLK', sub: 'Tempo, swing', source: clocks,
     knobs: of('global', 0, clocks, ['tempo', 'swingAmount', 'swingType', 'displayMode', 'displayItem']), commands,
     template: { cells: fill(['tempo', 'swingAmount', 'swingType'].map((p) => settingKey({ kind: 'global', index: 0, param: p }))), pushes: fill(commands.map((c) => c.key)) } });
+  ownLayers(view, out, obj);
   return out;
+}
+
+// Every CV jack has its own level and smoothing, so each must belong to some page to go on the
+// EC4: an LFO's on it (covered above), else its source's (a voice, a random source, a Euclid
+// pattern, the clock), as an offset where one adds to it, else that of the CC → CV knobs on the
+// pages channel, which a free jack's level joins anyway once it gets a CC there.
+function ownLayers(view, out, obj) {
+  const has = new Set(out.flatMap((o) => o.knobs.map((c) => c.key)));
+  const pc = pagesChannels(view)[0] ?? 1;
+  let free = null;
+  const freeObj = () => free ?? (free = out.find((o) => o.id === `knobs:${pc}`)
+    ?? (obj({ id: `knobs:${pc}`, name: `CC → CV · ch ${pc + 1}`, defaultName: shortName(`CC ${pc + 1}`), source: null, knobs: [] }), out.at(-1)));
+  for (const o of view.outputs) {
+    if (o.index >= 64 || !o.present || o.gate) continue;
+    const key = (param) => settingKey({ kind: 'output', index: o.index, param });
+    const missing = ['directLevel', 'smoothing'].filter((p) => !has.has(key(p)));
+    if (!missing.length) continue;
+    const d = o.ports.find((p) => !p.layer && !p.standby);
+    const s = d && view.sources.find((x) => x.id === d.source);
+    const owner = d ? out.find((x) => x.id === d.source) ?? (d.source === 'clocks' ? out.find((x) => x.id === 'clock') : null) : null;
+    // a voice's pitch replaces the level, and gate-type outputs have their gate levels instead
+    const noOffset = s && ((s.kind === 'voice' && /^Pitch( \d+)?$/.test(d.name)) || ['clock', 'triggers', 'euclid', 'hid'].includes(s.kind)
+      || (s.kind === 'random' && d.name !== 'CV') || (s.kind === 'voice' && /^(Gate|Trigger|Velocity gate|Para gate)( \d+)?$/.test(d.name)));
+    const target = owner ?? freeObj();
+    const digits = jackDigits(o.jack);
+    for (const param of missing) {
+      if (param === 'directLevel' && noOffset) continue;
+      target.knobs.push(param === 'smoothing'
+        ? cellOf('output', o.index, 'smoothing', target.source, { short: `S${digits}`.slice(0, 4), label: `Smoothing of ${o.jack}` })
+        : cellOf('output', o.index, 'directLevel', target.source, d ? { short: `O${digits}`.slice(0, 4), label: `Offset of ${o.jack}` } : { short: jackShort(o.jack), label: `Level of ${o.jack}` }));
+      has.add(key(param));
+    }
+  }
 }
 
 // ---- what is on the EC4, as stored
