@@ -132,7 +132,7 @@ The design mockups live on a private design canvas.
 - **Relative mappings are 7-bit.** One step moves a direct level by 128 on its 0–16383 scale. 127 steps take it from bottom to top, and the highest value reachable this way is 16256.
 - **Larger steps are exact** in both conventions (1/127 two's complement and 65/63 offset): +2, +3, +6 and the negatives move 2, 3 and 6 steps. Each mapping keeps its own convention: two mappings with different conventions decode correctly even when their messages are interleaved.
 - **"14 bit CC byte order" is LSB first by default** (confirmed). An MSB-first sender, such as the EC4's 14-bit type (CCAh), then lags one step behind and jumps by up to 127 at each 128 boundary. So for the EC4 the setting must be MSB first.
-- **"Send CCs on preset ld":** loading a preset sent nothing to USB C. Still open: do the CCs go only to USB A / DIN, or was the setting not on yet?
+- **"Send CCs on preset ld":** loading a preset sent nothing to USB C (2026-11-01). **It reaches USB A** (hardware check 3, 2026-11-04): a scene reloaded by program change put the EC4's knob back to the scene's value.
 - **SysEx stopped.** After that test the FH-2 no longer answered SysEx on USB C, though it still received CCs. Replugging its USB cable fixed it.
 
 **Consequence for the knobs**
@@ -247,7 +247,7 @@ The user must do these by hand, because FH-2 Settings can't be set over SysEx:
 - Can two mappings share one (channel, CC)? That would make one knob a macro over several settings.
 - What exactly does the 42H screen text contain on the overview screen?
 - Which Launchpad Mini generation does the user have?
-- Where does "Send CCs on preset ld" send? On 2026-11-01 nothing came out on USB C. Either it sends only to USB A / DIN, or the setting wasn't on yet. Live scene sync depends on USB A.
+- Where does "Send CCs on preset ld" send? On 2026-11-01 nothing came out on USB C. **It does reach USB A** (check 3, 2026-11-04), so live scene sync works.
 - What made the FH-2 stop answering SysEx on USB C after the preset-load test, and does it happen again?
 
 ## The FH-2's menus over the remote control (walked 2026-11-03, firmware 2.0.0)
