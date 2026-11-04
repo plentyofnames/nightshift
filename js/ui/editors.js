@@ -8,7 +8,7 @@ import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
 import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, RANGE_VOLTS, arpModeOf, lfoHz, hzToLfo, durationName, noteName,
   levelToVolts } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
-  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack } from '../patch/edit.js';
+  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep } from '../patch/edit.js';
 import { freeCcs, voicePlan, freeEuclid } from '../patch/alloc.js';
 import { learnCc } from './connect.js';
 
@@ -72,7 +72,7 @@ function waveSvg(samples, color, y) {
 export function lfoEditor(view, o, act, color) {
   const r = o.lfoRaw;
   const where = `LFO on jack ${o.jack}`;
-  const set = (what, obj) => act.edit(`${what} of the ${where}`, setLfo(o.index, obj));
+  const set = (what, obj) => act.edit(`${what} of the ${where}`, [...setLfo(o.index, obj), keep('lfo', o.index)]); // edited here, it stays on even at depth 0
   const L = (text, param) => ec4Label(text, `output:${o.index}:${param}`, act.ec4);
   const y = waveY(o);
   const svg = waveSvg(lfoSamples(r), color, y);
@@ -241,7 +241,7 @@ export function knobEditor(view, s, act, only = null) {
 export function levelEditor(view, s, act) {
   return h('div', { class: 'erows' }, s.ports.map((p) => {
     const o = view.outputs[p.output];
-    return sfield(ec4Label(p.jack, `output:${p.output}:directLevel`, act.ec4), voltsInput(`Level of ${p.jack}`, o.directLevel, o.rangeIndex, (v) => act.edit(`Level of ${p.jack}`, setDirectLevel(p.output, v))));
+    return sfield(ec4Label(p.jack, `output:${p.output}:directLevel`, act.ec4), voltsInput(`Level of ${p.jack}`, o.directLevel, o.rangeIndex, (v) => act.edit(`Level of ${p.jack}`, [...setDirectLevel(p.output, v), keep('level', p.output)])));
   }));
 }
 

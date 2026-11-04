@@ -5,7 +5,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
 import { outputNumber, internalName } from '../patch/hardware.js';
-import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo } from '../patch/edit.js';
+import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo, keep } from '../patch/edit.js';
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
 import { playerInspector, playedBy, euclidClocks, randomClock } from './players.js';
@@ -193,7 +193,9 @@ function jackSettings(o, edit, ec4, { driver = null, loadDirect = false } = {}) 
     row('Range', rangeSelect),
     // where it's replaced it would only last until the next note, so it's offered only with "Always load direct"
     (!driver?.replaces || loadDirect) && perScene(row(ec4Label(driver && !driver.replaces ? 'Offset' : 'Stored level', `output:${o.index}:directLevel`, ec4),
-      preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`${driver && !driver.replaces ? 'Offset' : 'Stored level'} of ${where}`, setDirectLevel(o.index, v))) : '—',
+      // set here on a jack nothing drives, it stays listed even at the bottom of its range
+      preset ? voltsInput(`Stored level of ${where}`, o.directLevel, r, (v) => edit(`${driver && !driver.replaces ? 'Offset' : 'Stored level'} of ${where}`,
+        driver ? setDirectLevel(o.index, v) : [...setDirectLevel(o.index, v), keep('level', o.index)])) : '—',
       driver?.replaces ? h('span', { class: 'unused', title: 'With the FH-2’s “Always load direct” on, a preset load puts the stored level on this jack too.' }, `until ${driver.name} sends`)
         : driver ? h('span', { class: 'dim', title: 'The jack’s stored level, added to what comes out' }, `+ ${driver.name}`)
         : preset ? `code ${o.directLevel}` : null)),
@@ -224,25 +226,27 @@ function jackInspector(view, colors, o, onSelect, act) {
   };
   const active = o.ports.filter((p) => !p.standby);
   const standby = o.ports.filter((p) => p.standby);
-  parts.push(section('Comes out of', active.length
-    ? active.map(portRow)
-    : [h('p', { class: 'note' }, 'Nothing: this jack is free.'),
-      o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn primary', onclick: () => act.add(o.index) }, 'Add a source…'))]));
+  // what drives the jack besides its own level, LFO and smoothing (a knob or an LFO on its own uses
+  // the level), and whether it replaces the level: a voice's pitch does, gate-type outputs have their gate levels
+  const d = active.map((p) => ({ p, s: view.sources.find((x) => x.id === p.source) })).find(({ s }) => s && !['level', 'knobs', 'lfo'].includes(s.kind));
+  const replaces = !!d && ((d.s.kind === 'voice' && /^Pitch( \d+)?$/.test(d.p.name)) || gateFriendly(d.s, d.p.name));
+  parts.push(section('Comes out of', active.length ? active.map(portRow) : h('p', { class: 'note' }, 'Nothing: this jack is free.'),
+    !d && o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn' + (active.length ? '' : ' primary'), onclick: () => act.add(o.index) }, 'Add a source…'))));
   if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
   // a MIDI knob on this jack: its channel, CC and relative here too, not only on its channel's source
   const knobs = view.sources.find((x) => x.kind === 'knobs' && x.ports.some((p) => p.output === o.index));
   if (knobs) parts.push(h('section', { class: 'section' }, h('h3', {}, 'MIDI knob'), knobEditor(view, knobs, act, o.index)));
-  if (o.lfo && !o.lfo.alone) {
-    parts.push(h('section', { class: 'section' }, h('h3', {}, 'LFO on top'), lfoEditor(view, o, act, '#3DD6C6'),
+  // every CV jack has an LFO: its editor while it's on, else a way to turn it on
+  if (o.lfo) {
+    parts.push(h('section', { class: 'section' }, h('h3', {}, o.lfo.alone ? 'LFO' : 'LFO on top'), lfoEditor(view, o, act, o.lfo.alone ? colors.get(`lfo:${o.index}`) ?? '#3DD6C6' : '#3DD6C6'),
       h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', onclick: () => act.edit(`Removed the LFO on jack ${o.jack}`, removeLfo(o.index)) }, 'Remove the LFO'))));
-  } else if (!o.lfo && !o.gate && active.length && o.lfoRaw) {
-    parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',
-      onclick: () => act.edit(`LFO on top of jack ${o.jack}`, addLfo(o.index, { shape: 'sine', rate: { hz: 5 }, depth: 0.05 })) }, 'Add an LFO on top')));
+  } else if (!o.gate && o.lfoRaw) {
+    parts.push(h('div', { class: 'actions' }, d
+      ? h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',
+        onclick: () => act.edit(`LFO on top of jack ${o.jack}`, addLfo(o.index, { shape: 'sine', rate: { hz: 5 }, depth: 0.05 })) }, 'Add an LFO on top')
+      : h('button', { type: 'button', class: 'btn per-scene', title: 'A sine at 1 Hz, full depth: change it below',
+        onclick: () => act.edit(`LFO on jack ${o.jack}`, addLfo(o.index)) }, 'Add an LFO')));
   }
-  // what drives the jack besides its stored level (a knob or an LFO on its own uses it), and whether
-  // it replaces the stored level: a voice's pitch does, gate-type outputs have their gate levels
-  const d = active.map((p) => ({ p, s: view.sources.find((x) => x.id === p.source) })).find(({ s }) => s && !['level', 'knobs', 'lfo'].includes(s.kind));
-  const replaces = !!d && ((d.s.kind === 'voice' && /^Pitch( \d+)?$/.test(d.p.name)) || gateFriendly(d.s, d.p.name));
   if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: d ? { name: d.s.name, replaces } : null, loadDirect: act.loadDirect }));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;

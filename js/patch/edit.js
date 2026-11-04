@@ -122,7 +122,11 @@ const preset = (path, value) => ({ dump: 'preset', path, value });
 const noRoom = (what) => new Error(`all the FH-2’s ${what} are in use`);
 
 // A fixed voltage is the jack's stored level with nothing else on it.
-export const addFixedVoltage = (output, level) => setDirectLevel(output, level);
+export const addFixedVoltage = (output, level) => [...setDirectLevel(output, level), keep('level', output)];
+
+// Night Shift's mark (beside the patch, with the names) that a jack's own level or LFO is in
+// use, so it stays listed at its default values: 0 V on a 0–10 V jack, an LFO at depth 0.
+export const keep = (what, output, on = true) => ({ dump: 'names', path: [`keep:${what}:${output}`], value: on ? '1' : null });
 
 // A CC sets the jack's stored level. Below CC 32 the FH-2 takes CC n + 32 as its fine half.
 export function addKnob(values, output, channel, cc, relative = false) {
@@ -153,6 +157,7 @@ export function addLfo(output, { shape = 'sine', rate = { hz: 1 }, depth = 1 } =
   if (LFO_SHAPES[shape]) changes.push(p(LFO_SHAPES[shape], 127));
   if (rate.pulses) changes.push(p('lfoTempoBase', rate.pulses), p('lfoTempoMultiplier', 1));
   else changes.push(p('lfoSpeed', hzToLfo(rate.hz)));
+  changes.push(keep('lfo', output));
   return changes;
 }
 
@@ -206,6 +211,7 @@ const LFO_RESET_EUCLID = 7;
 export const removeLfo = (output) => [
   ...Object.values(LFO_SHAPES).map((k) => preset(['output', output, k], 0)),
   preset(['output', output, 'lfoSaw'], 64),
+  keep('lfo', output, false),
 ];
 
 // The changes that take `port` of `source` (from derive) off its jack. Sources that span
@@ -214,7 +220,7 @@ export function removePort(values, source, port) {
   const o = port.output;
   switch (source.kind) {
     case 'level':
-      return setDirectLevel(o, 0);
+      return [...setDirectLevel(o, 0), keep('level', o, false)];
     case 'knobs': {
       const slots = [];
       values.config.mapping.forEach((m, n) => {

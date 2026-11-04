@@ -249,6 +249,7 @@ function edit(label, changes, { force = false } = {}) {
 
 // The "+ add" dialog for an empty jack.
 async function addTo(output) {
+  if (state.scenesOnly) return status('Setup locked: Scenes only is on', true);
   try {
     const r = await addToJack(state.view, values(), state.view.outputs[output]);
     if (r) edit(r.label, r.changes);
@@ -299,7 +300,6 @@ async function rename(id, now, original, max = 40) {
   if (await ok) edit(input.value.trim() ? `Renamed ${now} to ${input.value.trim()}` : `${now} back to ${original ?? 'its own name'}`, setName(id, input.value));
 }
 
-const isFree = (o) => o.present && !o.ports.some((p) => !p.standby);
 
 // Undo and redo go back to the scene a step was made in first.
 function toStepScene(step) {
@@ -1111,11 +1111,7 @@ function select(sel) {
   state.selected = same ? null : sel;
   render();
   followOnEc4();
-  // clicking a free jack asks what should come out of it
-  if (!same && sel?.output != null && sel.sources && isFree(state.view.outputs[sel.output])) {
-    if (state.scenesOnly) status('Setup locked: Scenes only is on', true);
-    else addTo(sel.output);
-  }
+  // a free jack shows its own level, LFO and smoothing; "Add a source…" there adds a driver
 }
 
 function bar() {

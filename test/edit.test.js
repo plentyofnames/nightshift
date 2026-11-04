@@ -3,7 +3,7 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -18,7 +18,7 @@ import { derive, playersOf } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { levelToVolts, voltsToLevel } from '../js/patch/tables.js';
 
-const patch = () => ({ config: blankConfig(), preset: blankPreset() });
+const patch = () => ({ config: blankConfig(), preset: blankPreset(), names: {} });
 const changedBytes = (before, after) => {
   const a = bodyOf(before), b = bodyOf(after);
   return [...a.keys()].filter((i) => a[i] !== b[i]);
@@ -545,4 +545,28 @@ test('a voice whose arp waits for a clock says so: it plays nothing without one'
   const v = derive(p.config.values, p.preset.values);
   eq(v.sources.find((s) => s.id === 'converter:0').arpWaits, { clock: 'Euclid 2', stopped: true });
   assert(v.problems.some((x) => x.kind === 'arp-clock'), 'a stopped Euclid is a problem');
+});
+
+test('a jack’s own level and LFO stay listed while in use, even at their default values', () => {
+  const p = patch();
+  const v = () => derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, p.names);
+  const at = (o) => v().outputs[o].ports.map((x) => x.source);
+  // 0 V on a 0–10 V jack is the bottom of its range: in the bytes like an unused jack
+  apply(p, addFixedVoltage(3, 0));
+  eq(at(3), ['levels'], 'added as a fixed voltage, it stays');
+  eq(derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, {}).outputs[3].ports, [], 'without the mark it would look unused');
+  apply(p, removePort(values(p), v().sources.find((s) => s.id === 'levels'), v().sources.find((s) => s.id === 'levels').ports[0]));
+  eq(at(3), [], 'removed: gone, mark and all');
+  // an LFO with a CC on its depth is on while the depth is 0: the knob may turn it up
+  apply(p, addKnob(values(p), 4, 1, 20));
+  apply(p, [{ dump: 'config', path: ['mapping', 0, 'target'], value: 2 }, // that CC now sets jack 5's LFO depth instead
+    { dump: 'preset', path: ['output', 4, 'lfoLevel'], value: 0 }]);
+  eq(at(4), ['lfo:4'], 'a CC on its depth: on');
+  eq(v().sources.find((s) => s.id === 'lfo:4').lfo.level, 0);
+  // one Night Shift added stays on when its depth goes to 0
+  apply(p, addLfo(5));
+  apply(p, [{ dump: 'preset', path: ['output', 5, 'lfoLevel'], value: 0 }]);
+  eq(at(5), ['lfo:5'], 'added here, it stays on at depth 0');
+  apply(p, removeLfo(5));
+  eq(at(5), [], 'removed: gone');
 });

@@ -151,15 +151,21 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   for (const m of mappings) {
     if (m.target.kind === 'output') outputs[m.target.index].controls.push(m);
   }
+  // An output's LFO is on with depth and a shape, with a CC on any of its settings (a depth knob
+  // may start at zero), or when Night Shift marked it (keep:lfo:n, edit.js keep).
   if (preset) {
     for (let i = 0; i < 64; i++) {
-      const lfo = lfoOf(preset.output[i]);
+      const p = preset.output[i];
+      const byCc = outputs[i].controls.some((m) => LFO_KEYS.includes(m.target.param));
+      const lfo = lfoOf(p, byCc || !!names[`keep:lfo:${i}`]);
       if (lfo) outputs[i].lfo = lfo;
-      outputs[i].lfoRaw = lfoRaw(preset.output[i]);
+      outputs[i].lfoRaw = lfoRaw(p);
     }
   }
 
-  // ---- outputs nothing generates: an LFO, a level set by a CC, or a stored level
+  // ---- outputs nothing generates: an LFO, a level set by a CC, or a stored level: one off the
+  // bottom of its range, or marked by Night Shift (keep:level:n), as 0 V on a 0–10 V jack looks
+  // exactly like an unused one
   const knobs = new Map();
   const levels = [];
   for (let i = 0; i < 64; i++) {
@@ -173,7 +179,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     } else if (dc) {
       if (!knobs.has(dc.channel)) knobs.set(dc.channel, []);
       knobs.get(dc.channel).push({ name: `CC ${dc.cc}`, output: i, cc: dc.cc, channel: dc.channel, relative: dc.relative, slot: dc.slot });
-    } else if (o.directLevel) {
+    } else if (o.directLevel || names[`keep:level:${i}`]) {
       levels.push({ name: `Level ${o.directLevel}`, output: i, level: o.directLevel });
     }
   }
@@ -297,9 +303,10 @@ function converterPreset(p) {
 }
 
 // An LFO counts as on when it has depth and at least one shape (saw is centred at 64).
-function lfoOf(o) {
+// `on`: it counts as on whatever its depth and shapes (a CC on one of its settings, or a mark).
+function lfoOf(o, on = false) {
   const shapes = { sine: o.lfoSine, square: o.lfoSquare, triangle: o.lfoTriangle, saw: o.lfoSaw - 64, random: o.lfoRandom, noise: o.lfoNoise };
-  if (!o.lfoLevel || !Object.values(shapes).some(Boolean)) return null;
+  if (!on && (!o.lfoLevel || !Object.values(shapes).some(Boolean))) return null;
   return {
     raw: lfoRaw(o),
     level: o.lfoLevel, shapes, pulseWidth: o.lfoPulseWidth, phase: o.lfoPhase, fade: o.lfoFade,
@@ -309,10 +316,10 @@ function lfoOf(o) {
 }
 
 // The preset's LFO fields of an output, as stored.
+const LFO_KEYS = ['lfoLevel', 'lfoSpeed', 'lfoTempoBase', 'lfoTempoMultiplier', 'lfoSine', 'lfoSquare', 'lfoTriangle', 'lfoPulseWidth',
+  'lfoSaw', 'lfoRandom', 'lfoNoise', 'lfoFade', 'lfoSynced', 'lfoPhase'];
 export function lfoRaw(o) {
-  const keys = ['lfoLevel', 'lfoSpeed', 'lfoTempoBase', 'lfoTempoMultiplier', 'lfoSine', 'lfoSquare', 'lfoTriangle', 'lfoPulseWidth',
-    'lfoSaw', 'lfoRandom', 'lfoNoise', 'lfoFade', 'lfoSynced', 'lfoPhase'];
-  return Object.fromEntries(keys.map((k) => [k, o[k]]));
+  return Object.fromEntries(LFO_KEYS.map((k) => [k, o[k]]));
 }
 
 function lfoResetOf(r) {
