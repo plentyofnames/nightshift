@@ -295,6 +295,17 @@ async function setUpPlayer() {
   }
 }
 
+// A name box in a dialog: focused, its text selected, Enter presses the dialog's main button.
+// (Not `onkeydown = (e) => e.key === 'Enter' && …`: a handler that returns false cancels the
+// key, so nothing could be typed.)
+function nameBox(input) {
+  input.focus();
+  input.select();
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('dialog').querySelector('button.primary').click();
+  });
+}
+
 // Renaming a source or player (or an EC4 page, in `max` 4 characters): Night Shift keeps the
 // name beside the dumps.
 async function rename(id, now, original, max = 40) {
@@ -304,9 +315,7 @@ async function rename(id, now, original, max = 40) {
     body: [input, h('p', { class: 'note' }, `Empty: back to ${original ?? 'its own name'}.`)],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Rename', value: true, primary: true }],
   });
-  input.focus();
-  input.select();
-  input.onkeydown = (e) => e.key === 'Enter' && $('dialog').querySelector('button.primary').click();
+  nameBox(input);
   if (await ok) edit(input.value.trim() ? `Renamed ${now} to ${input.value.trim()}` : `${now} back to ${original ?? 'its own name'}`, setName(id, input.value));
 }
 
@@ -451,9 +460,7 @@ async function renameScene() {
     body: [input],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Rename', value: true, primary: true }],
   });
-  input.focus();
-  input.select();
-  input.onkeydown = (e) => e.key === 'Enter' && $('dialog').querySelector('button.primary').click();
+  nameBox(input);
   if (await ok) edit(`Scene renamed to ${input.value.trim()}`, [{ dump: 'preset', path: ['name'], value: input.value.trim().slice(0, 16) }]);
 }
 
