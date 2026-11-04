@@ -57,6 +57,7 @@ export const SRR_PARAMS = ['direction', 'length', 'randomness', 'rate', 'attenua
 export const SEQ_PARAMS = ['rate', 'reset', 'gateLength', 'position'];
 export const DRUM_PARAMS = ['reset', 'position'];
 export const LANE_PARAMS = ['rate', 'reset', 'position'];
+export const DRUM_LANES = 8; // the drum sequencer's lanes (dseq0 in the preset)
 export const GLOBAL_TARGETS = { 69: 'tempo', 71: 'displayMode', 72: 'displayItem', 74: 'swingType', 75: 'swingAmount',
   76: 'nudgeFaster', 77: 'nudgeSlower', 78: 'tempoUp', 79: 'tempoDown' };
 

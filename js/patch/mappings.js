@@ -35,8 +35,14 @@ export function targetOf(slot) {
 }
 
 // The other way round: { target, index } for a mapping slot that controls `t` ({ kind, index,
-// param } as targetOf gives it), or null if no mapping can.
+// param } as targetOf gives it), or null if no mapping can. The index is 7-bit, so a target past
+// it (a ninth drum lane, say) has none.
 export function encodeTarget(t) {
+  const code = encode(t);
+  return code && code.index <= 127 ? code : null;
+}
+
+function encode(t) {
   const at = (list) => list.indexOf(t.param);
   if (t.kind === 'output') {
     const low = at(OUTPUT_TARGETS_LOW);

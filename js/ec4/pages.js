@@ -18,7 +18,7 @@
 
 import { encodeTarget, isUsed } from '../patch/mappings.js';
 import { replacesLevel } from '../patch/derive.js';
-import { PARAM_NAMES, COMMANDS } from '../patch/tables.js';
+import { PARAM_NAMES, COMMANDS, DRUM_LANES } from '../patch/tables.js';
 import { sanitizeName } from '../../vendor/lilypad/js/model.js';
 
 export const SETUP = 14; // the EC4 setup Night Shift owns: setup 15 (16 is the MDMM's)
@@ -160,10 +160,11 @@ export function objectsOf(view) {
       knobs.forEach((c, k) => (cells[q.index * 4 + k] = c.key));
       obj({ id: q.id, page: 'sequencers', name: q.name, defaultName: 'SEQ', sub: 'Note sequencers', source: q.id, knobs, template: { cells: fill(cells), pushes: fill([]) } });
     } else if (q.kind === 'drums') {
-      obj({ id: q.id, name: q.name, defaultName: 'DRUM', source: q.id, knobs: [
-        ...of('drumSequencer', 0, q.id, ['reset', 'position']),
-        ...Array.from({ length: 16 }, (_, l) => cellOf('drumLane', l, 'rate', q.id, { short: `LR${l + 1}`, label: `Lane ${l + 1} rate` })),
-      ] });
+      // the reset and position on the first row, the eight lanes' rates on the next two
+      const knobs = [...of('drumSequencer', 0, q.id, ['reset', 'position']),
+        ...Array.from({ length: DRUM_LANES }, (_, l) => cellOf('drumLane', l, 'rate', q.id, { short: `LR${l + 1}`, label: `Lane ${l + 1} rate` }))];
+      const cells = [knobs[0].key, knobs[1].key, null, null, ...knobs.slice(2).map((c) => c.key)];
+      obj({ id: q.id, name: q.name, defaultName: 'DRUM', source: q.id, knobs, template: { cells: fill(cells), pushes: fill([]) } });
     }
   }
   const clocks = view.sources.some((s) => s.id === 'clocks') ? 'clocks' : null;

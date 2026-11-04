@@ -42,7 +42,7 @@ test('every mappable setting encodes back to itself', () => {
     { kind: 'converter', index: 2, param: 'envRelease' }, { kind: 'converter', index: 1, param: 'envDecayShape' },
     { kind: 'euclid', index: 15, param: 'reset' }, { kind: 'srr', index: 3, param: 'gateLength' },
     { kind: 'noteSequencer', index: 3, param: 'position' }, { kind: 'drumSequencer', index: 0, param: 'position' },
-    { kind: 'drumLane', index: 12, param: 'rate' }, { kind: 'global', index: 0, param: 'swingAmount' },
+    { kind: 'drumLane', index: 7, param: 'rate' }, { kind: 'global', index: 0, param: 'swingAmount' },
   ];
   for (const t of targets) {
     const code = encodeTarget(t);
@@ -50,6 +50,20 @@ test('every mappable setting encodes back to itself', () => {
     eq(targetOf({ target: code.target, index: code.index }), t, settingKey(t));
   }
   eq(encodeTarget({ kind: 'output', index: 1, param: 'nothing' }), null);
+  eq(encodeTarget({ kind: 'drumLane', index: 8, param: 'rate' }), null, 'eight lanes: a ninth would need index 128');
+});
+
+test('the drum page: reset and position, then the eight lanes’ rates, each with its value', () => {
+  const p = fresh();
+  const drums = modelOf(p).objects.find((o) => o.name === 'Drum sequencer');
+  eq(drums.knobs.map((c) => c.setting.index), [0, 0, 0, 1, 2, 3, 4, 5, 6, 7]);
+  eq(drums.template.cells.slice(0, 12).map((k) => k && k.split(':').slice(-1)[0]), ['reset', 'position', null, null, 'rate', 'rate', 'rate', 'rate', 'rate', 'rate', 'rate', 'rate']);
+  whole(p, drums.page);
+  const page = modelOf(p).pages.find((pg) => pg.id === drums.page);
+  const lanes = page.cells.filter((c) => c?.setting.kind === 'drumLane');
+  eq(lanes.length, 8);
+  eq(lanes.map((c) => mappingsOf(p.config.values).find((m) => m.cc === c.map.cc && m.channel === c.map.channel)?.target.index), [0, 1, 2, 3, 4, 5, 6, 7], 'each knob reaches its own lane');
+  eq(lanes.map((c) => syncEntry(c, { format: 2 })?.a >> 12), [1, 1, 1, 1, 1, 1, 1, 1], 'each follows the FH-2 (u7 as it is)');
 });
 
 test('names in four characters', () => {
