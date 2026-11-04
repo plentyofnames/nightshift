@@ -24,7 +24,7 @@ import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, wholePage,
   strayMappings, removeMappings, toRelative, SETUP } from './ec4/pages.js';
-import { readSetup, setupImage, setupState, writesFor, writeSetup } from './ec4/setup.js';
+import { readSetup, setupImage, setupState, writesFor, writeSetup, syncOffset } from './ec4/setup.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
@@ -882,12 +882,14 @@ async function sendEc4() {
       const base = await readSetup(device, (k, n) => status(`Reading EC4 setup ${SETUP + 1}… ${Math.round((100 * k) / n)} %`));
       const img = setupImage(base, model.pages, state.view, model.channel);
       const writes = writesFor(img, base);
+      const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncOffset(c) != null).length, 0);
       if (!writes.length) return status('The EC4 has these pages already');
       const now = setupState(base);
       const holds = now.ours ? 'Night Shift’s pages' : now.free ? 'nothing of yours' : `“${now.name.trim()}” (${now.groups.slice(0, 4).map((g) => g.trim()).join(', ')}…)`;
       const ok = await modal($('dialog'), {
         title: `Write the pages to EC4 setup ${SETUP + 1}?`,
-        body: h('p', { class: 'note' }, `Setup ${SETUP + 1} holds ${holds}; it is replaced. The other setups stay as they are.`),
+        body: h('p', { class: 'note' }, `Setup ${SETUP + 1} holds ${holds}; it is replaced. The other setups stay as they are. `
+          + `With it goes the table that lets the EC4 ask the FH-2 for its 14-bit values (controlfrog 0.11${synced ? `, ${synced} knob${synced === 1 ? '' : 's'}` : ', none on the pages yet'}).`),
         buttons: [{ label: 'Cancel', value: false }, { label: 'Write', value: true, primary: true }],
       });
       if (!ok) return status('');

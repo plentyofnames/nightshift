@@ -9,7 +9,7 @@ import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage,
   strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toRelative } from '../js/ec4/pages.js';
-import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, OWNED, SETUP_NAME } from '../js/ec4/setup.js';
+import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncOffset, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
 import { MockDevice } from '../vendor/lilypad/js/mock.js';
@@ -208,7 +208,27 @@ test('the pages become EC4 setup 15, and nothing else changes', () => {
     refused = true;
   }
   assert(refused, 'a change outside setup 15 is refused');
-  eq(OWNED.reduce((n, [, len]) => n + len, 0), 256 + 64 + 3072 + 512 + 4);
+  eq(OWNED.reduce((n, [, len]) => n + len, 0), 256 + 64 + 3072 + 512 + 4 + 64 + 512, 'setup 15, its name, and the FH-2 sync table');
+});
+
+test('with the pages goes the FH-2 sync table: where each 14-bit knob’s value sits in the preset dump', () => {
+  const p = fresh();
+  whole(p, 'euclid:0');
+  whole(p, 'knobs:1');
+  const view = viewOf(p);
+  const { pages, channel } = pagesOf(view, p.names);
+  const img = setupImage(demoImage(), pages, view, channel);
+  eq([...img.slice(SYNC_HEADER, SYNC_HEADER + 8)], [0x46, 0x48, 0x32, 0x01, SETUP, 8, 1, 0], '"FH2" format 1, setup 15, dump version 8, requests to USB');
+  assert(img.slice(SYNC_HEADER + 8, SYNC_HEADER + 64).every((b) => b === 0xff), 'the rest of its page blank');
+  const entry = (g, k) => (img[SYNC_ENTRIES + 32 * g + 2 * k] << 8) | img[SYNC_ENTRIES + 32 * g + 2 * k + 1];
+  const g = pages.findIndex((pg) => pg.id === 'knobs:1');
+  const c = pages[g].cells[0];
+  eq([c.setting.param, c.map.bits], ['directLevel', 14]);
+  eq(entry(g, 0), 24 + 2 * c.setting.index, 'a direct level: 24 + 2·output in the body');
+  eq(syncOffset(c), entry(g, 0));
+  const e = pages.findIndex((pg) => pg.id === 'euclid:0');
+  eq(entry(e, 0), 0xffff, 'a 7-bit knob has none');
+  eq(entry(15, 15), 0xffff, 'nor a free one');
 });
 
 test('writing setup 15 to the mock EC4 leaves every other setup as it was', async () => {
