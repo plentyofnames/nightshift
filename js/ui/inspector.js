@@ -180,7 +180,7 @@ function gateFriendly(s, port) {
 // `driver`: what drives the jack besides its stored level, or null: { name, replaces } where
 // `replaces` says the stored level isn't used there. A voice's pitch replaces it, and gate-type
 // outputs have their gate levels instead; to the others (envelope, velocity, pressure, a random
-// CV…) it is added, as to an LFO: an offset (your tests, 2026-11-03: pitch and envelope; check 22).
+// CV…) it is added, as to an LFO: an offset (your tests, 2026-11-03/04: every CV-type output but pitch).
 // With the FH-2's "Always load direct" on (`loadDirect`, as last read), a preset load puts it on
 // the others too, until what drives the jack sends something.
 function jackSettings(o, edit, ec4, { driver = null, loadDirect = false } = {}) {

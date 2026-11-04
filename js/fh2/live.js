@@ -1,6 +1,6 @@
 // Live editing: Night Shift sends your edits to the FH-2's RAM by itself (never to its flash),
-// a few seconds after you make them, and only while music isn't playing (an install
-// interrupts what plays). No DOM or MIDI here; app.js wires it up.
+// a few seconds after you make them. Sending and reading dumps don't interrupt what plays; only
+// saving to flash does (your notes, 2026-11-04). No DOM or MIDI here; app.js wires it up.
 //
 // - In step: Night Shift only sends while it knows what the FH-2 holds. It remembers the
 //   FH-2's dumps as last sent or read (the "base"). Before each send it reads the FH-2 again:
@@ -9,7 +9,6 @@
 //   or preset by name, or more changes than MERGE_MAX, it isn't in step any more, and nothing
 //   is sent until Get or Send. When the FH-2 comes back (plugged in, Night Shift opened), it
 //   has to be exactly the base for edits made meanwhile to go out.
-// - Playing: a MIDI clock runs on some input of this computer (Transport).
 // - Pace: QUIET_MS after the last edit, at most MAX_WAIT_MS after the first one waiting.
 
 import { diff, getPath } from './layout.js';
@@ -34,34 +33,3 @@ export function fromModule(layout, base, mine, theirs) {
 // Whether the FH-2 holds another config or preset than `base` (by name): then it was loaded
 // there, and the fields can't be merged. `base` and `theirs` are { config, preset } values.
 export const anotherPatch = (base, theirs) => base.config.name !== theirs.config.name || (base.preset && theirs.preset && base.preset.name !== theirs.preset.name);
-
-// Is music playing? Per input: after Start or Continue until Stop where the source sends those
-// (an Elektron box sends clock while stopped), else while its clock ticks.
-const TICK_MS = 1000; // no tick for that long: the clock stopped
-const STALE_MS = 5000; // started, but no tick for that long: unplugged mid-song
-
-export class Transport {
-  constructor() {
-    this.ports = new Map();
-  }
-
-  // A real-time byte (F8 clock, FA start, FB continue, FC stop) from input `port` at `now` (ms).
-  take(port, byte, now) {
-    let s = this.ports.get(port);
-    if (!s) this.ports.set(port, (s = { transport: false, running: false, tick: -Infinity }));
-    if (byte === 0xfa || byte === 0xfb) Object.assign(s, { transport: true, running: true, tick: now });
-    else if (byte === 0xfc) Object.assign(s, { transport: true, running: false });
-    else if (byte === 0xf8) s.tick = now;
-  }
-
-  playing(now) {
-    for (const s of this.ports.values()) {
-      if (s.transport ? s.running && now - s.tick < STALE_MS : now - s.tick < TICK_MS) return true;
-    }
-    return false;
-  }
-
-  drop(port) {
-    this.ports.delete(port);
-  }
-}

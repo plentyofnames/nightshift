@@ -46,8 +46,10 @@ The design mockups live on a private design canvas.
 **Other layout rules**
 - An "Acc Trig" or "Acc Gate" trigger also uses output + 1 for the accent.
 - A clock or Euclid pattern used only to reset an LFO can point at an unused expander slot. The manual suggests this workaround itself; the editor should hide it.
-- A stored level doesn't reach a voice's pitch jack (your test, 2026-11-03, with "Always load direct" off): the pitch replaces it, at the latest with the next note. On the voice's other outputs it is added, as to an LFO: an offset (your test on an envelope, 2026-11-03; velocity, pressure and the rest taken to be the same, check 22).
+- A stored level doesn't reach a voice's pitch jack (your test, 2026-11-03, with "Always load direct" off): the pitch replaces it, at the latest with the next note. On every other CV-type output it is added, as to an LFO: an offset (your tests, 2026-11-03/04).
 - An LFO on its own is added to the jack's stored level (your test, 2026-11-03): the stored level is the LFO's offset, and a knob mapped to it moves the offset live.
+- Installing a config or preset into RAM, and reading dumps, don't interrupt what plays; saving to flash does (your notes, 2026-11-04).
+- The FH-2's own settings (its Settings menu) are kept in flash: "14 bit CC byte order" stayed on MSB first after a power cycle (your note, 2026-11-04).
 - A Euclid pattern with both outputs None still runs; it only stops with no pulses (your note, 2026-11-03). Clocking a shift register from a Euclid pattern without a jack is the usual way to step it.
 
 **MIDI routing: the transparency problem**

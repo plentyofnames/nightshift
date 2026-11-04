@@ -18,19 +18,19 @@ import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
 import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, ec4Port, withEc4,
-  openEc4, watchEc4, fh2Output, pullPresetFromFh2, watchClock } from './ui/connect.js';
+  openEc4, watchEc4, fh2Output, pullPresetFromFh2 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, wholePage,
-  strayMappings, removeMappings, SETUP } from './ec4/pages.js';
+  strayMappings, removeMappings, toRelative, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup } from './ec4/setup.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
 import { getPath, setPath } from './fh2/layout.js';
 import { settingsByName } from './fh2/menu.js';
-import { fromModule, anotherPatch, dueIn, Transport, MERGE_MAX } from './fh2/live.js';
+import { fromModule, anotherPatch, dueIn, MERGE_MAX } from './fh2/live.js';
 
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
@@ -57,8 +57,8 @@ const state = {
   unsent: false, // what you see isn't what the FH-2 holds (or we don't know what it holds)
   busy: false,
   patchId: '', // the patch's (PATCH_ID_KEY), so the base is only used for the patch it belongs to
-  live: { on: loadLive(), tracking: false, playing: false, sending: false, first: 0, last: 0 }, // live editing: Live on,
-  // in step with the FH-2 (it holds your patch or the base), music playing, a send in flight, when the edits waiting were made
+  live: { on: loadLive(), tracking: false, sending: false, first: 0, last: 0 }, // live editing: Live on, in step
+  // with the FH-2 (it holds your patch or the base), a send in flight, when the edits waiting were made
   view: null,
   colors: new Map(),
   selected: null,
@@ -417,7 +417,7 @@ async function saveAll() {
     title: 'Save everything to the FH-2’s flash?',
     body: [h('p', { class: 'note' }, 'This replaces what is in these slots now:'),
       h('ul', { class: 'note' }, h('li', {}, `the config → config slot ${state.slots.config}`), list.map((t) => h('li', {}, t))),
-      h('p', { class: 'note' }, `Each is sent to the FH-2 and saved; then scene ${sceneName(state.scene)} goes back onto the module.`)],
+      h('p', { class: 'note' }, `Each is sent to the FH-2 and saved; then scene ${sceneName(state.scene)} goes back onto the module. Saving interrupts what plays.`)],
     buttons: [{ label: 'Cancel', value: false }, { label: 'Save all', value: true, primary: true }],
   });
   if (!ok) return;
@@ -646,7 +646,7 @@ function send() {
 }
 
 // ---- live editing (fh2/live.js): while Night Shift and the FH-2 are in step, edits go to the
-// FH-2's RAM a few seconds after you make them; never while a MIDI clock runs.
+// FH-2's RAM a few seconds after you make them (that doesn't interrupt what plays).
 
 // The FH-2 as just read (`r`), against what Night Shift last knew it held (`base`). Holding the
 // same patch with a few changes, those come into yours as one undoable step, and live editing
@@ -669,11 +669,9 @@ function catchUp(r, base, { strict = false } = {}) {
   return true;
 }
 
-const transport = new Transport();
 let liveTimer = null;
-let playCheck = null;
 
-const liveReady = () => state.live.on && state.live.tracking && !state.live.playing && state.link === 'connected' && !!state.config && !!state.preset;
+const liveReady = () => state.live.on && state.live.tracking && state.link === 'connected' && !!state.config && !!state.preset;
 
 // After every change: sends QUIET_MS after the last edit, at most MAX_WAIT_MS after the first.
 function scheduleLive() {
@@ -706,7 +704,7 @@ async function sendLive() {
     if (!pair) return;
     const r = await pullFromFh2(pair);
     if (!catchUp(r, state.module)) return status('Another patch is on the FH-2: Get or Send', true);
-    if (!liveReady()) return; // music started meanwhile
+    if (!liveReady()) return; // Live switched off meanwhile
     const scene = state.scene;
     const differs = (d, v) => diff(DUMPS[d.cmd].layout, d.values, v).length > 0;
     const out = { config: differs(state.config, state.module.config) ? state.config : null, preset: differs(state.preset, state.module.preset) ? state.preset : null };
@@ -735,26 +733,7 @@ function switchLive() {
   try {
     localStorage.setItem(LIVE_KEY, state.live.on ? '1' : '0');
   } catch {}
-  status(state.live.on ? 'Live: edits go to the FH-2' : 'Live off: Send to FH-2 sends');
-  scheduleLive();
-}
-
-// A clock, start, continue or stop on some input: music playing holds live sends.
-function onClock(port, byte) {
-  transport.take(port, byte, performance.now());
-  checkPlaying();
-}
-
-function checkPlaying() {
-  const playing = transport.playing(performance.now());
-  if (playing && !playCheck) playCheck = setInterval(checkPlaying, 500); // a clock that just stops sends nothing
-  if (!playing && playCheck) {
-    clearInterval(playCheck);
-    playCheck = null;
-  }
-  if (playing === state.live.playing) return;
-  state.live.playing = playing;
-  render();
+  status(state.live.on ? 'Live: edits go to the FH-2' : 'Live off: Send sends');
   scheduleLive();
 }
 
@@ -784,7 +763,7 @@ async function saveFlash() {
   const where = (n, what) => (n ? `${what} slot ${n}` : `the ${what} slot it was last loaded from or saved to`);
   const ok = await modal($('dialog'), {
     title: 'Save to the FH-2’s flash?',
-    body: h('p', { class: 'note' }, `Config → ${where(configSlot, 'config')}; scene ${sceneName(state.scene)} → ${where(presetSlot, 'preset')}. Replaces what is there.`),
+    body: h('p', { class: 'note' }, `Config → ${where(configSlot, 'config')}; scene ${sceneName(state.scene)} → ${where(presetSlot, 'preset')}. Replaces what is there, and interrupts what plays.`),
     buttons: [{ label: 'Cancel', value: false }, { label: 'Save to flash', value: true, primary: true }],
   });
   if (!ok) return;
@@ -1040,7 +1019,8 @@ function onEc4Midi(bytes) {
   for (const m of cc14.take(bytes, hires)) {
     page.cells.forEach((c, i) => {
       if (!c?.map || c.map.channel !== m.channel || c.map.cc !== m.cc) return;
-      link.showOne(i, c.map.relative ? null : valueText(c.key, fromCc(c.key, m.value, m.bits), { range })).catch(() => {});
+      // a relative knob sends steps, not where it is: its text waits for the read-back
+      if (!c.map.relative) link.showOne(i, valueText(c.key, fromCc(c.key, m.value, m.bits), { range })).catch(() => {});
       link.sent.set(i, `${m.channel}:${m.cc}:${m.value}`);
       turned.add(c.key);
     });
@@ -1142,15 +1122,17 @@ function bar() {
   const k = state.sync?.kind;
   const live = state.live;
   const inStep = live.tracking && state.link === 'connected';
-  const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : ''), title: state.port ? `FH-2 on port “${state.port}”` : '' },
-    state.link === 'connecting' ? 'reading the FH-2…'
+  const mark = state.link === 'connecting' ? 'reading the FH-2…'
       : k === 'same' ? 'same as the FH-2'
       : live.sending ? 'sending…'
-      : inStep ? (!live.on ? 'not sent' : live.playing ? 'held while playing' : 'sending soon')
+      : inStep ? (live.on ? 'sending soon' : 'not sent')
       : k === 'scene' ? `scene ${sceneName(state.sync.scene)} is on the FH-2`
       : k === 'differs' ? 'differs from the FH-2'
       : state.link === 'no-midi' ? 'no MIDI in this browser'
-      : state.link === 'offline' ? 'FH-2 not connected' : 'not on the FH-2');
+      : state.link === 'offline' ? 'FH-2 not connected' : 'not on the FH-2';
+  // on a narrow window only its dot shows; the words are on hover
+  const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : ''), title: `${mark}${state.port ? ` · FH-2 on port “${state.port}”` : ''}` },
+    h('i', { class: 'sync-dot', 'aria-hidden': 'true' }), h('span', { class: 'sync-text' }, mark));
   const scenes = v && state.scenes.length > 0 && h('div', { class: 'scenes', role: 'group', 'aria-label': 'Scenes' },
     state.scenes.map((_, i) => h('button', {
       type: 'button', 'aria-pressed': i === state.scene ? 'true' : 'false', title: i === state.scene ? 'Click to rename' : 'Show this scene',
@@ -1160,25 +1142,26 @@ function bar() {
     state.scenes.length > 1 && h('button', { type: 'button', class: 'scene-add', title: 'Remove this scene', 'aria-label': 'Remove this scene', onclick: removeScene }, '−'),
     h('button', { type: 'button', class: 'scenes-only-toggle', 'aria-pressed': state.scenesOnly ? 'true' : 'false', onclick: toggleScenesOnly,
       title: 'While on, only what a scene holds can change (levels, LFOs, patterns, envelopes, arps, sequences, tempo); the config stays as it is' }, 'Scenes only'));
+  // one row at any width: what can shrink does (name, scenes, the mark, the status), the rest keeps its size
   return h('header', { class: 'bar' },
-    h('div', { class: 'brand' }, jackIcon(), 'Night Shift'),
-    v && h('div', { class: 'patch-name' }, 'Config ', h('b', {}, v.globals.name || 'untitled')),
+    h('div', { class: 'brand' }, jackIcon(), h('span', { class: 'brand-name' }, 'Night Shift')),
+    v && h('div', { class: 'patch-name', title: `Config ${v.globals.name || 'untitled'}` }, h('span', { class: 'lbl' }, 'Config '), h('b', {}, v.globals.name || 'untitled')),
     scenes,
     sync,
     v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), tab('ec4', 'EC4')),
     v && h('div', { class: 'undo' },
-      h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)' }, 'Undo'),
-      h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)' }, 'Redo')),
+      h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)', 'aria-label': 'Undo' }, '↶'),
+      h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)', 'aria-label': 'Redo' }, '↷')),
     h('div', { class: 'grow' }),
     state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status', title: state.status }, state.status),
-    h('button', { type: 'button', class: 'btn', onclick: editHardware }, 'Rack…'),
     fileMenu(v),
-    v && h('button', { type: 'button', class: 'btn live-toggle', 'aria-pressed': live.on ? 'true' : 'false', onclick: switchLive,
-      title: 'On: edits go to the FH-2’s memory (not its flash) a few seconds after you make them, and wait while a MIDI clock runs. Off: only Send to FH-2 sends.' }, 'Live'),
-    h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, title: 'Its config and preset become what you see (undoable)' }, 'Get from FH-2'),
-    v && h('button', { type: 'button', class: 'btn' + (state.unsent && !(live.on && inStep) ? ' primary' : ''), disabled: state.busy, onclick: send }, 'Send to FH-2'),
-    v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
-      title: state.unsent ? 'Send to the FH-2 first: saving stores what the module holds' : 'Store what the FH-2 holds in its flash' }, 'Save to flash'));
+    h('div', { class: 'fh2-group', role: 'group', 'aria-label': 'FH-2' }, h('span', { class: 'lbl' }, 'FH-2'),
+      v && h('button', { type: 'button', class: 'btn live-toggle', 'aria-pressed': live.on ? 'true' : 'false', onclick: switchLive,
+        title: 'On: edits go to the FH-2’s memory (not its flash) a few seconds after you make them. Off: only Send sends.' }, 'Live'),
+      h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, title: 'Get from the FH-2: its config and preset become what you see (undoable)' }, 'Get'),
+      v && h('button', { type: 'button', class: 'btn' + (state.unsent && !(live.on && inStep) ? ' primary' : ''), disabled: state.busy, onclick: send, title: 'Send to the FH-2: what you see goes into its memory' }, 'Send'),
+      v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
+        title: state.unsent ? 'Send to the FH-2 first: saving stores what the module holds' : 'Save to flash: store what the FH-2 holds' }, 'Save')));
 }
 
 // Files: a menu, so the bar keeps the FH-2's buttons in front.
@@ -1190,6 +1173,7 @@ function fileMenu(v) {
   return h('details', { class: 'menu' }, h('summary', { class: 'btn' }, 'File'),
     h('div', { class: 'menu-items' },
       item('Open…', pickFiles, 'A project, or .syx dumps (several presets become scenes)'),
+      item('Rack…', editHardware, 'Which expanders your FH-2 has'),
       v && item('Save project', saveProject, 'Config, every scene and your names, in one file'),
       v && item('Save .syx', saveSyx, 'The config and this scene’s preset, for the FH-2 or Expert Sleepers’ tools'),
       item('Example patch', loadExample, 'A made-up patch for an FH-2 with two CV and two gate expanders')));
@@ -1253,7 +1237,9 @@ function render() {
     select: (page, knob) => { state.ec4.sel = { page, knob }; render(); followOnEc4(); },
     pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
     rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
-    link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru });
+    link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru,
+    relative: toRelative(state.config.values, state.ec4Model, state.names), makeRelative: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} relative`, r.changes),
+    softTakeover: !!state.config.values.softTakeover, turnOnSoftTakeover: () => edit('Soft takeover on', [{ dump: 'config', path: ['softTakeover'], value: 1 }], { force: true }) });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy, ec4 });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
@@ -1310,7 +1296,6 @@ else if (kept) {
 }
 render();
 connect().then(watch).then(() => {
-  watchClock(onClock).catch(() => {});
   linkEc4();
   watchEc4((portState) => (portState === 'connected' ? setTimeout(linkEc4, 600) : unlinkEc4())).catch(() => {});
 });

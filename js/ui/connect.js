@@ -58,23 +58,6 @@ export function sendToFh2(pair, { config, preset }, log) {
   });
 }
 
-// Calls `take(port id, byte)` for every clock, start, continue and stop on any input of this
-// computer, including inputs plugged in later.
-export async function watchClock(take) {
-  const acc = await midiAccess();
-  const heard = new Set();
-  const listen = (input) => {
-    if (input.type !== 'input' || heard.has(input.id)) return;
-    heard.add(input.id);
-    input.addEventListener('midimessage', (e) => {
-      const b = e.data[0];
-      if (b === 0xf8 || b === 0xfa || b === 0xfb || b === 0xfc) take(input.id, b);
-    });
-  };
-  for (const input of acc.inputs.values()) listen(input);
-  acc.addEventListener('statechange', (e) => e.port.state === 'connected' && listen(e.port));
-}
-
 // Stores the FH-2's current config and preset in flash: in `configSlot` and `presetSlot` (1–30),
 // or with 0 in the slots they were last loaded from or saved to.
 export function saveToFlash(pair, { configSlot = 0, presetSlot = 0 } = {}, log) {

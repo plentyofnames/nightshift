@@ -8,8 +8,8 @@ import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage,
-  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey } from '../js/ec4/pages.js';
-import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, OWNED, SETUP_NAME } from '../js/ec4/setup.js';
+  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toRelative } from '../js/ec4/pages.js';
+import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, OWNED, SETUP_NAME } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
 import { MockDevice } from '../vendor/lilypad/js/mock.js';
@@ -241,4 +241,27 @@ test('page names', () => {
   on(p, key('output', 4, 'lfoLevel'));
   eq(pagesOf(viewOf(p), { ...p.names, [pageNameKey('lfo:4')]: 'Wobble' }).pages[0].name, 'Wobb', 'a page can be renamed');
   eq(liveKeys(p.names), Array(16).fill(''));
+});
+
+test('knobs Night Shift maps are relative, except 14-bit settings and the commands on pushes', () => {
+  const p = fresh();
+  const pick = (k) => {
+    eq(modelOf(p).mapOf(k), null, `${k} has no CC yet`);
+    on(p, k);
+    return modelOf(p).mapOf(k);
+  };
+  const pulses = pick(key('euclid', 0, 'gate'));
+  eq([pulses.relative, pulses.bits], [true, 7], 'a 7-bit setting: relative');
+  const cell = modelOf(p).pages.flatMap((pg) => pg.cells).find((c) => c?.key === key('euclid', 0, 'gate'));
+  eq(encoderOf(cell, viewOf(p), 1).type, M.T.CCR1, 'and so is its EC4 knob');
+  const depth = pick(key('output', 5, 'lfoLevel'));
+  eq([depth.relative, depth.bits], [false, 14], '14-bit stays absolute');
+  const add = pick(key('converter', 1, 'arpAdd'));
+  eq(add.relative, false, 'a command on a push stays absolute');
+  // one made before knobs were relative by default can be made relative
+  apply(p, [{ dump: 'config', path: ['mapping', pulses.slot, 'target'], value: p.config.values.mapping[pulses.slot].target & ~32 }]);
+  const r = toRelative(p.config.values, modelOf(p), p.names);
+  eq(r.keys, [key('euclid', 0, 'gate')], 'only Night Shift’s 7-bit absolute knobs');
+  apply(p, r.changes);
+  eq(modelOf(p).mapOf(key('euclid', 0, 'gate')).relative, true);
 });

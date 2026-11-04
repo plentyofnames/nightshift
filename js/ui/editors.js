@@ -335,18 +335,19 @@ export function voiceEditor(view, s, act, color) {
   const pf = s.performance;
   const pset = (what, obj) => act.edit(`${what} of ${s.name}`, setConverterPreset(s.index, obj));
   const L = (text, param) => ec4Label(text, `converter:${s.index}:${param}`, act.ec4);
+  // glide and legato only happen where one voice plays one note after another: mono and Unison
+  const oneLine = cv.type === 0 || cv.allocation === 2 || cv.allocation === 3;
   parts.push(h('h4', {}, 'Pitch'), h('div', { class: 'erows' },
-    field('Bend range', numberInput(`Bend range of ${s.name}`, cv.bendRange, { min: 0, max: 48 }, (v) => set('Bend range', { bendRange: v })), ' semitones'),
-    field('Bend down', selectInput(`Bend down of ${s.name}`, cv.bendDown, [[0, 'Same as up'], ...Array.from({ length: 48 }, (_, i) => [i + 2, `${i + 1} semitones`])], (v) => set('Bend down', { bendDown: v }))),
     pf && sfield(L('Transpose', 'transpose'), numberInput(`Transpose of ${s.name}`, pf.transpose - 64, { min: -64, max: 63 }, (v) => pset('Transpose', { transpose: v + 64 })), ' semitones'),
-    pf && sfield(L('Glide', 'portamento'), slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),
+    pf && oneLine && sfield(L('Glide', 'portamento'), slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),
+    field('Bend range', numberInput(`Bend range of ${s.name}`, cv.bendRange, { min: 0, max: 48 }, (v) => set('Bend range', { bendRange: v })), ' semitones'),
+    cv.bendRange > 0 && field('Bend down', selectInput(`Bend down of ${s.name}`, cv.bendDown, [[0, 'Same as up'], ...Array.from({ length: 48 }, (_, i) => [i + 2, `${i + 1} semitones`])], (v) => set('Bend down', { bendDown: v })))));
+  parts.push(h('h4', {}, 'Notes'), h('div', { class: 'erows' },
     field('Sustain pedal', selectInput(`Sustain of ${s.name}`, cv.sustain, SUSTAIN.map((n, i) => [i, n]), (v) => set('Sustain pedal', { sustain: v }))),
-    field('Legato gate', selectInput(`Interrupt gate of ${s.name}`, cv.interruptGate, [[0, 'Stays high'], [1, 'Short dip on legato notes']], (v) => set('Legato gate', { interruptGate: v }))),
+    oneLine && field('Legato gate', selectInput(`Interrupt gate of ${s.name}`, cv.interruptGate, [[0, 'Stays high'], [1, 'Short dip on legato notes']], (v) => set('Legato gate', { interruptGate: v }))),
     cv.type === 0 && field('Returning note', selectInput(`Mono retrigger of ${s.name}`, cv.monoRetrigger, [[0, 'Fires trigger and envelope'], [1, 'Doesn’t fire them']], (v) => set('Returning note', { monoRetrigger: v }))),
     cv.type === 0 && field('Legato velocity', selectInput('Legato velocity (all mono voices)', act.values().config.legatoVelocity, [[0, 'Each note’s own'], [1, 'First note of a phrase']],
       (v) => act.edit('Legato velocity (all mono voices)', fields('config', [], { legatoVelocity: v }))))));
-  const unison = cv.allocation === 2 || cv.allocation === 3;
-  if (cv.type !== 0 && !unison) parts.push(h('p', { class: 'note' }, 'Glide works on mono voices and in Unison only.'));
 
   // the arpeggiator: it takes over the notes this voice hears and plays them on its jacks. Its
   // settings live in the preset, its clock source in the config. Its copy out as MIDI (USB C,
@@ -375,13 +376,16 @@ export function voiceEditor(view, s, act, color) {
       null);
   }
 
-  // the envelope
-  if (pf) {
+  // the envelope: only while it comes out, or a trigger of type Envelope borrows its settings
+  const borrowed = view.sources.filter((x) => x.kind === 'triggers')
+    .flatMap((t) => t.ports.filter((p) => p.typeIndex === ENVELOPE_TRIGGER && p.envSet === s.index).map((p) => p.jack));
+  if (pf && (cv.envelopeOut || borrowed.length)) {
     const e = pf.envelope;
     const svg = envelopeSvg(e, color);
     const preview = (key) => (v) => svg.redraw({ ...e, [key]: v });
     const env = (label, key, field2, show = pct) => sfield(L(label, field2), slider(`${label} of ${s.name}`, e[key], { min: 0, max: 127, show, preview: preview(key) }, (v) => pset(label, { [field2]: v })));
-    parts.push(h('h4', {}, 'Envelope'), h('div', { class: 'wave-box' }, svg, h('span', { class: 'wave-cap' }, cv.envelopeOut ? 'Shape only, times approximate' : 'Turn on the Envelope output to use it')),
+    parts.push(h('h4', {}, 'Envelope'), h('div', { class: 'wave-box' }, svg, h('span', { class: 'wave-cap' },
+      cv.envelopeOut ? 'Shape only, times approximate' : `Used by the trigger${borrowed.length > 1 ? 's' : ''} on ${borrowed.join(', ')}`)),
       h('div', { class: 'erows' },
         env('Attack', 'attack', 'envAttack', String),
         env('Decay', 'decay', 'envDecay', String),
@@ -394,11 +398,13 @@ export function voiceEditor(view, s, act, color) {
         env('Release shape', 'releaseShape', 'envReleaseShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
         sfield(L('Time range', 'envRange'), numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v }))),
         field('Each note', selectInput(`Envelope start of ${s.name}`, cv.envZeroStart, [[0, 'Rises from where it is'], [1, 'Starts from zero']], (v) => set('Envelope start', { envZeroStart: v })))));
-  } else {
+  } else if (!pf) {
     parts.push(h('p', { class: 'note' }, 'No preset loaded.'));
   }
   return parts;
 }
+
+const ENVELOPE_TRIGGER = 9; // a trigger type that plays a voice's envelope settings ("Env set")
 
 // ---- triggers (one source per MIDI channel)
 
@@ -419,7 +425,7 @@ export function triggerEditor(view, s, act) {
     return h('div', { class: 'subbox' }, h('h4', {}, `${p.jack}${accent ? ` + ${accent.jack} (accent)` : ''}`), h('div', { class: 'erows' },
       field('Note', selectInput(`Note of ${name}`, p.note ?? -1, [[-1, 'Any note'], ...NOTES], (v) => act.edit(`Note of ${name}`, setTriggerNote(p.trigger, v < 0 ? null : v)))),
       field('Type', selectInput(`Type of ${name}`, p.typeIndex, types, (v) => act.edit(`Type of ${name}: ${TRIGGER_TYPES[v]}`, setTrigger(p.trigger, { type: v })))),
-      p.typeIndex === 9 ? field('Envelope from', selectInput(`Envelope of ${name}`, p.envSet, Array.from({ length: 16 }, (_, i) => [i, `Voice ${i + 1}’s settings`]),
+      p.typeIndex === ENVELOPE_TRIGGER ? field('Envelope from', selectInput(`Envelope of ${name}`, p.envSet, Array.from({ length: 16 }, (_, i) => [i, `Voice ${i + 1}’s settings`]),
         (v) => act.edit(`Envelope of ${name}`, setTriggerEnvSet(p.trigger, v)))) : null));
   });
   return [h('div', { class: 'erows' }, kit), boxes];

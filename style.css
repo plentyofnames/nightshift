@@ -47,7 +47,28 @@ a { color: var(--link); }
 h1, h2, h3 { margin: 0; }
 
 /* top bar */
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 10px 20px; background: var(--bar); border-bottom: 1px solid var(--line); }
+.bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 10px 20px; background: var(--bar); border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: none; } /* one row; scrolls only if even the shrunk parts don't fit */
+.bar::-webkit-scrollbar { display: none; }
+.bar > * { flex: none; }
+.bar > .patch-name, .bar > .scenes, .bar > .sync, .bar > .status { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar > .status { flex-shrink: 8; } /* gives way first, then the mark, the name, the scenes */
+.bar > .sync { flex-shrink: 6; }
+.bar > .patch-name { min-width: 60px; flex-shrink: 2; }
+.bar > .scenes { overflow-x: auto; scrollbar-width: none; }
+.undo .btn { font-size: 17px; line-height: 17px; padding: 5px 10px; }
+.bar > .scenes::-webkit-scrollbar { display: none; }
+.bar > .grow { flex: 1 1 0; min-width: 0; }
+.fh2-group { display: flex; align-items: center; gap: 6px; }
+.fh2-group .lbl { font-size: 12px; color: var(--dim); margin-right: 2px; }
+@media (max-width: 1400px) { .brand-name, .patch-name .lbl { display: none; } }
+.sync-dot { display: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+@media (max-width: 1180px) {
+  .fh2-group .lbl, .bar .scenes-only-toggle, .bar .sync-text { display: none; } /* Scenes only is on the Scenes tab too */
+  .bar .sync-dot { display: inline-block; vertical-align: 1px; }
+  .bar .tabs button { padding-left: 8px; padding-right: 8px; }
+  header.bar { gap: 8px; }
+}
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; }
 .patch-name { font-size: 13px; color: var(--dim); }
 .patch-name b { color: var(--text); font-weight: 600; }

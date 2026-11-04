@@ -1,12 +1,11 @@
 // Tests for live editing: when a send goes out, the FH-2's own changes coming into your patch,
-// another patch on the FH-2 stopping it, music playing holding it, and a send keeping what it
-// sent when you edit meanwhile.
+// another patch on the FH-2 stopping it, and a send keeping what it sent when you edit meanwhile.
 
 import { test, assert, eq } from './harness.js';
 import { examplePatch } from '../js/patch/example.js';
 import { DUMPS } from '../js/fh2/sysex.js';
 import { diff } from '../js/fh2/layout.js';
-import { dueIn, fromModule, anotherPatch, Transport, QUIET_MS, MAX_WAIT_MS } from '../js/fh2/live.js';
+import { dueIn, fromModule, anotherPatch, QUIET_MS, MAX_WAIT_MS } from '../js/fh2/live.js';
 import { sendToFh2 } from '../js/ui/connect.js';
 import { Fh2StandIn } from './standin.js';
 import { buildDump } from '../js/fh2/sysex.js';
@@ -39,32 +38,6 @@ test('the FH-2’s own changes come into your patch; where you changed it too, y
 test('what the FH-2 held survives being kept in the browser', () => {
   const { config, preset } = examplePatch();
   for (const d of [config, preset]) eq(diff(DUMPS[d.cmd].layout, d.values, JSON.parse(JSON.stringify(d.values))).length, 0, d.kind);
-});
-
-test('music is playing while a clock runs, or between Start and Stop', () => {
-  const t = new Transport();
-  eq(t.playing(0), false);
-  // Logic-like: clock only while playing, no transport messages seen
-  for (let ms = 0; ms <= 2000; ms += 20) t.take('logic', 0xf8, ms);
-  eq(t.playing(2100), true);
-  eq(t.playing(3100), false, 'the clock stopped a second ago');
-  // Elektron-like: clock all the time, Start and Stop for the transport
-  const e = new Transport();
-  e.take('rytm', 0xf8, 0);
-  eq(e.playing(10), true, 'ticks from a source that never sent Start count as playing');
-  e.take('rytm', 0xfa, 100);
-  e.take('rytm', 0xf8, 120);
-  eq(e.playing(130), true);
-  e.take('rytm', 0xfc, 200);
-  e.take('rytm', 0xf8, 220);
-  eq(e.playing(230), false, 'stopped, though its clock goes on');
-  e.take('rytm', 0xfb, 300);
-  eq(e.playing(310), true, 'continue');
-  eq(e.playing(300 + 6000), false, 'started, but no clock for seconds: unplugged');
-  e.take('logic', 0xf8, 6400);
-  eq(e.playing(6410), true, 'any input playing counts');
-  e.drop('logic');
-  eq(e.playing(6410), false);
 });
 
 // a MIDI port pair on the stand-in, as connect.js gets it from Web MIDI
