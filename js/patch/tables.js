@@ -20,12 +20,15 @@ export const CLOCK_TYPES = ['', 'Clock', 'Run gate', 'Stop gate', 'Start/continu
   'Start/continue/stop pulse', 'Start pulse', 'Start/stop pulse'];
 export const TRIGGER_TYPES = ['', 'Trigger', 'Gate', 'Velocity trigger', 'Velocity gate', 'Accent trigger', 'Accent gate',
   'Toggle', 'On/off trigger', 'Envelope', 'Velocity'];
+export const ENVELOPE_TRIGGER = TRIGGER_TYPES.indexOf('Envelope'); // plays one voice's envelope settings ("Env set")
 export const ACCENT_TRIGGER_TYPES = new Set([5, 6]);
 // Arpeggiator modes: the preset value is a range (manual, "Arpeggiators"); these are their starts.
 export const ARP_MODES = [[0, 'Off'], [11, 'Up'], [22, 'Down'], [32, 'Alt'], [43, 'Alt 2'], [54, 'Step up'], [64, 'Step down'],
   [75, 'Step play'], [86, 'Random'], [96, 'Random 2'], [107, 'Random 3'], [118, 'As played']];
 export const arpModeOf = (v) => ARP_MODES.filter(([start]) => start <= v).at(-1);
 export const LFO_RESET_TYPES = ['', 'CC', 'Note', 'Any note', 'Paraphonic gate', 'Poly voice', 'Clock', 'Euclid'];
+export const LFO_RESET_CLOCK = LFO_RESET_TYPES.indexOf('Clock');
+export const LFO_RESET_EUCLID = LFO_RESET_TYPES.indexOf('Euclid');
 export const CVMIDI_TYPES = ['CC', 'Trigger', 'Note', 'Program change', 'Aftertouch'];
 export const TAP_TYPES = ['', 'Note', 'CC'];
 export const START_STOP_TYPES = ['', 'Note toggle', 'CC toggle', 'Note gate', 'CC gate', 'Y toggle', 'Y gate'];

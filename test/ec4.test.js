@@ -321,3 +321,20 @@ test('several settings come off the EC4 in one step, with the CCs Night Shift ad
   const after = modelOf(p);
   eq([after.on.has(a), after.on.has(b), after.mapOf(a), after.mapOf(b)], [false, false, null, null], 'both off, neither undoing the other');
 });
+
+test('an LFO on top of a pitch offers no Centre; a knob on LIVE too counts once', () => {
+  const p = fresh();
+  const v = viewOf(p);
+  const vib = v.outputs.find((o) => o.lfo && !o.lfo.alone && o.ports.some((x) => /^Pitch/.test(x.name)));
+  if (vib) {
+    const obj = modelOf(p).objects.find((o) => o.id === `lfo:${vib.index}`);
+    assert(!obj.knobs.some((c) => c.setting.param === 'directLevel'), 'the pitch replaces the level: no Centre');
+    assert(obj.knobs.some((c) => c.setting.param === 'lfoLevel'));
+  }
+  const k = key('euclid', 0, 'gate');
+  on(p, k);
+  apply(p, toggleLive(p.names, k));
+  const slot = modelOf(p).mapOf(k).slot;
+  apply(p, [{ dump: 'config', path: ['mapping', slot, 'target'], value: p.config.values.mapping[slot].target & ~32 }]);
+  eq(toRelative(p.config.values, modelOf(p), p.names).keys, [k], 'once, though on its page and on LIVE');
+});

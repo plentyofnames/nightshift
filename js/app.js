@@ -229,14 +229,14 @@ function load({ config, preset, presets, scene = 0, names, hardware, slots, scen
 
 // `force`: for Get from FH-2 and the Scenes page, which may change the config while
 // “Scenes only” is on.
-function edit(label, changes, { force = false } = {}) {
+function edit(label, changes, { force = false, fold = null } = {}) {
   if (state.scenesOnly && !force && changes.some((c) => c.dump === 'config')) {
     state.status = 'Setup locked: Scenes only is on';
     state.warn = true;
     return render();
   }
   try {
-    if (state.history.do(patch(), label, changes, { scene: state.scene })) {
+    if (state.history.do(patch(), label, changes, { scene: state.scene, fold })) {
       state.status = label;
       state.warn = false;
     }
@@ -674,7 +674,7 @@ function catchUp(r, base, { strict = false } = {}) {
   const take = [...fromModule(DUMPS[state.config.cmd].layout, base.config, state.config.values, theirs.config).map((c) => ({ dump: 'config', ...c })),
     ...(state.preset && base.scene === state.scene ? fromModule(DUMPS[state.preset.cmd].layout, base.preset, state.preset.values, theirs.preset) : [])
       .map((c) => ({ dump: 'preset', ...c }))];
-  if (take.length) edit(`From the FH-2: ${take.length} ${take.length === 1 ? 'value' : 'values'}`, take, { force: true });
+  if (take.length) edit('From the FH-2', take, { force: true, fold: 'fh2' }); // one step while it keeps coming
   return true;
 }
 

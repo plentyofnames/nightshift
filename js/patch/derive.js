@@ -8,9 +8,7 @@
 import { mappingsOf } from './mappings.js';
 import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
-  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf } from './tables.js';
-
-const LFO_RESET_EUCLID = LFO_RESET_TYPES.indexOf('Euclid');
+  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID } from './tables.js';
 
 // `names` are Night Shift's own names beside the dumps (edit.js setName): for sources and players
 // by id, and for the gear on a port and channel.
@@ -337,6 +335,17 @@ function gateFriendly(sources, p) {
 }
 
 const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
+
+// Whether port `port` (by name) of source `s` replaces its jack's direct level instead of adding
+// to it: a voice's pitch does (your test, 2026-11-03), and gate-type outputs take their voltage
+// from the jack's gate levels. To every other CV-type output the level is added, as an offset.
+// (Unlike gateFriendly, a velocity gate counts as gate-type here: it is a gate on a CV jack.)
+export function replacesLevel(s, port) {
+  if (['clock', 'triggers', 'euclid', 'hid'].includes(s.kind)) return true;
+  if (s.kind === 'random') return port !== 'CV';
+  if (s.kind === 'voice') return /^(Pitch|Gate|Trigger|Velocity gate|Para gate)( \d+)?$/.test(port);
+  return false;
+}
 
 // What an arpeggiator that is on waits for at rate Ext, or null: { clock, stopped }. The voice
 // plays only its arpeggio, so without that clock it plays nothing: the external clock may not

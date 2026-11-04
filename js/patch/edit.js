@@ -11,7 +11,7 @@ import { getPath, setPath, diff } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
 import { freeClock, freeEuclid, freeMapping, freeConverter, freeTrigger } from './alloc.js';
 import { isUsed, targetOf } from './mappings.js';
-import { hzToLfo } from './tables.js';
+import { hzToLfo, LFO_RESET_EUCLID } from './tables.js';
 
 const fieldIndex = new Map(); // layout → Map(path key → field)
 function fieldOf(dump, path) {
@@ -72,10 +72,18 @@ export class History {
     this.undone = [];
   }
 
-  // `meta` travels with the step (app.js keeps the scene it was made in there).
+  // `meta` travels with the step (app.js keeps the scene it was made in there). Steps with the
+  // same `meta.fold` in a row become one, so something that keeps happening by itself (values
+  // the FH-2 changes on its own, taken in before each live send) doesn't fill the list.
   do(patch, label, changes, meta = {}) {
     const undo = apply(patch, changes);
     if (!undo.length) return false;
+    const last = this.done.at(-1);
+    if (meta.fold && last?.meta.fold === meta.fold && last.meta.scene === meta.scene && !this.undone.length) {
+      last.changes.push(...changes);
+      last.undo = [...undo, ...last.undo];
+      return true;
+    }
     this.done.push({ label, changes, undo, meta });
     this.undone = [];
     return true;
@@ -203,7 +211,6 @@ function unlinkEuclid(c, i) {
   c.lfoReset.forEach((r, o) => r.type === LFO_RESET_EUCLID && r.number === i && out.push(config(['lfoReset', o, 'type'], 0)));
   return out;
 }
-const LFO_RESET_EUCLID = 7;
 
 // ---- removing what comes out of a jack
 

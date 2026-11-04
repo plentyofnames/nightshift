@@ -5,8 +5,7 @@ import { isUsed, mappingsOf } from './mappings.js';
 import { isPresent, isGate, jackName } from './hardware.js';
 import { converterPorts } from './derive.js';
 
-const LFO_RESET_CLOCK = 6;
-const LFO_RESET_EUCLID = 7;
+import { LFO_RESET_CLOCK, LFO_RESET_EUCLID } from './tables.js';
 
 const restartsFrom = (config, type) => new Set(config.lfoReset.filter((r) => r.type === type).map((r) => r.number));
 

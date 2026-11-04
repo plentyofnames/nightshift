@@ -14,7 +14,7 @@ import { EXAMPLE_HARDWARE } from '../js/patch/hardware.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../js/patch/shapes.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
-import { derive, playersOf } from '../js/patch/derive.js';
+import { derive, playersOf, replacesLevel } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { levelToVolts, voltsToLevel } from '../js/patch/tables.js';
@@ -596,4 +596,19 @@ test('removing a jack’s knob, level or LFO clears its whole layer, CCs and all
   apply(p, [{ dump: 'config', path: ['mapping', slot, 'target'], value: 2 }]);
   apply(p, removeLfoWithCcs(values(p), 2));
   eq([mapped(2), v().outputs[2].ports], [[], []]);
+});
+
+test('changes taken from the FH-2 in a row are one undo step; the shared rule for what replaces a level', () => {
+  const p = patch();
+  const h = new History();
+  h.do(p, 'yours', setDirectLevel(1, 100), { scene: 0 });
+  h.do(p, 'From the FH-2', setDirectLevel(2, 200), { scene: 0, fold: 'fh2' });
+  h.do(p, 'From the FH-2', setDirectLevel(3, 300), { scene: 0, fold: 'fh2' });
+  eq(h.done.map((s) => s.label), ['yours', 'From the FH-2'], 'folded into one');
+  h.undo(p);
+  eq([1, 2, 3].map((o) => p.preset.values.output[o].directLevel), [100, 0, 0], 'and undone together');
+  // a voice's pitch and gate-type outputs replace a jack's level; the rest add to it
+  const voice = { kind: 'voice' };
+  eq(['Pitch', 'Pitch 2', 'Gate', 'Velocity gate', 'Velocity', 'Envelope'].map((n) => replacesLevel(voice, n)), [true, true, true, true, false, false]);
+  eq([replacesLevel({ kind: 'random' }, 'CV'), replacesLevel({ kind: 'random' }, 'Change'), replacesLevel({ kind: 'clock' }, 'Clock 1/16')], [false, true, true]);
 });

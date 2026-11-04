@@ -17,6 +17,7 @@
 // whose mapping Night Shift added, the only ones it removes.
 
 import { encodeTarget, isUsed } from '../patch/mappings.js';
+import { replacesLevel } from '../patch/derive.js';
 import { PARAM_NAMES, COMMANDS } from '../patch/tables.js';
 import { sanitizeName } from '../../vendor/lilypad/js/model.js';
 
@@ -148,8 +149,11 @@ export function objectsOf(view) {
   // an LFO on top of another source (vibrato on a pitch, wobble on a level)
   for (const o of view.outputs) {
     if (!o.lfo || o.lfo.alone) continue;
-    const under = o.ports.find((p) => !p.layer)?.source ?? null;
-    obj({ id: `lfo:${o.index}`, name: `LFO on ${o.jack}`, defaultName: fourChars(`L${jackDigits(o.jack)}`), source: under, knobs: lfo(o.index, under) });
+    const port = o.ports.find((p) => !p.layer);
+    const under = port?.source ?? null;
+    const s = under && view.sources.find((x) => x.id === under);
+    const knobs = lfo(o.index, under).filter((c) => !(c.setting.param === 'directLevel' && s && replacesLevel(s, port.name)));
+    obj({ id: `lfo:${o.index}`, name: `LFO on ${o.jack}`, defaultName: fourChars(`L${jackDigits(o.jack)}`), source: under, knobs });
   }
   for (const q of view.players) {
     if (q.kind === 'sequencer') {
@@ -180,10 +184,10 @@ export function objectsOf(view) {
 // pages channel, which a free jack's level joins anyway once it gets a CC there.
 function ownLayers(view, out, obj) {
   const has = new Set(out.flatMap((o) => o.knobs.map((c) => c.key)));
-  const pc = pagesChannels(view)[0] ?? 1;
+  const pc = pagesChannels(view)[0];
   let free = null;
-  const freeObj = () => free ?? (free = out.find((o) => o.id === `knobs:${pc}`)
-    ?? (obj({ id: `knobs:${pc}`, name: `CC → CV · ch ${pc + 1}`, defaultName: shortName(`CC ${pc + 1}`), source: null, knobs: [] }), out.at(-1)));
+  const freeObj = () => (pc == null ? null : free ?? (free = out.find((o) => o.id === `knobs:${pc}`)
+    ?? (obj({ id: `knobs:${pc}`, name: `CC → CV · ch ${pc + 1}`, defaultName: shortName(`CC ${pc + 1}`), source: null, knobs: [] }), out.at(-1))));
   for (const o of view.outputs) {
     if (o.index >= 64 || !o.present || o.gate) continue;
     const key = (param) => settingKey({ kind: 'output', index: o.index, param });
@@ -192,10 +196,9 @@ function ownLayers(view, out, obj) {
     const d = o.ports.find((p) => !p.layer && !p.standby);
     const s = d && view.sources.find((x) => x.id === d.source);
     const owner = d ? out.find((x) => x.id === d.source) ?? (d.source === 'clocks' ? out.find((x) => x.id === 'clock') : null) : null;
-    // a voice's pitch replaces the level, and gate-type outputs have their gate levels instead
-    const noOffset = s && ((s.kind === 'voice' && /^Pitch( \d+)?$/.test(d.name)) || ['clock', 'triggers', 'euclid', 'hid'].includes(s.kind)
-      || (s.kind === 'random' && d.name !== 'CV') || (s.kind === 'voice' && /^(Gate|Trigger|Velocity gate|Para gate)( \d+)?$/.test(d.name)));
+    const noOffset = s && replacesLevel(s, d.name);
     const target = owner ?? freeObj();
+    if (!target) continue; // no channel left for a CC: nothing to offer
     const digits = jackDigits(o.jack);
     for (const param of missing) {
       if (param === 'directLevel' && noOffset) continue;
@@ -390,8 +393,8 @@ class Allocator {
 // knobs were relative by default), and the changes that make them so: { keys, changes }.
 export function toRelative(config, model, names) {
   const made = madeKeys(names);
-  const keys = [...new Set(model.pages.flatMap((p) => p.cells.filter(Boolean)))].filter((c) => c.map && !c.map.relative && made.has(c.key) && relativeFor(c.setting))
-    .map((c) => c.key);
+  const cells = [...new Map(model.pages.flatMap((p) => p.cells.filter(Boolean)).map((c) => [c.key, c])).values()]; // once each, LIVE too
+  const keys = cells.filter((c) => c.map && !c.map.relative && made.has(c.key) && relativeFor(c.setting)).map((c) => c.key);
   const changes = keys.map((k) => {
     const slot = model.mapOf(k).slot;
     return { dump: 'config', path: ['mapping', slot, 'target'], value: config.mapping[slot].target | 32 };

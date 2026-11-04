@@ -5,6 +5,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
 import { outputNumber, internalName } from '../patch/hardware.js';
+import { replacesLevel } from '../patch/derive.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, keep } from '../patch/edit.js';
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
@@ -169,14 +170,6 @@ function parkedInspector(view, colors, onSelect) {
   ];
 }
 
-// Outputs of the gate kind: their voltage comes from the jack's gate levels.
-function gateFriendly(s, port) {
-  if (['clock', 'triggers', 'euclid', 'hid'].includes(s.kind)) return true;
-  if (s.kind === 'random') return port !== 'CV';
-  if (s.kind === 'voice') return /^(Gate|Trigger|Velocity gate|Para gate)( \d+)?$/.test(port);
-  return false;
-}
-
 // `driver`: what drives the jack besides its stored level, or null: { name, replaces } where
 // `replaces` says the stored level isn't used there. A voice's pitch replaces it, and gate-type
 // outputs have their gate levels instead; to the others (envelope, velocity, pressure, a random
@@ -230,12 +223,15 @@ function jackInspector(view, colors, o, onSelect, act) {
   // what drives the jack besides its own level, LFO and smoothing (a knob or an LFO on its own uses
   // the level), and whether it replaces the level: a voice's pitch does, gate-type outputs have their gate levels
   const d = active.map((p) => ({ p, s: view.sources.find((x) => x.id === p.source) })).find(({ s }) => s && !['level', 'knobs', 'lfo'].includes(s.kind));
-  const replaces = !!d && ((d.s.kind === 'voice' && /^Pitch( \d+)?$/.test(d.p.name)) || gateFriendly(d.s, d.p.name));
+  const replaces = !!d && replacesLevel(d.s, d.p.name);
   parts.push(section('Comes out of', active.length ? active.map(portRow) : h('p', { class: 'note' }, 'Nothing: this jack is free.'),
     !d && o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn' + (active.length ? '' : ' primary'), onclick: () => act.add(o.index) }, 'Add a source…'))));
   if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
   // a MIDI knob on this jack: its channel, CC and relative here too, not only on its channel's source
-  const knobs = view.sources.find((x) => x.kind === 'knobs' && x.ports.some((p) => p.output === o.index));
+  // (on a jack with an LFO on its own, the CC on its level moves the LFO's centre: the same knob)
+  const dc = o.controls.find((m) => m.target.param === 'directLevel');
+  const knobs = view.sources.find((x) => x.kind === 'knobs' && x.ports.some((p) => p.output === o.index))
+    ?? (dc && { kind: 'knobs', ports: [{ name: `CC ${dc.cc}`, output: o.index, jack: o.jack, cc: dc.cc, channel: dc.channel, relative: dc.relative, slot: dc.slot }] });
   if (knobs) parts.push(h('section', { class: 'section' }, h('h3', {}, 'MIDI knob'), knobEditor(view, knobs, act, o.index)));
   // every CV jack has an LFO: its editor while it's on, else a way to turn it on
   if (o.lfo) {

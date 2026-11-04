@@ -42,7 +42,8 @@ export function renderEc4(view, model, colors, sel, act) {
 
   // objects without a page yet: a page for one takes its whole template
   const pageIds = new Set([...pages, ...extra].map((p) => p.id));
-  const without = [...new Map(model.objects.filter((o) => !pageIds.has(o.page)).map((o) => [o.page, o])).values()];
+  const hasTemplate = (o) => o.template.cells.some(Boolean) || o.template.pushes.some(Boolean);
+  const without = [...new Map(model.objects.filter((o) => !pageIds.has(o.page) && hasTemplate(o)).map((o) => [o.page, o])).values()];
   const addPage = without.length > 0 && h('select', { class: 'ec4-add', 'aria-label': 'Add a page', onchange: (e) => e.target.value && act.addPage(e.target.value) },
     h('option', { value: '' }, '+ Page for…'), without.map((o) => h('option', { value: o.page }, o.page === 'sequencers' ? 'Note sequencers' : o.name)));
 

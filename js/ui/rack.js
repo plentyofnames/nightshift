@@ -147,7 +147,7 @@ export function renderStage(view, colors, selected, onSelect) {
     const color = src ? colors.get(src.id) : null;
     const on = selectedOutputs.has(out);
     const clash = gens.length > 1;
-    const label = clash ? `${gens.length} sources!` : src ? shortLabel(src, src.ports.find((p) => p.output === out) ?? shown) : '+ add';
+    const label = clash ? `${gens.length} sources!` : src ? shortLabel(src, src.ports.find((p) => p.output === out) ?? shown) : 'free';
     const anySelected = selectedSources.length > 0;
     nodes.push(h('span', { class: 'jack-num', style: `left:${pos.x - 36}px;top:${pos.y - 7}px` }, pos.num));
     nodes.push(h('button', {

@@ -6,7 +6,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
 import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, RANGE_VOLTS, arpModeOf, lfoHz, hzToLfo, durationName, noteName,
-  levelToVolts } from '../patch/tables.js';
+  levelToVolts, LFO_RESET_CLOCK, LFO_RESET_EUCLID, ENVELOPE_TRIGGER } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
   setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep } from '../patch/edit.js';
 import { freeCcs, voicePlan, freeEuclid } from '../patch/alloc.js';
@@ -125,8 +125,8 @@ function restartSelect(view, o, act) {
   const key = (t, ch, n) => `${t}:${ch}:${n}`;
   const options = [[key(0, 0, 0), 'Never (free running)']];
   const clocks = view.sources.find((s) => s.id === 'clocks');
-  for (const p of clocks?.ports ?? []) options.push([key(6, 0, p.clock), `On ${p.name} (clock ${p.clock + 1}, ${p.jack})`]);
-  for (const s of euclidsOf(view)) options.push([key(7, 0, s.index), `On ${s.name}’s pulses${patternOf(s)}`]);
+  for (const p of clocks?.ports ?? []) options.push([key(LFO_RESET_CLOCK, 0, p.clock), `On ${p.name} (clock ${p.clock + 1}, ${p.jack})`]);
+  for (const s of euclidsOf(view)) options.push([key(LFO_RESET_EUCLID, 0, s.index), `On ${s.name}’s pulses${patternOf(s)}`]);
   const current = now ? key(now.typeIndex, now.channel, now.number) : key(0, 0, 0);
   if (!options.some(([k]) => k === current)) {
     const what = LFO_RESET_TYPES[now.typeIndex] ?? `type ${now.typeIndex}`;
@@ -136,7 +136,7 @@ function restartSelect(view, o, act) {
   return selectInput(`Restart of the LFO on jack ${o.jack}`, current, options, (k) => {
     if (k === 'new') {
       const e = addEuclidWithoutJack(act.values(), view.hardware);
-      return act.edit(`LFO on jack ${o.jack} restarts on a new Euclid ${e.index + 1}`, [...e.changes, ...setLfoRestart(o.index, { type: 7, channel: 0, number: e.index })]);
+      return act.edit(`LFO on jack ${o.jack} restarts on a new Euclid ${e.index + 1}`, [...e.changes, ...setLfoRestart(o.index, { type: LFO_RESET_EUCLID, channel: 0, number: e.index })]);
     }
     const [type, channel, number] = k.split(':').map(Number);
     act.edit(`Restart of the LFO on jack ${o.jack}`, setLfoRestart(o.index, { type, channel, number }));
@@ -405,7 +405,6 @@ export function voiceEditor(view, s, act, color) {
   return parts;
 }
 
-const ENVELOPE_TRIGGER = 9; // a trigger type that plays a voice's envelope settings ("Env set")
 
 // ---- triggers (one source per MIDI channel)
 
