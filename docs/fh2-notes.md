@@ -126,6 +126,8 @@ The design mockups live on a private design canvas.
 - **What can be mapped** (official tool): direct level; all LFO parameters and smoothing; portamento, transpose, envelope A/D/S/R/range/depth/velocity depth and shapes, random depth; arp parameters; Euclid parameters; SRR parameters; sequencer rate, reset, gate and position; tempo, swing, display, nudge.
 
 **Measured on the module** (2026-11-01, FH-2 firmware v2.0.0, preset dump version 8). CCs went in on ch 15 over USB C, and the direct levels were read back from the preset dump (23H) before and after.
+- **14-bit pairs, MSB first** (measured 2026-11-04): a value lands only when the coarse half (CC n) is followed by the fine half (CC n + 32). The fine half alone changes nothing; the coarse half alone waits for the next fine half.
+- **No fine relative steps** (measured 2026-11-04): with a relative mapping on CC n (below 32), relative values on CC n + 32 change nothing.
 - **Relative mappings are 7-bit.** One step moves a direct level by 128 on its 0–16383 scale. 127 steps take it from bottom to top, and the highest value reachable this way is 16256.
 - **Larger steps are exact** in both conventions (1/127 two's complement and 65/63 offset): +2, +3, +6 and the negatives move 2, 3 and 6 steps. Each mapping keeps its own convention: two mappings with different conventions decode correctly even when their messages are interleaved.
 - **"14 bit CC byte order" is LSB first by default** (confirmed). An MSB-first sender, such as the EC4's 14-bit type (CCAh), then lags one step behind and jumps by up to 127 at each 128 boundary. So for the EC4 the setting must be MSB first.

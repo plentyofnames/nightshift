@@ -207,9 +207,10 @@ export function clockEditor(s, act) {
 
 // ---- MIDI knobs and stored levels
 
-export function knobEditor(view, s, act) {
+// `only`: just the knob on that output (for a jack's own inspector).
+export function knobEditor(view, s, act, only = null) {
   const config = act.values().config;
-  return s.ports.map((p) => {
+  return s.ports.filter((p) => only == null || p.output === only).map((p) => {
     const set = (what, obj) => act.edit(`${what} of the knob on ${p.jack}`, setKnob(p.slot, { channel: p.channel, cc: p.cc, relative: p.relative, ...obj }));
     const ccs = [{ cc: p.cc, fine: false }, ...freeCcs(config, p.channel)].sort((a, b) => a.cc - b.cc);
     const learn = async () => {

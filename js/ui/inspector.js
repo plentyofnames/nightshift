@@ -229,6 +229,9 @@ function jackInspector(view, colors, o, onSelect, act) {
     : [h('p', { class: 'note' }, 'Nothing: this jack is free.'),
       o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn primary', onclick: () => act.add(o.index) }, 'Add a source…'))]));
   if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
+  // a MIDI knob on this jack: its channel, CC and relative here too, not only on its channel's source
+  const knobs = view.sources.find((x) => x.kind === 'knobs' && x.ports.some((p) => p.output === o.index));
+  if (knobs) parts.push(h('section', { class: 'section' }, h('h3', {}, 'MIDI knob'), knobEditor(view, knobs, act, o.index)));
   if (o.lfo && !o.lfo.alone) {
     parts.push(h('section', { class: 'section' }, h('h3', {}, 'LFO on top'), lfoEditor(view, o, act, '#3DD6C6'),
       h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', onclick: () => act.edit(`Removed the LFO on jack ${o.jack}`, removeLfo(o.index)) }, 'Remove the LFO'))));

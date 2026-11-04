@@ -318,6 +318,12 @@ Hardware results: learning a knob works (2026-11-03).
 - Switching scenes while live sends the scene in view.
 - Tested with the stand-in (`test/live.test.js`); not tried on your FH-2 yet.
 
+**The EC4 keeps its absolute knobs in step by itself (planned, needs controlfrog; your idea, 2026-11-04).** Without Night Shift, an absolute knob (the 14-bit ones) only knows the FH-2's value after a preset load with "Send CCs on preset ld" (check 3), which means loading a preset after plugging in. Instead controlfrog could ask the FH-2 itself:
+- The FH-2 has no request for one value, only for whole dumps: the preset (SysEx 23H) comes back as one message of about 4.4 KB (13H). So controlfrog asks for it when a page opens, and again every few seconds while no knob moves.
+- It reads its 16 knobs' values out of the dump as it streams past (about 64 bytes of RAM, nothing buffered) and sets those knobs, except one turned in the last second, so a dump already on its way can't pull it back.
+- For that it needs to know where each knob's value sits in the dump and whether it is 7- or 14-bit: a table Night Shift writes with the pages (2 bytes per knob, 512 bytes for setup 15), in EEPROM stock doesn't use (0x0020–0x07FF). That would be the first thing Night Shift writes outside setup 15: your call.
+- Open: does the FH-2 answer SysEx that arrives on USB A, and where does its reply go? If to every output, Logic sees a 4 KB dump every few seconds (filter SysEx in its input settings), and Night Shift's own reads must not mistake it for their answer.
+
 **Live editing, EC4 side (planned, needs controlfrog):** you don't want an EEPROM write per edit. controlfrog 0.10 keeps only the page in view in RAM (`enc_cfg`/`push_cfg`, read from EEPROM on every page change and RELOAD), and a RAM copy of all of setup 15 (about 3.9 KB) doesn't fit (0.10 uses 5.8 of 8 KB). Plan:
 - A new protocol message that sets one knob or push of the page in view in RAM only, like TEXT. Night Shift sends its version of the page after every page change (STATE), as it does with the texts.
 - Send to EC4 becomes Store: one EEPROM write when you're done, needed for playing with the EC4 on the FH-2's USB A without Night Shift.
@@ -335,6 +341,7 @@ Hardware results: learning a knob works (2026-11-03).
 - **The top bar stays one row** at any window width. The FH-2's buttons are one group, "FH-2 · Live · Get · Send · Save" (their full names on hover); Rack… moved into the File menu; Undo and Redo are arrows. When space runs out, the status line gives way first (cut off, full text on hover), then the mark, the config name and the scenes; below 1400 px the brand and "Config" go, below 1180 px the mark becomes a coloured dot (words on hover) and "Scenes only" stays on the Scenes tab only. If even that doesn't fit, the bar scrolls sideways rather than wrapping.
 - **The voice editor, cleaned up:** Pitch (transpose, glide, bend range, bend down) and Notes (sustain pedal, legato gate, returning note, legato velocity) are apart; glide and the legato gate only show where they work (mono and Unison), bend down only with a bend range; the envelope only while the voice's Envelope output is on, or a trigger of type Envelope borrows its settings ("Used by the trigger on GT2·3").
 - Glide is the FH-2's portamento: always fingered (only between notes played legato), on mono voices and in Unison.
+- **A jack's MIDI knob on the jack** (your report: you couldn't find where to make it relative): its channel, CC, Learn and Relative were only on its channel's "CC → CV" source; the jack's own inspector now has them too.
 - **Relative knobs by default** (your call: you always use relative encoders): a CC Night Shift gives a setting is a relative mapping, and its EC4 knob relative (CCR1). Not for the three 14-bit settings (a CC → CV level, LFO rate, LFO depth): relative mappings are 7-bit (check 12), so they stay 14-bit absolute, with the FH-2's **Soft takeover** so a knob that disagrees picks up instead of jumping (check 23). Not for the commands on pushes either. The EC4 tab offers "Make relative" for absolute knobs Night Shift mapped before, and "Turn on" while Soft takeover is off and there are 14-bit knobs. A relative knob's value text waits for the read-back instead of guessing.
 
 ### Polish (the last milestone, your call 2026-11-04)
@@ -384,6 +391,7 @@ Each item is listed with the milestone that needs it.
 | 21 | With "Enable MIDI clock out" on, does the FH-2's clock reach USB C? **Not needed any more**: live sends don't wait for the music (2026-11-04) | — | — |
 | 22 | Is the stored level added to a voice's other outputs and to a shift register's CV, as to an LFO? **Yes, on every CV-type output except pitch** (your tests, 2026-11-03/04) | — | Night Shift shows it as Offset there |
 | 23 | Soft takeover (config) with 14-bit absolute CCs: does a knob that disagrees with the FH-2 pick up when it passes the current value, MSB and LSB together, or does it jump? | next update | Relative for the 14-bit settings too, in 127 steps |
+| 24 | Fine steps through the fine half of a 14-bit pair. **Absolute: no** (measured 2026-11-04, MSB first, ch 5 CC 1/33 → CV1·1): the fine half alone (CC 33) changes nothing, the coarse half alone waits, and the two land together when the fine half follows (coarse 65 then fine 6 → 8326). **Relative: no either**: with the mapping relative, steps on CC 33 change nothing, and steps on CC 1 move it by 128 each (+1, +2, +6, −1, −6 exact; 65 also counted as +1). So fine steps need 14-bit absolute | — | 14-bit absolute with Soft takeover, and the EC4 fetching values (above) |
 
 ## From your review of fh2-components.md (2026-11-01)
 
