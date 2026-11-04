@@ -4,8 +4,8 @@
 // config and preset it found back. Nothing is saved to flash. No DOM here: checks.html runs them.
 //
 // `rig` is { client (an Fh2 on the FH-2's port), send(bytes) (MIDI to the FH-2), log(text),
-// wait(ms), hardware, ask(question, answers) (resolves to the answer you pick) }. Every check
-// resolves to { summary, lines } for the results.
+// wait(ms), hardware, ask(question, answers) (resolves to the answer you pick), heard() (the CCs
+// that came in on the FH-2's port since the last call) }. Every check resolves to { summary, lines }.
 
 import { DUMPS, CMD } from './sysex.js';
 import { getPath, setPath, diff } from './layout.js';
@@ -67,24 +67,25 @@ async function install(rig, dump, values, what) {
   if (off.length) throw new Error(`the FH-2 holds something else for ${off.slice(0, 3).map((x) => x.path.join('.')).join(', ')}`);
 }
 
-// Puts back what the FH-2 held before the check: always called, also after a failure.
-async function restore(rig, start) {
-  rig.log('Putting your config and preset back…');
+// Puts back what the FH-2 held before the check: always called, also after a failure. With
+// `preset: false` the preset stays as the check left it (a scene reloaded from flash).
+async function restore(rig, start, { preset = true } = {}) {
+  rig.log(preset ? 'Putting your config and preset back…' : 'Putting your config back…');
   await install(rig, start.config, start.original.config, 'your config');
-  await install(rig, start.preset, start.original.preset, 'your preset');
-  rig.log('Done: the FH-2 holds what it held before.');
+  if (preset) await install(rig, start.preset, start.original.preset, 'your preset');
+  rig.log(preset ? 'Done: the FH-2 holds what it held before.' : 'Done: the FH-2 holds your config and the scene as saved.');
 }
 
 async function read(rig, path) {
   return getPath((await rig.client.pullPreset()).values, path);
 }
 
-async function run(rig, body) {
+async function run(rig, body, options) {
   const start = await begin(rig);
   try {
     return await body(start);
   } finally {
-    await restore(rig, start);
+    await restore(rig, start, options);
   }
 }
 
@@ -201,25 +202,32 @@ export function check18(rig) {
   });
 }
 
-// ---- checks 3 and 25: does the EC4 follow a scene change? Night Shift sends the program change
-// for your second scene on USB C, as Logic would, sees that the FH-2 loaded it, and asks what the
-// EC4 did. Which way it could have heard of it depends on the FH-2's settings, set before the run.
+// ---- checks 3 and 25: does the EC4 follow a scene change? You turn a knob on the EC4 first, so
+// the FH-2 differs from the scene; the check then reloads the scene the FH-2 is in by program
+// change on USB C, as Logic would, sees the values go back, and asks whether the EC4's knob went
+// back too. Which way it could have heard of it depends on the FH-2's settings, set before the run.
+// The FH-2 keeps the scene as saved afterwards (only your turn is gone), so the EC4 stays in step.
 
-export async function sceneSwitch(rig, scenes, question) {
+export function sceneReload(rig, scenes, question) {
   return run(rig, async (start) => {
     const ch = start.config.values.presetProgramChannel; // 0 off, else 1–16
     if (!ch) throw new Error('scenes by program change are off: set a channel on the Scenes tab');
-    const kept = scenes.filter((s) => s.slot && s.name);
-    if (kept.length < 2) throw new Error('needs two scenes with slots, saved with Save all');
-    const s = kept[1];
+    const name = start.preset.values.name.trim();
+    const s = scenes.find((x) => x.slot && x.name?.trim() === name);
+    if (!s) throw new Error(`the FH-2 holds “${name}”, which is none of your saved scenes: Save all first`);
+    rig.heard?.();
     rig.send([0xc0 | (ch - 1), s.slot - 1]);
     await rig.wait(PC_MS);
-    const name = (await rig.client.pullPreset()).values.name.trim();
-    rig.log(`program change ${s.slot - 1} on ch ${ch} → “${name}”`);
-    const lines = [`program change ${s.slot - 1} on ch ${ch}: the FH-2 loaded “${name}”${name === s.name.trim() ? '' : `, not “${s.name.trim()}”`}`];
-    const answer = await rig.ask(question(s.name.trim()), ['Followed', 'After Func + Group', 'Didn’t follow']);
+    const ccs = rig.heard?.() ?? null;
+    const now = (await rig.client.pullPreset()).values;
+    const back = diff(DUMPS[CMD.INSTALL_PRESET].layout, start.original.preset, now).length;
+    rig.log(`program change ${s.slot - 1} on ch ${ch} → “${now.name.trim()}”, ${back} value${back === 1 ? '' : 's'} back to the scene’s`);
+    const lines = [`program change ${s.slot - 1} on ch ${ch}: “${now.name.trim()}” reloaded, ${back} value${back === 1 ? '' : 's'} back to the scene’s`];
+    if (ccs) lines.push(ccs.length ? `the FH-2 sent ${ccs.length} CC${ccs.length === 1 ? '' : 's'} to USB C (ch ${[...new Set(ccs.map((c) => (c[0] & 15) + 1))].join(', ')})` : 'the FH-2 sent no CCs to USB C');
+    if (!back) return { summary: 'Nothing differed from the scene: turn a knob on the EC4 first', lines };
+    const answer = await rig.ask(question, ['Went back', 'After Func + Group', 'Stayed']);
     return { summary: `EC4: ${answer.toLowerCase()}`, lines };
-  });
+  }, { preset: false });
 }
 
 // ---- check 17: which preset slot a program change loads

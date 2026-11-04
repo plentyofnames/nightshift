@@ -7,7 +7,7 @@ import { DUMPS, CMD } from '../js/fh2/sysex.js';
 import { diff, getPath, setPath } from '../js/fh2/layout.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { EXAMPLE_HARDWARE, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
-import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneSwitch, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY } from '../js/fh2/checks.js';
+import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY } from '../js/fh2/checks.js';
 
 test('which rule a CC scaling follows', () => {
   const round = [0, 1, 2, 4, 64, 127].map((c) => [c, Math.round((c * 32) / 127)]);
@@ -91,27 +91,41 @@ test('a check run measures, then puts the config and preset back', async () => {
   eq(diff(DUMPS[CMD.INSTALL_CONFIG].layout, b.original.config, b.fh2.config).length, 0, 'config back after a failure');
 });
 
-test('a scene switch: the second scene by program change, your answer, then everything back', async () => {
+test('a scene reload: your turn goes, your answer, the scene stays as saved', async () => {
   const { fh2, slots, original, rig } = standIn();
   fh2.config.presetProgramChannel = 3;
-  const b = { ...structuredClone(original.preset), name: 'Scene B'.padEnd(original.preset.name.length) };
-  slots[4] = b;
-  const scenes = [{ name: original.preset.name, slot: 2 }, { name: 'Scene B', slot: 4 }];
+  slots[4] = structuredClone(original.preset); // the scene as saved in flash slot 4
+  setPath(fh2.preset, ['euclid', 0, 'pulses'], (getPath(original.preset, ['euclid', 0, 'pulses']) + 3) % 33); // you turned a knob
+  const scenes = [{ name: 'Other', slot: 2 }, { name: original.preset.name, slot: 4 }];
   let asked = '';
-  rig.ask = async (q, answers) => ((asked = q), answers[1]);
-  const r = await sceneSwitch(rig, scenes, (n) => `${n}?`);
-  eq(asked, 'Scene B?');
-  eq(r.summary, 'EC4: after func + group');
-  eq(r.lines, ['program change 3 on ch 3: the FH-2 loaded “Scene B”']);
-  eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'your preset back');
-  // nothing to switch to: a clear error, before anything is sent
+  const ccs = [[0xb1, 20, 99]]; // in before the check: not counted
+  const send = rig.send;
+  rig.send = (bytes) => {
+    send(bytes);
+    if ((bytes[0] & 0xf0) === 0xc0) ccs.push([0xb1, 20, 64]); // the FH-2's CCs on preset load
+  };
+  rig.heard = () => ccs.splice(0);
+  rig.ask = async (q, answers) => ((asked = q), answers[0]);
+  const r = await sceneReload(rig, scenes, 'Back?');
+  eq(asked, 'Back?');
+  eq(r.summary, 'EC4: went back');
+  eq(r.lines, [`program change 3 on ch 3: “${original.preset.name.trim()}” reloaded, 1 value back to the scene’s`, 'the FH-2 sent 1 CC to USB C (ch 2)']);
+  eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'the scene as saved, not your turn');
+  eq(fh2.installs, ['config'], 'only the config put back');
+  // nothing turned: no question, a hint instead
+  const b = standIn();
+  b.fh2.config.presetProgramChannel = 3;
+  b.slots[4] = structuredClone(b.original.preset);
+  b.rig.ask = async () => assert(false, 'not asked');
+  eq((await sceneReload(b.rig, scenes, 'Back?')).summary, 'Nothing differed from the scene: turn a knob on the EC4 first');
+  // a preset that is none of the scenes: a clear error, before anything is sent
   const c = standIn();
-  c.fh2.config.presetProgramChannel = 0;
+  c.fh2.config.presetProgramChannel = 3;
   let error = '';
   try {
-    await sceneSwitch(c.rig, scenes, (n) => n);
+    await sceneReload(c.rig, [{ name: 'Other', slot: 2 }], 'Back?');
   } catch (e) {
     error = e.message;
   }
-  assert(error.startsWith('scenes by program change are off'), error);
+  assert(error.includes('none of your saved scenes'), error);
 });
