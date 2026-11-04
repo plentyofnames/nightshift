@@ -387,4 +387,7 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .check-card ul.note { margin: 0 0 10px; padding-left: 18px; font-size: 12.5px; }
 .check-card .result { margin-top: 10px; font-size: 13px; }
 .check-card .result ul { margin: 6px 0; padding-left: 18px; font: 12px var(--mono); color: var(--dim); }
+.check-card .ask { margin-top: 10px; padding: 10px 12px; border-radius: 9px; background: var(--bg); }
+.check-card .ask p { margin: 0 0 8px; }
+.checks-page .checks-head { grid-column: 1 / -1; margin: 8px 0 0; font-size: 15px; }
 .check-card .log { margin: 10px 0 0; max-height: 220px; overflow: auto; font: 12px var(--mono); color: var(--dim); white-space: pre-wrap; }

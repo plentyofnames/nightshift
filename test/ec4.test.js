@@ -8,8 +8,8 @@ import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage,
-  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toRelative, switchOffAll } from '../js/ec4/pages.js';
-import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncOffset, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES } from '../js/ec4/setup.js';
+  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
+import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncEntry, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES, SYNC_EXTRA, SYNC_FORMAT } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
 import { MockDevice } from '../vendor/lilypad/js/mock.js';
@@ -208,7 +208,7 @@ test('the pages become EC4 setup 15, and nothing else changes', () => {
     refused = true;
   }
   assert(refused, 'a change outside setup 15 is refused');
-  eq(OWNED.reduce((n, [, len]) => n + len, 0), 256 + 64 + 3072 + 512 + 4 + 64 + 512, 'setup 15, its name, and the FH-2 sync table');
+  eq(OWNED.reduce((n, [, len]) => n + len, 0), 256 + 64 + 3072 + 512 + 4 + 64 + 512 + 512, 'setup 15, its name, and the FH-2 sync table (A and B)');
 });
 
 test('with the pages goes the FH-2 sync table: where each 14-bit knob’s value sits in the preset dump', () => {
@@ -225,7 +225,7 @@ test('with the pages goes the FH-2 sync table: where each 14-bit knob’s value 
   const c = pages[g].cells[0];
   eq([c.setting.param, c.map.bits], ['directLevel', 14]);
   eq(entry(g, 0), 24 + 2 * c.setting.index, 'a direct level: 24 + 2·output in the body');
-  eq(syncOffset(c), entry(g, 0));
+  eq(syncEntry(c, { format: 1 }).a, entry(g, 0));
   const e = pages.findIndex((pg) => pg.id === 'euclid:0');
   eq(entry(e, 0), 0xffff, 'a 7-bit knob has none');
   eq(entry(15, 15), 0xffff, 'nor a free one');
@@ -263,27 +263,25 @@ test('page names', () => {
   eq(liveKeys(p.names), Array(16).fill(''));
 });
 
-test('knobs Night Shift maps are relative, except 14-bit settings and the commands on pushes', () => {
+test('knobs Night Shift maps are absolute again: the sync keeps them in step', () => {
   const p = fresh();
   const pick = (k) => {
     eq(modelOf(p).mapOf(k), null, `${k} has no CC yet`);
     on(p, k);
     return modelOf(p).mapOf(k);
   };
-  const pulses = pick(key('euclid', 0, 'gate'));
-  eq([pulses.relative, pulses.bits], [true, 7], 'a 7-bit setting: relative');
+  const gate = pick(key('euclid', 0, 'gate'));
+  eq([gate.relative, gate.bits], [false, 7], 'a 7-bit setting: absolute');
   const cell = modelOf(p).pages.flatMap((pg) => pg.cells).find((c) => c?.key === key('euclid', 0, 'gate'));
-  eq(encoderOf(cell, viewOf(p), 1).type, M.T.CCR1, 'and so is its EC4 knob');
+  eq(encoderOf(cell, viewOf(p), 1).type, M.T.CCAB, 'and so is its EC4 knob');
   const depth = pick(key('output', 5, 'lfoLevel'));
-  eq([depth.relative, depth.bits], [false, 14], '14-bit stays absolute');
-  const add = pick(key('converter', 1, 'arpAdd'));
-  eq(add.relative, false, 'a command on a push stays absolute');
-  // one made before knobs were relative by default can be made relative
-  apply(p, [{ dump: 'config', path: ['mapping', pulses.slot, 'target'], value: p.config.values.mapping[pulses.slot].target & ~32 }]);
-  const r = toRelative(p.config.values, modelOf(p), p.names);
-  eq(r.keys, [key('euclid', 0, 'gate')], 'only Night Shift’s 7-bit absolute knobs');
+  eq([depth.relative, depth.bits], [false, 14], '14-bit');
+  // one made while 7-bit knobs were relative can be made absolute
+  apply(p, [{ dump: 'config', path: ['mapping', gate.slot, 'target'], value: p.config.values.mapping[gate.slot].target | 32 }]);
+  const r = toAbsolute(p.config.values, modelOf(p), p.names);
+  eq(r.keys, [key('euclid', 0, 'gate')], 'only Night Shift’s relative knobs');
   apply(p, r.changes);
-  eq(modelOf(p).mapOf(key('euclid', 0, 'gate')).relative, true);
+  eq(modelOf(p).mapOf(key('euclid', 0, 'gate')).relative, false);
 });
 
 test('every CV jack’s level and smoothing can go on the EC4: a free jack’s, and a voice’s offset', () => {
@@ -335,6 +333,36 @@ test('an LFO on top of a pitch offers no Centre; a knob on LIVE too counts once'
   on(p, k);
   apply(p, toggleLive(p.names, k));
   const slot = modelOf(p).mapOf(k).slot;
-  apply(p, [{ dump: 'config', path: ['mapping', slot, 'target'], value: p.config.values.mapping[slot].target & ~32 }]);
-  eq(toRelative(p.config.values, modelOf(p), p.names).keys, [k], 'once, though on its page and on LIVE');
+  apply(p, [{ dump: 'config', path: ['mapping', slot, 'target'], value: p.config.values.mapping[slot].target | 32 }]);
+  eq(toAbsolute(p.config.values, modelOf(p), p.names).keys, [k], 'once, though on its page and on LIVE');
+});
+
+test('sync table format 2: 7-bit knobs as they are, banded ones, the tempo', () => {
+  const p = fresh();
+  for (const param of ['pulses', 'steps', 'gate']) on(p, key('euclid', 0, param));
+  on(p, key('global', 0, 'tempo'));
+  const view = viewOf(p);
+  const { pages, channel } = pagesOf(view, p.names);
+  const img = setupImage(demoImage(), pages, view, channel, { format: 2, tempoMin: 59 });
+  eq(img[SYNC_HEADER + 3], 2, 'format 2');
+  eq(img[SYNC_HEADER + 7], 0, 'no scene program change channel given: 0');
+  eq(setupImage(demoImage(), pages, view, channel, { format: 2, programChannel: 5 })[SYNC_HEADER + 7], 5, 'scenes by program change on ch 5');
+  eq(setupImage(demoImage(), pages, view, channel, { format: 1, programChannel: 5 })[SYNC_HEADER + 7], 0, 'format 1 keeps 0');
+  const at = (k, image = img) => {
+    const g = pages.findIndex((pg) => pg.cells.some((c) => c?.key === k));
+    const i = pages[g].cells.findIndex((c) => c?.key === k);
+    const o = 32 * g + 2 * i;
+    return { a: (image[SYNC_ENTRIES + o] << 8) | image[SYNC_ENTRIES + o + 1], b: [image[SYNC_EXTRA + o], image[SYNC_EXTRA + o + 1]] };
+  };
+  const pulses = at(key('euclid', 0, 'pulses'));
+  eq([pulses.a >> 12, pulses.b], [2, [33, 0]], 'pulses: banded, 33 bands from 0');
+  eq(at(key('euclid', 0, 'steps')).b, [33 | 0x40, 0], 'steps: the same, held at 1');
+  const gate = at(key('euclid', 0, 'gate'));
+  eq([gate.a >> 12, gate.b], [1, [0xff, 0xff]], 'gate length: as it is');
+  const tempo = at(key('global', 0, 'tempo'));
+  eq([tempo.a >> 12, tempo.b], [3, [60, 0]], 'the tempo: CC 0 is 60 BPM');
+  // format 1 (controlfrog 0.11) has only the 14-bit knobs
+  const one = setupImage(demoImage(), pages, view, channel, { format: 1 });
+  eq([one[SYNC_HEADER + 3], at(key('euclid', 0, 'pulses'), one).a, at(key('global', 0, 'tempo'), one).a], [1, 0xffff, 0xffff], 'format 1: no 7-bit entries');
+  eq([SYNC_FORMAT({ fwMajor: 0, fwMinor: 11 }), SYNC_FORMAT({ fwMajor: 0, fwMinor: 12 })], [1, 2]);
 });

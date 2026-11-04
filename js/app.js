@@ -23,8 +23,8 @@ import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
-  wholePage, strayMappings, removeMappings, toRelative, SETUP } from './ec4/pages.js';
-import { readSetup, setupImage, setupState, writesFor, writeSetup, syncOffset } from './ec4/setup.js';
+  wholePage, strayMappings, removeMappings, toAbsolute, SETUP } from './ec4/pages.js';
+import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, SYNC_FORMAT, SYNC_MAX } from './ec4/setup.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
@@ -892,16 +892,18 @@ async function sendEc4() {
     await withDevice(async (device, info) => {
       if (!link) state.ec4.note = `controlfrog ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
       const base = await readSetup(device, (k, n) => status(`Reading EC4 setup ${SETUP + 1}… ${Math.round((100 * k) / n)} %`));
-      const img = setupImage(base, model.pages, state.view, model.channel);
+      const sync = { format: SYNC_FORMAT(info), tempoMin: state.config.values.tempoMin, programChannel: state.config.values.presetProgramChannel };
+      const img = setupImage(base, model.pages, state.view, model.channel, sync);
       const writes = writesFor(img, base);
-      const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncOffset(c) != null).length, 0);
+      const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0);
       if (!writes.length) return status('The EC4 has these pages already');
       const now = setupState(base);
       const holds = now.ours ? 'Night Shift’s pages' : now.free ? 'nothing of yours' : `“${now.name.trim()}” (${now.groups.slice(0, 4).map((g) => g.trim()).join(', ')}…)`;
       const ok = await modal($('dialog'), {
         title: `Write the pages to EC4 setup ${SETUP + 1}?`,
         body: h('p', { class: 'note' }, `Setup ${SETUP + 1} holds ${holds}; it is replaced. The other setups stay as they are. `
-          + `With it goes the table that lets the EC4 ask the FH-2 for its 14-bit values (controlfrog 0.11${synced ? `, ${synced} knob${synced === 1 ? '' : 's'}` : ', none on the pages yet'}).`),
+          + `With it goes the table that lets the EC4 ask the FH-2 for its ${sync.format > 1 ? '' : '14-bit '}values (controlfrog ${sync.format > 1 ? '0.12' : '0.11'}${synced ? `, ${synced} knob${synced === 1 ? '' : 's'}` : ', none on the pages yet'}).`
+          + (sync.format > 1 && synced > SYNC_MAX ? ` The EC4 keeps only the first ${SYNC_MAX} in step.` : '')),
         buttons: [{ label: 'Cancel', value: false }, { label: 'Write', value: true, primary: true }],
       });
       if (!ok) return status('');
@@ -1249,7 +1251,7 @@ function render() {
     pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
     rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
     link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru,
-    relative: toRelative(state.config.values, state.ec4Model, state.names), makeRelative: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} relative`, r.changes),
+    relative: toAbsolute(state.config.values, state.ec4Model, state.names), makeAbsolute: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} absolute`, r.changes),
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy, ec4 });

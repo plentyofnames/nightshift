@@ -8,13 +8,16 @@
 // config's mapping is relative. Free knobs send CC 119 relative on the pages channel, which
 // nothing maps, so turning one does nothing. Pushes carry the FH-2's commands; the rest are off.
 //
-// With the pages goes controlfrog's FH-2 sync table (firmware 0.11, its docs/protocol.md "FH-2
-// sync table"): where each 14-bit knob's value sits in the FH-2's preset dump, so that the EC4,
-// plugged into the FH-2 without a computer, asks the FH-2 for those values and its knobs start
-// where the FH-2 is. These are the only bytes Night Shift writes outside setup 15.
+// With the pages goes controlfrog's FH-2 sync table (its docs/protocol.md "FH-2 sync table"):
+// where each knob's value sits in the FH-2's preset dump and how it maps onto the knob, so that
+// the EC4, plugged into the FH-2 without a computer, asks the FH-2 for those values, its knobs
+// start where the FH-2 is, and it can show them. Format 1 (controlfrog 0.11) has only the 14-bit
+// knobs; format 2 (0.12) the 7-bit ones too. These are the only bytes Night Shift writes outside
+// setup 15.
 
 import * as M from '../../vendor/lilypad/js/model.js';
 import { SETUP, GROUPS, KNOBS, SWITCHES, DEAD_CC, HIRES } from './pages.js';
+import { pathOf, bandsOf } from './values.js';
 import { DUMPS, CMD } from '../fh2/sysex.js';
 
 export const SETUP_NAME = 'FH-2';
@@ -23,12 +26,17 @@ const SCALE = { off: 0, n127: 1, n1000: 3, pm500: 6, onoff: 7 };
 const MODE = { acc0: 3, acc1: 4, acc2: 5 };
 
 export const SYNC_HEADER = 0x05c0; // 8 bytes; the rest of its page stays blank
-export const SYNC_ENTRIES = 0x0600; // 2 bytes per knob of setup 15 at + 32·group + 2·knob, MSB first; FFFF: none
-const SYNC_MAGIC = [0x46, 0x48, 0x32, 0x01]; // "FH2", table format 1
+export const SYNC_ENTRIES = 0x0600; // table A: 2 bytes per knob of setup 15 at + 32·group + 2·knob, MSB first; FFFF: none
+export const SYNC_EXTRA = 0x0200; // table B (format 2): per knob the same way, how a banded value or the tempo maps
+const SYNC_MAGIC = [0x46, 0x48, 0x32]; // "FH2", then the format
 const SYNC_TO_USB = 1; // where the EC4 sends its requests: USB (the FH-2's USB A)
+export const SYNC_FORMAT = (info) => (info && (info.fwMajor > 0 || info.fwMinor >= 12) ? 2 : 1); // 7-bit knobs from controlfrog 0.12
+// From 0.12 one dump sets the knobs of every page (at power-on and on Func + Group), up to this many,
+// in page and knob order; the rest don't follow the FH-2 (your call, 2026-11-04: 3 or 4 pages at most).
+export const SYNC_MAX = 64;
 
 // The byte ranges [addr, len] that are Night Shift's: setup 15, its name, and the FH-2 sync table.
-export const OWNED = [...M.setupRanges(SETUP), [M.setupNameAddr(SETUP), 4], [SYNC_HEADER, 64], [SYNC_ENTRIES, 512]];
+export const OWNED = [...M.setupRanges(SETUP), [M.setupNameAddr(SETUP), 4], [SYNC_HEADER, 64], [SYNC_ENTRIES, 512], [SYNC_EXTRA, 512]];
 export const owns = (addr) => OWNED.some(([a, n]) => addr >= a && addr < a + n);
 
 // What a knob's encoder sends: { type, channel, number, mode, scale, lower, upper, name }.
@@ -53,20 +61,37 @@ export function pushOf(push) {
   return { type: M.PT.CC, channel: push.map.channel, mode: 0, number: push.map.cc, display: 1, lower: 0, upper: 127 };
 }
 
-// Where a knob's value sits in the FH-2's preset dump body, for the sync table: only 14-bit
-// absolute knobs (the EC4 sends them as CCAh), which the FH-2 keeps as u14; else null.
+// A knob's entry in the sync table, or null (a relative knob needs none): { a, b } with a =
+// type << 12 | the value's offset in the preset dump body, b = table B's two bytes. Types: 0 a
+// 14-bit knob (u14); 1 a 7-bit one the FH-2 takes as it is (u7); 2 a banded one (u7; b: bands
+// n, 0x40 if held at 1, and the value of the first band as a signed byte; hardware check 19); 3
+// the tempo (u28 in tenths; b: the BPM of CC 0, tempoMin + 1, check 18). Format 1 has type 0
+// only. controlfrog takes type 0 only on CCAh knobs and 1–3 only on CCAb ones, as encoderOf makes them.
 const PRESET = DUMPS[CMD.INSTALL_PRESET];
-export function syncOffset(cell) {
+export function syncEntry(cell, { format = 2, tempoMin = null } = {}) {
   const m = cell?.map;
-  if (!m || cell.gone || m.relative || m.bits !== 14 || cell.setting.kind !== 'output' || !HIRES.has(cell.setting.param)) return null;
-  const f = PRESET.layout.fields.find((x) => x.path[0] === 'output' && x.path[1] === cell.setting.index && x.path[2] === cell.setting.param);
-  return f ? f.offset : null;
+  if (!m || cell.gone || m.relative) return null;
+  const path = pathOf(cell.setting);
+  const f = path && PRESET.layout.fields.find((x) => x.path.length === path.length && x.path.every((p, i) => p === path[i]));
+  if (!f) return null;
+  const t = cell.setting;
+  if (m.bits === 14 && HIRES.has(t.param) && f.type.size === 2) return { a: f.offset, b: null };
+  if (format < 2) return null;
+  if (t.kind === 'global' && t.param === 'tempo') return tempoMin == null ? null : { a: (3 << 12) | f.offset, b: [tempoMin + 1, 0] };
+  if (f.type.size !== 1) return null;
+  const bands = bandsOf(t);
+  return bands ? { a: (2 << 12) | f.offset, b: [bands.n | (bands.min === 1 ? 0x40 : 0), bands.from & 0xff] } : { a: (1 << 12) | f.offset, b: null };
 }
 
-// `base` (64 KB, what the EC4 holds) with setup 15 replaced by the pages, and the sync table.
-export function setupImage(base, pages, view, channel) {
+// `base` (64 KB, what the EC4 holds) with setup 15 replaced by the pages, and the sync table in
+// `sync.format` (1 for controlfrog 0.11, 2 from 0.12; `sync.tempoMin` from the config). Format 2's
+// header byte 7 is `sync.programChannel`, the config's preset program change channel (1–16, 0 off):
+// a program change there makes the EC4 ask the FH-2 again, as the scene changes (your call, 2026-11-04).
+export function setupImage(base, pages, view, channel, sync = {}) {
   const img = Uint8Array.from(base);
-  img.set([...SYNC_MAGIC, SETUP, PRESET.version, SYNC_TO_USB, 0], SYNC_HEADER);
+  const format = sync.format ?? 1;
+  const program = format > 1 ? sync.programChannel ?? 0 : 0;
+  img.set([...SYNC_MAGIC, format, SETUP, PRESET.version, SYNC_TO_USB, program >= 1 && program <= 16 ? program : 0], SYNC_HEADER);
   img.fill(0xff, SYNC_HEADER + 8, SYNC_HEADER + 64);
   M.writeName(img, M.setupNameAddr(SETUP), SETUP_NAME);
   for (let g = 0; g < GROUPS; g++) {
@@ -81,8 +106,9 @@ export function setupImage(base, pages, view, channel) {
       const p = pushOf(page?.pushes[i]);
       for (const f of ['type', 'channel', 'mode', 'number', 'display', 'lower', 'upper']) M.setPush(img, SETUP, g, i, f, p[f]);
       if (i < 15) M.setPush(img, SETUP, g, i, 'link', 0);
-      const o = syncOffset(page?.cells[i]);
-      img.set(o == null ? [0xff, 0xff] : [o >> 8, o & 0xff], SYNC_ENTRIES + 32 * g + 2 * i);
+      const sy = syncEntry(page?.cells[i], { format, tempoMin: sync.tempoMin });
+      img.set(sy ? [sy.a >> 8, sy.a & 0xff] : [0xff, 0xff], SYNC_ENTRIES + 32 * g + 2 * i);
+      img.set(sy?.b ?? [0xff, 0xff], SYNC_EXTRA + 32 * g + 2 * i);
     }
   }
   return img;

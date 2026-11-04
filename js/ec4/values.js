@@ -49,7 +49,7 @@ const BANDS = {
   'euclid:reset': { from: 0, n: 33 }, 'converter:arpRange': { from: 1, n: 3 }, 'converter:arpLatch': { from: 0, n: 2 },
   'global:swingType': { from: 0, n: 3 },
 };
-const bandsOf = (t) => BANDS[`${t.kind}:${t.param}`] ?? null;
+export const bandsOf = (t) => BANDS[`${t.kind}:${t.param}`] ?? null;
 
 // The tempo CC (check 18, with the config's tempoMin and tempoMax both 59): CC n is tempoMin + 1 + n
 // BPM, 60–187 here. What tempoMax does is still open. The preset keeps the tempo in tenths.

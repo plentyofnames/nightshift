@@ -35,12 +35,9 @@ export const HIRES = new Set(['directLevel', 'lfoSpeed', 'lfoLevel']);
 // On/off settings, shown ON/OFF on the EC4.
 export const SWITCHES = new Set(['arpLatch']);
 
-// A knob Night Shift maps is relative (your call, 2026-11-04): it never jumps. The FH-2 takes
-// 14-bit values only as absolute ones, so the 14-bit settings stay absolute (with its Soft
-// takeover), and so do the commands a push sends (127 while held, 0 on release; arp truncate
-// takes a value).
-const ABSOLUTE = new Set([...COMMANDS, 'nudgeFaster', 'nudgeSlower', 'tempoUp', 'tempoDown']);
-export const relativeFor = (t) => !HIRES.has(t.param) && !ABSOLUTE.has(t.param);
+// A knob Night Shift maps is absolute: the EC4's FH-2 sync (controlfrog 0.11 for 14-bit, 0.12
+// for 7-bit too) and Night Shift's live link keep it where the FH-2 is, so it doesn't jump, and
+// the EC4 can show its value (your call, 2026-11-04; for a while 7-bit knobs were relative).
 
 export const settingKey = (t) => `${t.kind}:${t.index}:${t.param}`;
 export function settingOf(key) {
@@ -385,19 +382,19 @@ class Allocator {
     if (!got) return null;
     const slot = this.slots.shift();
     const f = (field, value) => ({ dump: 'config', path: ['mapping', slot, field], value });
-    return [f('status', 0x30 | pool.channel), f('cc', got.cc), f('target', code.target + (relativeFor(t) ? 32 : 0)), f('index', code.index)];
+    return [f('status', 0x30 | pool.channel), f('cc', got.cc), f('target', code.target), f('index', code.index)];
   }
 }
 
-// The absolute knobs on the pages that Night Shift mapped and that could be relative (from before
-// knobs were relative by default), and the changes that make them so: { keys, changes }.
-export function toRelative(config, model, names) {
+// The relative knobs on the pages that Night Shift mapped (while 7-bit knobs were relative by
+// default), and the changes that make them absolute: { keys, changes }.
+export function toAbsolute(config, model, names) {
   const made = madeKeys(names);
   const cells = [...new Map(model.pages.flatMap((p) => p.cells.filter(Boolean)).map((c) => [c.key, c])).values()]; // once each, LIVE too
-  const keys = cells.filter((c) => c.map && !c.map.relative && made.has(c.key) && relativeFor(c.setting)).map((c) => c.key);
+  const keys = cells.filter((c) => c.map?.relative && made.has(c.key)).map((c) => c.key);
   const changes = keys.map((k) => {
     const slot = model.mapOf(k).slot;
-    return { dump: 'config', path: ['mapping', slot, 'target'], value: config.mapping[slot].target | 32 };
+    return { dump: 'config', path: ['mapping', slot, 'target'], value: config.mapping[slot].target & ~32 };
   });
   return { keys, changes };
 }

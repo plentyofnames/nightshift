@@ -7,7 +7,7 @@ import { DUMPS, CMD } from '../js/fh2/sysex.js';
 import { diff, getPath, setPath } from '../js/fh2/layout.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { EXAMPLE_HARDWARE, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
-import { fitScaling, withMapping, testChannel, hiddenOutput, check19, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY } from '../js/fh2/checks.js';
+import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneSwitch, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY } from '../js/fh2/checks.js';
 
 test('which rule a CC scaling follows', () => {
   const round = [0, 1, 2, 4, 64, 127].map((c) => [c, Math.round((c * 32) / 127)]);
@@ -52,14 +52,16 @@ function standIn() {
     },
     verifyInstall: async (dump, values) => diff(DUMPS[dump.cmd].layout, values, fh2[dump.kind]),
   };
+  const slots = {}; // flash slot → preset values, for program changes (N loads slot N + 1)
   const send = (bytes) => {
+    if ((bytes[0] & 0xf0) === 0xc0 && slots[bytes[1] + 1]) fh2.preset = structuredClone(slots[bytes[1] + 1]);
     const s = SCALED_SETTINGS[bytes[1] - 70];
     if ((bytes[0] & 0xf0) !== 0xb0 || !s) return;
     const [lo, hi] = s.range;
     setPath(fh2.preset, s.path, lo + Math.round((bytes[2] * (hi - lo)) / 127));
   };
-  return { fh2, original: { config: structuredClone(config.values), preset: structuredClone(preset.values) },
-    rig: { client, send, log: () => {}, wait: async () => {}, hardware: DEFAULT_HARDWARE } };
+  return { fh2, slots, original: { config: structuredClone(config.values), preset: structuredClone(preset.values) },
+    rig: { client, send, log: () => {}, wait: async () => {}, hardware: DEFAULT_HARDWARE, ask: async (q, answers) => answers[0] } };
 }
 
 test('a check run measures, then puts the config and preset back', async () => {
@@ -87,4 +89,29 @@ test('a check run measures, then puts the config and preset back', async () => {
   }
   assert(failed, 'the error comes through');
   eq(diff(DUMPS[CMD.INSTALL_CONFIG].layout, b.original.config, b.fh2.config).length, 0, 'config back after a failure');
+});
+
+test('a scene switch: the second scene by program change, your answer, then everything back', async () => {
+  const { fh2, slots, original, rig } = standIn();
+  fh2.config.presetProgramChannel = 3;
+  const b = { ...structuredClone(original.preset), name: 'Scene B'.padEnd(original.preset.name.length) };
+  slots[4] = b;
+  const scenes = [{ name: original.preset.name, slot: 2 }, { name: 'Scene B', slot: 4 }];
+  let asked = '';
+  rig.ask = async (q, answers) => ((asked = q), answers[1]);
+  const r = await sceneSwitch(rig, scenes, (n) => `${n}?`);
+  eq(asked, 'Scene B?');
+  eq(r.summary, 'EC4: after func + group');
+  eq(r.lines, ['program change 3 on ch 3: the FH-2 loaded “Scene B”']);
+  eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'your preset back');
+  // nothing to switch to: a clear error, before anything is sent
+  const c = standIn();
+  c.fh2.config.presetProgramChannel = 0;
+  let error = '';
+  try {
+    await sceneSwitch(c.rig, scenes, (n) => n);
+  } catch (e) {
+    error = e.message;
+  }
+  assert(error.startsWith('scenes by program change are off'), error);
 });

@@ -7,7 +7,7 @@ import { h, $, replace } from '../vendor/lilypad/js/dom.js';
 import { midiTransport } from '../vendor/lilypad/js/midi.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
-import { check17, check18, check19, check23, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
+import { check17, check18, check19, check23, sceneSwitch, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
 import { DEFAULT_HARDWARE, validHardware } from './patch/hardware.js';
 import { projectFromJson } from './patch/project.js';
 
@@ -26,9 +26,25 @@ const CHECKS = [
   { id: 23, title: 'Soft takeover', question: 'With Soft takeover on, does a knob that disagrees with the FH-2 jump, or wait and pick up? A 14-bit one, and a 7-bit one.',
     before: ['Turns Soft takeover on in its test config only: yours comes back as it was.', 'Uses an output outside your rack, so nothing changes on your jacks.'],
     run: check23 },
+  // before a gig: the EC4 on the FH-2's USB A, the Mac on USB C (your call, 2026-11-04)
+  { id: 3, gig: true, title: 'Send CCs on preset load', question: 'With “Send CCs on preset ld” on, does a scene change reach the EC4\'s knobs?',
+    before: ['FH-2: Send CCs on preset ld on, no MIDI forwarding to USB A.', 'EC4 on the FH-2\'s USB A. Turn a knob first, so it differs from the scene.'],
+    run: (rig) => sceneSwitch(rig, keptScenes(), (n) => `“${n}” is loaded. Did the EC4's knobs go to its values?`) },
+  { id: 25, gig: true, title: 'The EC4 hears the program change', question: 'With the program change forwarded to USB A, does the EC4 ask the FH-2 again?',
+    before: ['controlfrog 0.12. FH-2: MIDI forwarding USB C → USB A on, Send CCs on preset ld off.', 'EC4 on the FH-2\'s USB A. Turn a knob first, so it differs from the scene.'],
+    run: (rig) => sceneSwitch(rig, keptScenes(), (n) => `“${n}” is loaded. Did the EC4's knobs go to its values?`) },
+  { id: 26, gig: true, title: 'Cold start', question: 'Power off and on without the Mac: does the FH-2 start with your config and first scene, and the EC4 with its values?',
+    before: ['Startup config and preset are FH-2 settings (Settings tab).'],
+    manual: ['Both right', 'Wrong config or scene', 'EC4 values wrong'] },
+  { id: 27, gig: true, title: 'Clock', question: 'Start Logic or the DIN clock: does the FH-2 follow start, stop and tempo?',
+    before: ['Ignore clock per port: Settings tab.'],
+    manual: ['Follows', 'Doesn\'t follow'] },
+  { id: 28, gig: true, title: 'Func + Group while playing', question: 'With the music running, press Func + Group a few times: do the knobs update, and does the music go on evenly?',
+    before: ['controlfrog 0.12.'],
+    manual: ['Fine', 'Stutters', 'No update'] },
 ];
 
-const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, port: '', error: '' };
+const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, port: '', error: '', asking: null };
 
 function load(key) {
   try {
@@ -56,6 +72,21 @@ function keptScenes() {
   }
 }
 
+// A question in the running check's card; resolves to the answer clicked.
+function ask(text, answers) {
+  return new Promise((resolve) => {
+    state.asking = { text, answers, resolve };
+    render();
+  });
+}
+
+function reply(a) {
+  const q = state.asking;
+  state.asking = null;
+  log(`${q.text} ${a}`);
+  q.resolve(a);
+}
+
 function log(text) {
   state.log.push(text);
   render();
@@ -76,7 +107,7 @@ async function runCheck(c) {
     state.port = pair.name;
     const transport = midiTransport(pair.in, pair.out);
     client = new Fh2(transport);
-    const rig = { client, send: (bytes) => transport.send(Uint8Array.from(bytes)), log, wait: (ms) => new Promise((r) => setTimeout(r, ms)), hardware: hardware() };
+    const rig = { client, send: (bytes) => transport.send(Uint8Array.from(bytes)), log, wait: (ms) => new Promise((r) => setTimeout(r, ms)), hardware: hardware(), ask };
     const r = await c.run(rig);
     state.results[c.id] = { at: new Date().toISOString(), ...r };
     save();
@@ -136,6 +167,8 @@ function card(c) {
       : h('button', { type: 'button', class: 'btn primary', disabled: !!state.running, onclick: () => runCheck(c) }, running ? 'Running…' : r ? 'Run again' : 'Run')),
     r && h('div', { class: 'result' }, h('b', {}, r.summary), r.lines.length ? h('ul', {}, r.lines.map((l) => h('li', {}, l))) : null,
       h('span', { class: 'note' }, new Date(r.at).toLocaleString())),
+    running && state.asking && h('div', { class: 'ask' }, h('p', {}, h('b', {}, state.asking.text)),
+      h('div', { class: 'actions' }, state.asking.answers.map((a) => h('button', { type: 'button', class: 'btn', onclick: () => reply(a) }, a)))),
     running && h('pre', { class: 'log' }, state.log.join('\n')));
 }
 
@@ -148,7 +181,8 @@ function render() {
       state.error && h('span', { class: 'status' }, state.error),
       h('button', { type: 'button', class: 'btn', onclick: copy }, 'Copy results'),
       h('a', { class: 'btn', href: 'index.html' }, 'Night Shift')),
-    h('main', { class: 'checks' }, CHECKS.map(card),
+    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig).map(card),
+      h('h2', { class: 'checks-head' }, 'Before a gig'), CHECKS.filter((c) => c.gig).map(card),
       h('section', { class: 'check-card' }, h('h2', {}, 'Results'), h('pre', { class: 'log' }, resultsText()))));
 }
 

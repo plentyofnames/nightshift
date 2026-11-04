@@ -36,8 +36,8 @@ export function renderEc4(view, model, colors, sel, act) {
       ' ', h('button', { type: 'button', class: 'btn small', onclick: act.tidy, title: act.stray.map((s) => s.label).join(', ') }, 'Remove them')),
     // knobs mapped before they were relative by default; the 14-bit ones stay in step through the
     // live link or the EC4's FH-2 sync, so Soft takeover would only make them wait (your call, 2026-11-04)
-    act.relative.keys.length > 0 && h('span', { class: 'note' }, `${act.relative.keys.length} absolute knob${act.relative.keys.length === 1 ? '' : 's'}`,
-      ' ', h('button', { type: 'button', class: 'btn small', onclick: () => act.makeRelative(act.relative), title: 'They can’t jump then; Send to EC4 afterwards' }, 'Make relative')),
+    act.relative.keys.length > 0 && h('span', { class: 'note' }, `${act.relative.keys.length} relative knob${act.relative.keys.length === 1 ? '' : 's'}`,
+      ' ', h('button', { type: 'button', class: 'btn small', onclick: () => act.makeAbsolute(act.relative), title: 'The EC4 can show their values then (controlfrog 0.12 keeps them in step); Send to EC4 afterwards' }, 'Make absolute')),
     act.softTakeover && pages.some((pg) => pg.cells.some((c) => c?.map?.bits === 14)) && h('span', { class: 'note warn-note' }, 'Soft takeover on: not needed with the FH-2 sync',
       ' ', h('button', { type: 'button', class: 'btn small', onclick: act.turnOffSoftTakeover, title: 'With it, a knob waits until it passes the FH-2’s value' }, 'Turn off')));
 

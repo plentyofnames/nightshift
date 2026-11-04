@@ -4,7 +4,8 @@
 // config and preset it found back. Nothing is saved to flash. No DOM here: checks.html runs them.
 //
 // `rig` is { client (an Fh2 on the FH-2's port), send(bytes) (MIDI to the FH-2), log(text),
-// wait(ms), hardware }. Every check resolves to { summary, lines } for the results.
+// wait(ms), hardware, ask(question, answers) (resolves to the answer you pick) }. Every check
+// resolves to { summary, lines } for the results.
 
 import { DUMPS, CMD } from './sysex.js';
 import { getPath, setPath, diff } from './layout.js';
@@ -197,6 +198,27 @@ export function check18(rig) {
       lines.push(`CC ${v}: ${t / 10} BPM`);
     }
     return { summary: `${lines[1].replace('CC 0: ', 'CC 0 → ')} … ${lines.at(-1).replace('CC 127: ', 'CC 127 → ')}`, lines };
+  });
+}
+
+// ---- checks 3 and 25: does the EC4 follow a scene change? Night Shift sends the program change
+// for your second scene on USB C, as Logic would, sees that the FH-2 loaded it, and asks what the
+// EC4 did. Which way it could have heard of it depends on the FH-2's settings, set before the run.
+
+export async function sceneSwitch(rig, scenes, question) {
+  return run(rig, async (start) => {
+    const ch = start.config.values.presetProgramChannel; // 0 off, else 1–16
+    if (!ch) throw new Error('scenes by program change are off: set a channel on the Scenes tab');
+    const kept = scenes.filter((s) => s.slot && s.name);
+    if (kept.length < 2) throw new Error('needs two scenes with slots, saved with Save all');
+    const s = kept[1];
+    rig.send([0xc0 | (ch - 1), s.slot - 1]);
+    await rig.wait(PC_MS);
+    const name = (await rig.client.pullPreset()).values.name.trim();
+    rig.log(`program change ${s.slot - 1} on ch ${ch} → “${name}”`);
+    const lines = [`program change ${s.slot - 1} on ch ${ch}: the FH-2 loaded “${name}”${name === s.name.trim() ? '' : `, not “${s.name.trim()}”`}`];
+    const answer = await rig.ask(question(s.name.trim()), ['Followed', 'After Func + Group', 'Didn’t follow']);
+    return { summary: `EC4: ${answer.toLowerCase()}`, lines };
   });
 }
 
