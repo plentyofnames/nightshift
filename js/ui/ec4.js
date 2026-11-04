@@ -4,12 +4,22 @@
 // page's object (on LIVE, of any object).
 
 import { h } from '../../vendor/lilypad/js/dom.js';
-import { SETUP, KNOBS } from '../ec4/pages.js';
+import { SETUP, KNOBS, GROUPS } from '../ec4/pages.js';
+
+// A knob being dragged: 'page|index' (dataTransfer only says what it holds once dropped).
+const DRAG = 'text/x-ec4-knob';
+const dragged = (e) => {
+  const [page, i] = (e.dataTransfer.getData(DRAG) || '').split('|');
+  return page ? { page, i: Number(i) } : null;
+};
 
 // `model`: pagesOf(); `sel`: { page, knob } or null. `act`: { select(page, knob), pick(page,
-// knob) (a free knob), takeOff(page, knob), off(key), live(key), addPage(pageId), whole(pageId),
-// map(), send(), rename(pageId), stray (mappings on no page), tidy(), busy, note (the EC4's
-// state, one line), link ({ ours, setup, group } while linked, else null), thru, toggleThru() }.
+// knob) (a free knob), takeOff(page, knob), off(key), live(key, livePage or null for a new one),
+// addLive(), removeLive(pageId), move(page, from, to), toLive(fromPage, knob, livePage),
+// addPage(pageId), whole(pageId), map(), send(), rename(pageId), stray (mappings on no page),
+// tidy(), busy, note (the EC4's state, one line), link ({ ours, setup, group } while linked,
+// else null), thru, toggleThru() }. Knobs are dragged to another place (they swap) or onto a
+// LIVE page in the list.
 export function renderEc4(view, model, colors, sel, act) {
   const { pages, extra, unmapped, channel } = model;
   const page = pages.find((p) => p.id === sel?.page) ?? pages[0];
@@ -48,14 +58,25 @@ export function renderEc4(view, model, colors, sel, act) {
   const addPage = without.length > 0 && h('select', { class: 'ec4-add', 'aria-label': 'Add a page', onchange: (e) => e.target.value && act.addPage(e.target.value) },
     h('option', { value: '' }, '+ Page for…'), without.map((o) => h('option', { value: o.page }, o.page === 'sequencers' ? 'Note sequencers' : o.name)));
 
+  const room = pages.length + extra.length < GROUPS;
   const groups = h('nav', { class: 'ec4-groups', 'aria-label': 'Pages' },
     pages.map((pg) => h('button', { type: 'button', 'aria-pressed': pg === page ? 'true' : 'false', style: `--src:${pg.source ? colors.get(pg.source) ?? 'var(--faint)' : 'var(--text)'}`,
-      onclick: () => act.select(pg.id, null) },
+      onclick: () => act.select(pg.id, null),
+      // a LIVE page takes a knob dropped on it
+      ondragover: (e) => pg.live && e.dataTransfer.types.includes(DRAG) && (e.preventDefault(), e.currentTarget.classList.add('drop')),
+      ondragleave: (e) => e.currentTarget.classList.remove('drop'),
+      ondrop: (e) => {
+        e.preventDefault();
+        const d = dragged(e);
+        if (d && pg.live) act.toLive(d.page, d.i, pg.id);
+      } },
       h('span', { class: 'n' }, String(pg.group + 1)),
       h('span', { class: 'name' }, pg.name),
       h('span', { class: 'src' }, pg.live ? 'yours' : pg.sub ?? sourceName(pg.source) ?? ''))),
     extra.length > 0 && h('p', { class: 'problem' }, `${extra.length} more don’t fit: ${extra.map((p) => p.name).join(', ')}`),
-    addPage);
+    addPage,
+    h('button', { type: 'button', class: 'btn small ec4-add-live', disabled: !room, onclick: act.addLive,
+      title: room ? 'A page of your own, from any source' : `${GROUPS} pages at most` }, '+ LIVE page'));
 
   if (!page) {
     return h('div', { class: 'ec4-page' }, head, h('div', { class: 'ec4' }, groups,
@@ -73,18 +94,32 @@ export function renderEc4(view, model, colors, sel, act) {
     'aria-pressed': c && i === knob ? 'true' : 'false', style: `--src:${colorOf(c)}`,
     'aria-label': c ? `Knob ${i + 1}: ${c.label}` : `Knob ${i + 1}: free, add a setting`,
     onclick: () => (c ? act.select(page.id, i) : act.pick(page.id, i)),
+    draggable: !!(c || page.pushes[i]),
+    ondragstart: (e) => {
+      e.dataTransfer.setData(DRAG, `${page.id}|${i}`);
+      e.dataTransfer.effectAllowed = 'move';
+    },
+    ondragover: (e) => e.dataTransfer.types.includes(DRAG) && (e.preventDefault(), e.currentTarget.classList.add('drop')),
+    ondragleave: (e) => e.currentTarget.classList.remove('drop'),
+    ondrop: (e) => {
+      e.preventDefault();
+      const d = dragged(e);
+      if (d && d.page === page.id) act.move(page.id, d.i, i);
+      else if (d && page.live) act.toLive(d.page, d.i, page.id);
+    },
   },
   h('span', { class: 'short' }, c ? c.short : '····'),
   h('span', { class: 'label' }, c ? c.label : '+ add'),
   page.pushes[i] && h('span', { class: 'push' }, `push: ${page.pushes[i].label}`),
-  c && h('span', { class: 'addr' }, address(c), c.onLive && !page.live ? ' · LIVE' : ''))));
+  c && h('span', { class: 'addr' }, address(c), !page.live && c.lives?.length ? ` · ${c.lives.map((id) => model.lives.find((l) => l.id === id)?.name).join(', ')}` : ''))));
 
   const face = h('section', { class: 'ec4-face', 'aria-label': `Page ${page.name}` },
     h('div', { class: 'ec4-title' },
       h('h3', {}, `Page ${page.group + 1} · `, h('span', { class: 'mono' }, page.name)),
       h('span', { class: 'actions' },
         fillable && h('button', { type: 'button', class: 'btn small', onclick: () => act.whole(page.id), title: 'Switches on the rest of the template' }, 'Whole page'),
-        h('button', { type: 'button', class: 'btn small', onclick: () => act.rename(page.id), title: 'Four characters, shown on the EC4' }, 'Rename'))),
+        h('button', { type: 'button', class: 'btn small', onclick: () => act.rename(page.id), title: 'Four characters, shown on the EC4' }, 'Rename'),
+        page.live && h('button', { type: 'button', class: 'btn small', onclick: () => act.removeLive(page.id), title: 'Its knobs come off it; undoable' }, 'Remove page'))),
     display, knobs);
 
   const c = page.cells[knob];
@@ -96,13 +131,22 @@ export function renderEc4(view, model, colors, sel, act) {
       row('Controls', c.gone ? 'gone from the patch' : `${sourceName(c.source) ?? 'Global'} · ${c.label.toLowerCase()}`),
       row('Sends', address(c)),
       row('Resolution', !c.map ? '—' : c.map.relative ? 'relative (up/down)' : c.map.bits === 14 ? '14-bit' : '7-bit'),
-      row('Push', push ? `${push.label} · ${address(push)}` : '—')),
+      row('Push', push ? `${push.label} · ${address(push)}` : '—'),
+      row('Place', h('select', { 'aria-label': `Place of knob ${knob + 1}`, onchange: (e) => act.move(page.id, knob, Number(e.target.value)) },
+        page.cells.map((x, i) => h('option', { value: String(i), selected: i === knob }, `${i + 1}${i === knob ? '' : x ? ` · swap with ${x.short}` : ' · free'}`))))),
+    // on a LIVE page of your own: each LIVE page is a button (on it, or off it; from a LIVE page, moved there)
     h('div', { class: 'actions' },
-      !page.live && h('button', { type: 'button', class: 'btn', disabled: !c.onLive && model.liveFull, onclick: () => act.live(c.key),
-        title: model.liveFull && !c.onLive ? `LIVE is full (${KNOBS} knobs)` : 'LIVE is a page of your own, from any source' },
-      c.onLive ? 'Take off LIVE' : 'Put on LIVE'),
+      model.lives.filter((l) => l.id !== page.id).map((l) => {
+        const here = c.lives?.includes(l.id);
+        return h('button', { type: 'button', class: 'btn', 'aria-pressed': page.live ? 'false' : here ? 'true' : 'false', disabled: !here && l.full,
+          onclick: () => (page.live ? act.toLive(page.id, knob, l.id) : act.live(c.key, l.id)),
+          title: !here && l.full ? `${l.name} is full (${KNOBS} knobs)` : page.live ? `Moves it to ${l.name}` : here ? `Takes it off ${l.name}` : `Puts it on ${l.name} too` },
+        page.live ? `To ${l.name}` : here ? `On ${l.name}` : `Put on ${l.name}`);
+      }),
+      !page.live && !model.lives.length && h('button', { type: 'button', class: 'btn', disabled: !room, onclick: () => act.live(c.key, null),
+        title: 'A page of your own, from any source' }, 'Put on LIVE'),
       h('button', { type: 'button', class: 'btn', onclick: () => (page.live ? act.takeOff(page.id, knob) : act.off(c.key)),
-        title: page.live ? '' : 'Off the EC4, LIVE included' }, page.live ? 'Take off LIVE' : 'Take off')));
+        title: page.live ? '' : 'Off the EC4, LIVE pages included' }, page.live ? `Take off ${page.name}` : 'Take off')));
 
   return h('div', { class: 'ec4-page' }, head, h('div', { class: 'ec4' }, groups, face, detail));
 }

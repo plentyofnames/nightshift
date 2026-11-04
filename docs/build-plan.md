@@ -295,7 +295,10 @@ Hardware results: learning a knob works (2026-11-03).
   - The templates only say where a knob goes on its page. "+ Page for…" on the EC4 tab makes a page with an object's whole template; "Whole page" fills in the rest of one.
   - The arp commands and truncate are in the voice's arpeggiator section ("On the EC4"); nudge, tempo ±0.1 and the display ones in Settings.
   - "n CCs on no page · Remove them" on the EC4 tab lists mappings on the pages channels that are on no page (not the CC knobs, whose mapping is the source), for what the earlier "give every knob a CC" left behind. They're shown before anything is removed, and it undoes.
-- **Next (your call, 2026-11-05): moving knobs, and more than one LIVE page.** Moving a knob to another place or page; LIVE pages you make and fill yourself, as many as you like, instead of the one.
+- **Moving knobs, and more than one LIVE page: built (2026-11-05).**
+  - Drag a knob onto another place of its page: the two swap, each with the push under it. The knob's panel has the same as a Place picker.
+  - "+ LIVE page" makes LIVE, then LIV2, LIV3…, in front of the object pages (`ec4:live`, `ec4:live:2`…; `ec4:lives` keeps an empty one). Drop a knob on a LIVE page in the list, or use the panel's button for each LIVE page: from its own page it goes on that LIVE page too (one CC, as before); from a LIVE page it moves. "Remove page" takes a LIVE page away with its knobs; a setting on no other page loses the CC Night Shift added for it. Each is one undoable step.
+  - Not yet: moving a setting onto another object's page (each object keeps its own page).
 - **Stashed for later** (your call, 2026-11-03): editing the pages.
   - Hide the pages of sources you don't play live.
   - Put two small pages in one group (two Euclids at 7 knobs each fit in 16).

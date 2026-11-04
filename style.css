@@ -346,6 +346,9 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .ec4-groups { display: flex; flex-direction: column; gap: 5px; }
 .ec4-groups button { display: grid; grid-template-columns: 18px 46px minmax(0, 1fr); align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; cursor: pointer; text-align: left; }
 .ec4-groups button[aria-pressed='true'] { border-color: var(--src); background: var(--panel2); }
+.ec4-groups button.ec4-add-live { display: block; text-align: center; margin-top: 4px; }
+.ec4-groups button.drop, .ec4-knobs .tile.drop { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.ec4-knobs .tile[draggable='true'] { cursor: grab; }
 .ec4-groups .n { font: 500 11px var(--mono); color: var(--faint); }
 .ec4-groups .name { font: 600 13px var(--mono); color: var(--src); white-space: pre; }
 .ec4-groups .src { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

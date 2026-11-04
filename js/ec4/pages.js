@@ -13,8 +13,9 @@
 //
 // Night Shift's own part lives in the patch's names: `ec4:add:<page>` and `ec4:push:<page>`
 // hold a page's 16 knobs and pushes as setting keys separated by commas (empty where one is
-// free), `ec4:live` LIVE's knobs, `ec4:page:<page>` a page's name, and `ec4:cc` the settings
-// whose mapping Night Shift added, the only ones it removes.
+// free), `ec4:live` LIVE's knobs (`ec4:live:2`… the further LIVE pages', `ec4:lives` the LIVE
+// pages you made, so an empty one stays), `ec4:page:<page>` a page's name, and `ec4:cc` the
+// settings whose mapping Night Shift added, the only ones it removes.
 
 import { encodeTarget, isUsed } from '../patch/mappings.js';
 import { replacesLevel } from '../patch/derive.js';
@@ -25,9 +26,14 @@ export const SETUP = 14; // the EC4 setup Night Shift owns: setup 15 (16 is the 
 export const GROUPS = 16;
 export const KNOBS = 16;
 export const LIVE_KEY = 'ec4:live';
+const LIVES_KEY = 'ec4:lives';
 const MADE_KEY = 'ec4:cc';
 export const pageNameKey = (id) => `ec4:page:${id}`;
-const knobsKey = (pageId) => (pageId === 'live' ? LIVE_KEY : `ec4:add:${pageId}`);
+// LIVE pages (your call, 2026-11-05: as many as you like): 'live', then 'live:2', 'live:3'…
+export const isLive = (pageId) => pageId === 'live' || /^live:\d+$/.test(pageId);
+const liveNumber = (id) => (id === 'live' ? 1 : Number(id.split(':')[1]));
+const liveName = (id) => (id === 'live' ? 'LIVE' : liveNumber(id) < 10 ? `LIV${liveNumber(id)}` : `LV${liveNumber(id)}`);
+const knobsKey = (pageId) => (pageId === 'live' ? LIVE_KEY : isLive(pageId) ? `ec4:${pageId}` : `ec4:add:${pageId}`);
 const pushesKey = (pageId) => `ec4:push:${pageId}`;
 
 // The settings the FH-2 takes as 14-bit (CC n below 32 with n + 32 as the fine half).
@@ -218,11 +224,18 @@ const listChange = (key, keys) => ({ dump: 'names', path: [key], value: keys.som
 // A page's knobs (on LIVE: all of them) and pushes, as stored: 16 setting keys or '' each.
 export const addedKeys = (names, pageId) => listOf(names, knobsKey(pageId));
 export const pushKeys = (names, pageId) => listOf(names, pushesKey(pageId));
-export const liveKeys = (names) => addedKeys(names, 'live');
+export const liveKeys = (names, pageId = 'live') => addedKeys(names, pageId);
+// The LIVE pages there are, in order: the ones you made and the ones holding knobs.
+export function liveIds(names) {
+  const made = (names?.[LIVES_KEY] ?? '').split(',').filter(isLive);
+  const holding = Object.keys(names ?? {}).filter((k) => k === LIVE_KEY || /^ec4:live:\d+$/.test(k)).map((k) => (k === LIVE_KEY ? 'live' : k.slice(4)));
+  return [...new Set([...made, ...holding])].sort((a, b) => liveNumber(a) - liveNumber(b));
+}
+const livesChange = (ids) => ({ dump: 'names', path: [LIVES_KEY], value: ids.length ? ids.join(',') : null });
 const madeKeys = (names) => new Set((names?.[MADE_KEY] ?? '').split(',').filter(Boolean));
 const madeChange = (set) => ({ dump: 'names', path: [MADE_KEY], value: set.size ? [...set].join(',') : null });
 // every stored page list: [names key, keys]
-const storedLists = (names) => Object.keys(names ?? {}).filter((k) => k === LIVE_KEY || k.startsWith('ec4:add:') || k.startsWith('ec4:push:'))
+const storedLists = (names) => Object.keys(names ?? {}).filter((k) => k === LIVE_KEY || /^ec4:live:\d+$/.test(k) || k.startsWith('ec4:add:') || k.startsWith('ec4:push:'))
   .map((k) => [k, listOf(names, k)]);
 
 // Puts setting `key` on knob `i` of a page (null takes it off).
@@ -231,17 +244,62 @@ export function placeKnob(names, pageId, i, key) {
   keys[i] = key ?? '';
   return [listChange(knobsKey(pageId), keys)];
 }
-// Puts a setting on the first free LIVE knob, or takes it off.
-export function toggleLive(names, key) {
-  const keys = liveKeys(names);
+// Puts a setting on the first free knob of a LIVE page, or takes it off there.
+export function toggleLive(names, key, pageId = 'live') {
+  const keys = liveKeys(names, pageId);
   const at = keys.indexOf(key);
   if (at >= 0) keys[at] = '';
   else {
     const free = keys.indexOf('');
-    if (free < 0) return null; // LIVE is full
+    if (free < 0) return null; // that LIVE page is full
     keys[free] = key;
   }
-  return [listChange(LIVE_KEY, keys)];
+  return [listChange(knobsKey(pageId), keys)];
+}
+
+// A new LIVE page, after the last: { id, changes }. Up to as many as fit with the other pages.
+export function addLivePage(names) {
+  const ids = liveIds(names);
+  const id = !ids.includes('live') ? 'live' : `live:${Math.max(...ids.map(liveNumber)) + 1}`;
+  return { id, changes: [livesChange([...ids, id])] };
+}
+
+// A LIVE page gone, with its knobs: a setting on no other page loses the mapping Night Shift
+// added for it.
+export function removeLivePage(names, model, pageId) {
+  const keys = liveKeys(names, pageId).filter(Boolean);
+  const alone = keys.filter((k) => (model.on.get(k) ?? []).every((w) => w.page === pageId));
+  return [...switchOffAll(names, model, alone), listChange(knobsKey(pageId), []), { dump: 'names', path: [pageNameKey(pageId)], value: null },
+    livesChange(liveIds(names).filter((id) => id !== pageId))];
+}
+
+// Swaps two places of a page, a knob with the push under it (a free place takes the other's).
+export function movePlace(names, pageId, from, to) {
+  if (from === to) return [];
+  const knobs = addedKeys(names, pageId);
+  [knobs[from], knobs[to]] = [knobs[to], knobs[from]];
+  const changes = [listChange(knobsKey(pageId), knobs)];
+  if (!isLive(pageId)) {
+    const pushes = pushKeys(names, pageId);
+    if (pushes[from] || pushes[to]) {
+      [pushes[from], pushes[to]] = [pushes[to], pushes[from]];
+      changes.push(listChange(pushesKey(pageId), pushes));
+    }
+  }
+  return changes;
+}
+
+// Knob `i` of a page onto LIVE page `toId` (its first free knob): from another LIVE page it
+// moves; from its object's page it stays there too, as a knob on LIVE does. { changes } or { error }.
+export function toLivePage(names, fromId, i, toId) {
+  const key = addedKeys(names, fromId)[i];
+  if (!key || fromId === toId || !isLive(toId)) return { changes: [] };
+  const there = liveKeys(names, toId);
+  if (there.includes(key)) return isLive(fromId) ? { changes: placeKnob(names, fromId, i, null) } : { changes: [] };
+  const free = there.indexOf('');
+  if (free < 0) return { error: `${liveName(toId)} is full` };
+  there[free] = key;
+  return { changes: [listChange(knobsKey(toId), there), ...(isLive(fromId) ? placeKnob(names, fromId, i, null) : [])] };
 }
 
 // ---- the pages
@@ -293,11 +351,13 @@ export function pagesOf(view, names = {}) {
     all.push({ id, name: nameOf(id, objs[0].defaultName), defaultName: objs[0].defaultName, sub: objs[0].sub, objects: objs.map((o) => o.id),
       source: objs[0].source, cells: knobs.map((k) => (k ? placed(k) : null)), pushes: pushes.map((k) => (k ? placed(k) : null)) });
   }
-  const live = liveKeys(names);
-  if (live.some(Boolean)) {
-    all.unshift({ id: 'live', name: nameOf('live', 'LIVE'), defaultName: 'LIVE', objects: [], source: null,
-      cells: live.map((k) => (k ? placed(k, { live: true }) : null)), pushes: fill([]), live: true });
-  }
+  // the LIVE pages first, in their order
+  const lives = liveIds(names).map((id) => {
+    const keys = liveKeys(names, id);
+    return { id, name: nameOf(id, liveName(id)), defaultName: liveName(id), objects: [], source: null,
+      cells: keys.map((k) => (k ? placed(k, { live: true }) : null)), pushes: fill([]), live: true, full: keys.every(Boolean) };
+  });
+  all.unshift(...lives);
   const pages = all.slice(0, GROUPS);
   pages.forEach((pg, g) => (pg.group = g));
   const on = new Map();
@@ -315,12 +375,13 @@ export function pagesOf(view, names = {}) {
     for (const c of [...pg.cells, ...pg.pushes]) {
       if (!c) continue;
       c.map = mapOf(c.key);
-      c.onLive = live.includes(c.key);
+      c.lives = lives.filter((pg) => pg.cells.some((x) => x?.key === c.key)).map((pg) => pg.id);
+      c.onLive = c.lives.length > 0;
       if (!c.map && !c.gone) unmapped.add(c.key);
     }
   }
   return { pages, extra: all.slice(GROUPS), objects, known, on, mapOf, channel: pagesChannels(view)[0] ?? null,
-    unmapped: [...unmapped], liveFull: live.every(Boolean) };
+    unmapped: [...unmapped], lives: lives.map((pg) => ({ id: pg.id, name: pg.name, full: pg.full })), liveFull: !lives.length || lives.every((pg) => pg.full) };
 }
 
 // What the picker offers for a free knob of `page`: [{ name, cells }] by object, without the
@@ -509,7 +570,7 @@ export function wholePage(config, view, names, model, pageId) {
   for (const o of objs) {
     for (const [tpl, list] of [[o.template.cells, knobs], [o.template.pushes, pushes]]) {
       tpl.forEach((key, i) => {
-        if (!key || list.includes(key) || model.on.has(key) && !model.on.get(key).every((w) => w.page === 'live')) return;
+        if (!key || list.includes(key) || model.on.has(key) && !model.on.get(key).every((w) => isLive(w.page))) return;
         const at = !list[i] ? i : list.indexOf('');
         if (at < 0) return;
         if (!model.mapOf(key)) {

@@ -7,7 +7,7 @@ import { derive } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
-import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage,
+import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage, addLivePage, removeLivePage, movePlace, toLivePage, liveIds,
   strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
 import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncEntry, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES, SYNC_EXTRA, SYNC_FORMAT } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
@@ -22,6 +22,7 @@ const fresh = () => {
 const viewOf = (p) => derive(p.config.values, p.preset.values, undefined, p.names);
 const modelOf = (p) => pagesOf(viewOf(p), p.names);
 const key = (kind, index, param) => settingKey({ kind, index, param });
+const addedKeysOf = (p, pageId) => modelOf(p).pages.find((pg) => pg.id === pageId).cells.map((c) => c?.key ?? '');
 const on = (p, k) => {
   const r = switchOn(p.config.values, viewOf(p), p.names, modelOf(p), k);
   if (r.error) throw new Error(r.error);
@@ -379,4 +380,50 @@ test('sync table format 2: 7-bit knobs as they are, banded ones, the tempo', () 
   const one = setupImage(demoImage(), pages, view, channel, { format: 1 });
   eq([one[SYNC_HEADER + 3], at(key('euclid', 0, 'pulses'), one).a, at(key('global', 0, 'tempo'), one).a], [1, 0xffff, 0xffff], 'format 1: no 7-bit entries');
   eq([SYNC_FORMAT({ fwMajor: 0, fwMinor: 11 }), SYNC_FORMAT({ fwMajor: 0, fwMinor: 12 })], [1, 2]);
+});
+
+test('more LIVE pages: made empty, filled, knobs moved between them, removed with their knobs', () => {
+  const p = fresh();
+  whole(p, 'euclid:0');
+  const pulses = key('euclid', 0, 'pulses');
+  const steps = key('euclid', 0, 'steps');
+  let r = addLivePage(p.names);
+  eq(r.id, 'live', 'the first is LIVE');
+  apply(p, r.changes);
+  r = addLivePage(p.names);
+  eq(r.id, 'live:2');
+  apply(p, r.changes);
+  let m = modelOf(p);
+  eq(m.pages.slice(0, 3).map((pg) => [pg.id, pg.name, pg.cells.some(Boolean)]), [['live', 'LIVE', false], ['live:2', 'LIV2', false], ['euclid:0', 'EUC1', true]],
+    'empty LIVE pages stay, in front');
+  apply(p, toggleLive(p.names, pulses, 'live:2'));
+  m = modelOf(p);
+  eq(m.pages.find((pg) => pg.id === 'euclid:0').cells[0].lives, ['live:2']);
+  eq(m.pages[1].cells[0].map, m.pages.find((pg) => pg.id === 'euclid:0').cells[0].map, 'the same CC as on its own page');
+  // from its own page onto LIVE: it stays on its page too; from one LIVE page to another: it moves
+  const euclidPage = m.pages.find((pg) => pg.id === 'euclid:0');
+  const at = euclidPage.cells.findIndex((c) => c?.key === steps);
+  apply(p, toLivePage(p.names, 'euclid:0', at, 'live').changes);
+  eq([liveKeys(p.names, 'live')[0], addedKeysOf(p, 'euclid:0').includes(steps)], [steps, true]);
+  apply(p, toLivePage(p.names, 'live', 0, 'live:2').changes);
+  eq([liveKeys(p.names, 'live')[0], liveKeys(p.names, 'live:2').slice(0, 2)], ['', [pulses, steps]], 'moved, not copied');
+  // removing LIV2: its knobs come off it; those also on their own page keep their CC
+  const before = mappingsOf(p.config.values).length;
+  apply(p, removeLivePage(p.names, modelOf(p), 'live:2'));
+  eq([liveIds(p.names), mappingsOf(p.config.values).length], [['live'], before]);
+});
+
+test('moving a place swaps the knob and the push under it', () => {
+  const p = fresh();
+  whole(p, 'converter:0');
+  const m = modelOf(p);
+  const pg = m.pages.find((x) => x.id === 'converter:0');
+  const withPush = pg.pushes.findIndex(Boolean);
+  const free = pg.cells.findIndex((c, i) => !c && !pg.pushes[i]);
+  assert(withPush >= 0 && free >= 0, 'a voice page has arp pushes and a free place');
+  const [k, push] = [pg.cells[withPush]?.key ?? null, pg.pushes[withPush].key];
+  apply(p, movePlace(p.names, 'converter:0', withPush, free));
+  const after = modelOf(p).pages.find((x) => x.id === 'converter:0');
+  eq([after.cells[free]?.key ?? null, after.pushes[free]?.key, after.cells[withPush], after.pushes[withPush]], [k, push, null, null]);
+  eq(movePlace(p.names, 'converter:0', 3, 3), [], 'onto itself: nothing');
 });

@@ -25,6 +25,7 @@ import { renderGig } from './ui/gig.js';
 import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
+  addLivePage, removeLivePage, movePlace, toLivePage, isLive,
   wholePage, strayMappings, removeMappings, toAbsolute, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, SYNC_FORMAT, SYNC_MAX } from './ec4/setup.js';
 import { fingerprint } from './hash.js';
@@ -824,10 +825,43 @@ function mapEc4() {
   edit(`${r.mapped} CCs added${r.left.length ? `; no room for ${r.left.length}` : ''}`, r.changes);
 }
 
-function liveEc4(key) {
-  const changes = toggleLive(state.names, key);
-  if (!changes) return status('LIVE is full', true);
-  edit(liveKeys(state.names).includes(key) ? 'Taken off LIVE' : 'Put on LIVE', changes);
+// Puts a setting on a LIVE page, or takes it off there; `pageId` null makes a new LIVE page for it.
+function liveEc4(key, pageId) {
+  const made = pageId ? null : addLivePage(state.names);
+  const id = pageId ?? made.id;
+  const names = made ? { ...state.names, 'ec4:lives': made.changes[0].value } : state.names;
+  const changes = toggleLive(names, key, id);
+  const name = livePageName(id);
+  if (!changes) return status(`${name} is full`, true);
+  edit(liveKeys(state.names, id).includes(key) ? `Taken off ${name}` : `Put on ${name}`, [...(made?.changes ?? []), ...changes]);
+}
+const livePageName = (id) => ec4Model().lives.find((l) => l.id === id)?.name ?? (id === 'live' ? 'LIVE' : `LIV${id.split(':')[1]}`);
+
+function addLiveEc4() {
+  const r = addLivePage(state.names);
+  state.ec4.sel = { page: r.id, knob: null };
+  edit('New LIVE page', r.changes);
+}
+
+function removeLiveEc4(pageId) {
+  const name = livePageName(pageId);
+  state.ec4.sel = null;
+  edit(`Removed page ${name}`, removeLivePage(state.names, ec4Model(), pageId));
+}
+
+// A knob (with its push) to another place on its page; the one there takes its place.
+function moveEc4(pageId, from, to) {
+  if (from === to) return;
+  state.ec4.sel = { page: pageId, knob: to };
+  edit(`Knob ${from + 1} to place ${to + 1}`, movePlace(state.names, pageId, from, to));
+}
+
+// A knob onto a LIVE page: moved from another LIVE page, put there too from its own page.
+function toLiveEc4(fromId, i, toId) {
+  const r = toLivePage(state.names, fromId, i, toId);
+  if (r.error) return status(r.error, true);
+  if (!r.changes.length) return;
+  edit(`${isLive(fromId) ? 'Moved' : 'Put'} on ${livePageName(toId)}`, r.changes);
 }
 
 // A free knob: pick any other setting of the page's object (on LIVE, of any object).
@@ -1306,6 +1340,7 @@ function render() {
   else if (state.tab === 'ec4') content = renderEc4(v, state.ec4Model, state.colors, state.ec4.sel, {
     select: (page, knob) => { state.ec4.sel = { page, knob }; render(); followOnEc4(); },
     pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
+    addLive: addLiveEc4, removeLive: removeLiveEc4, move: moveEc4, toLive: toLiveEc4,
     rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
     link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru,
     relative: toAbsolute(state.config.values, state.ec4Model, state.names), makeAbsolute: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} absolute`, r.changes),
