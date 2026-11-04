@@ -45,11 +45,21 @@ test('a setting’s value in the preset, and the CC that stands for it', () => {
   eq(ccFor(key('output', 0, 'directLevel'), 12345, 14), 12345);
   eq(ccFor(key('output', 0, 'directLevel'), 12345, 7), 12345 >> 7);
   eq(fromCc(key('output', 0, 'directLevel'), 96, 7), 96 << 7);
-  // scaled ones: an estimate, both ways
-  eq(ccFor(key('euclid', 0, 'pulses'), 16), 64);
-  eq(fromCc(key('euclid', 0, 'pulses'), 64), 16);
-  eq(ccFor(key('converter', 0, 'arpLatch'), 1), 127);
-  eq(ccFor(key('global', 0, 'tempo'), 1200), null, 'tempo’s CC range is the config’s (check 18)');
+  // banded ones, as hardware check 19 measured them (2026-11-04), and back to the middle of a band
+  const measured = { pulses: [[0, 0], [3, 0], [4, 1], [31, 7], [33, 8], [63, 16], [96, 24], [97, 25], [126, 32], [127, 32]],
+    steps: [[0, 1], [4, 1], [8, 2], [64, 16], [127, 32]] };
+  for (const [param, samples] of Object.entries(measured)) {
+    for (const [c, v] of samples) eq(fromCc(key('euclid', 0, param), c), v, `${param} at CC ${c}`);
+  }
+  eq([0, 32, 33, 63, 64, 96, 127].map((c) => fromCc(key('converter', 0, 'arpRange'), c)), [1, 1, 1, 2, 2, 3, 3], 'arp range');
+  eq([63, 64].map((c) => fromCc(key('converter', 0, 'arpLatch'), c)), [0, 1], 'latch');
+  eq([0, 63, 96, 127].map((c) => fromCc(key('global', 0, 'swingType'), c)), [0, 1, 2, 2], 'swing type: 0–2 only');
+  for (const v of [0, 1, 16, 31, 32]) eq(fromCc(key('euclid', 0, 'pulses'), ccFor(key('euclid', 0, 'pulses'), v)), v, `pulses ${v} there and back`);
+  eq(ccFor(key('converter', 0, 'arpLatch'), 1), 96, 'the middle of its band');
+  // the tempo CC (check 18): tempoMin + 1 + CC BPM; the preset keeps tenths
+  eq(ccFor(key('global', 0, 'tempo'), 1200), null, 'without the config, no idea');
+  eq(ccFor(key('global', 0, 'tempo'), 1240, 7, { tempoMin: 59 }), 64);
+  eq(fromCc(key('global', 0, 'tempo'), 127, 7, { tempoMin: 59 }), 1870, '187 BPM');
 });
 
 test('the messages for the EC4: value texts and knob values', () => {

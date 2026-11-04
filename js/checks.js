@@ -23,12 +23,9 @@ const CHECKS = [
   { id: 18, title: 'Tempo CC', question: 'What tempo does each value of a CC mapped to tempo mean?',
     before: ['The tempo changes during the check: stop the music.'],
     run: check18 },
-  { id: 23, title: 'Soft takeover with 14-bit', question: 'With Soft takeover on, does a 14-bit knob that disagrees with the FH-2 jump, or wait and pick up?',
-    before: ['Uses an output outside your rack, so nothing changes on your jacks.'],
+  { id: 23, title: 'Soft takeover', question: 'With Soft takeover on, does a knob that disagrees with the FH-2 jump, or wait and pick up? A 14-bit one, and a 7-bit one.',
+    before: ['Turns Soft takeover on in its test config only: yours comes back as it was.', 'Uses an output outside your rack, so nothing changes on your jacks.'],
     run: check23 },
-  { id: 3, title: '“Send CCs on preset ld” to USB A', question: 'When a preset loads, do the FH-2’s mapped values reach a controller on its USB A?',
-    before: ['Plug the EC4 (controlfrog debug build) into the FH-2’s USB A, with “Send CCs on preset ld” on.', 'Load a preset on the FH-2 and watch the EC4’s counters (Func).'],
-    manual: ['Values arrived', 'Nothing arrived'] },
 ];
 
 const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, port: '', error: '' };

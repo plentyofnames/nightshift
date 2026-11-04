@@ -4,8 +4,8 @@
 //
 // The FH-2 takes most settings' CC values as they are (0–127), and the 14-bit ones (levels,
 // LFO rate and depth) as 0–16383. "In other cases the MIDI CC range of 0-127 is scaled to map
-// onto the range of the controlled parameter" (manual, "Mappings"): how it rounds isn't
-// documented, so those are estimates (SCALED below) until a hardware check says more.
+// onto the range of the controlled parameter" (manual, "Mappings"): measured in hardware check
+// 19 (BANDS below), and the tempo CC in check 18.
 
 import { arpModeOf, levelToVolts, lfoHz } from '../patch/tables.js';
 import { settingOf, HIRES } from './pages.js';
@@ -40,29 +40,40 @@ export function valueOf(preset, key) {
   return typeof v === 'number' ? v : null;
 }
 
-// Settings whose range isn't 0–127 (as far as Night Shift knows): [lowest, highest].
-const SCALED = {
-  'euclid:pulses': [0, 32], 'euclid:steps': [1, 32], 'euclid:rotation': [0, 32], 'euclid:reset': [0, 32],
-  'global:swingType': [0, 7], 'converter:arpRange': [1, 3], 'converter:arpLatch': [0, 1],
+// Settings a CC reaches in bands (hardware check 19, 2026-11-04): CC 0–127 is cut into `n` even
+// bands of 128/n, counted from `from`, then held at the setting's lowest value `min`. Euclid
+// patterns take 0–32 (steps can't go below 1), the arp range 1–3, latch off and on, and the swing
+// type only 0–2 (off, 16th, 8th): a CC can't reach the tuplet swings.
+const BANDS = {
+  'euclid:pulses': { from: 0, n: 33 }, 'euclid:steps': { from: 0, n: 33, min: 1 }, 'euclid:rotation': { from: 0, n: 33 },
+  'euclid:reset': { from: 0, n: 33 }, 'converter:arpRange': { from: 1, n: 3 }, 'converter:arpLatch': { from: 0, n: 2 },
+  'global:swingType': { from: 0, n: 3 },
 };
-const rangeOf = (t) => SCALED[`${t.kind}:${t.param}`] ?? null;
+const bandsOf = (t) => BANDS[`${t.kind}:${t.param}`] ?? null;
 
-// The CC value (0–127, or 0–16383 for a 14-bit knob) that stands for stored value `v`.
-export function ccFor(key, v, bits = 7) {
+// The tempo CC (check 18, with the config's tempoMin and tempoMax both 59): CC n is tempoMin + 1 + n
+// BPM, 60–187 here. What tempoMax does is still open. The preset keeps the tempo in tenths.
+const tempoBase = (ctx) => (ctx.tempoMin == null ? null : ctx.tempoMin + 1);
+
+// The CC value (0–127, or 0–16383 for a 14-bit knob) that stands for stored value `v`: for a
+// banded setting, the middle of its band. `ctx`: { tempoMin } from the config.
+export function ccFor(key, v, bits = 7, ctx = {}) {
   const t = settingOf(key);
-  if (v == null || t.kind === 'global' && t.param === 'tempo') return null; // tempo's CC range is the config's (check 18)
+  if (v == null) return null;
+  if (t.kind === 'global' && t.param === 'tempo') return tempoBase(ctx) == null ? null : Math.max(0, Math.min(127, Math.round(v / 10 - tempoBase(ctx))));
   if (HIRES.has(t.param)) return bits === 14 ? Math.max(0, Math.min(16383, v)) : Math.max(0, Math.min(127, v >> 7));
-  const r = rangeOf(t);
-  if (r) return Math.max(0, Math.min(127, Math.round(((v - r[0]) * 127) / (r[1] - r[0]))));
+  const b = bandsOf(t);
+  if (b) return Math.min(127, Math.floor((Math.max(0, Math.min(b.n - 1, v - b.from)) * 128 + 64) / b.n));
   return Math.max(0, Math.min(127, v));
 }
 
-// The other way round: what the FH-2 makes of a CC value (an estimate where it scales).
-export function fromCc(key, cc, bits = 7) {
+// The other way round: what the FH-2 makes of a CC value.
+export function fromCc(key, cc, bits = 7, ctx = {}) {
   const t = settingOf(key);
+  if (t.kind === 'global' && t.param === 'tempo') return tempoBase(ctx) == null ? null : (tempoBase(ctx) + cc) * 10;
   if (HIRES.has(t.param)) return bits === 14 ? cc : cc << 7;
-  const r = rangeOf(t);
-  if (r) return r[0] + Math.round((cc * (r[1] - r[0])) / 127);
+  const b = bandsOf(t);
+  if (b) return Math.max(b.min ?? b.from, b.from + Math.floor((cc * b.n) / 128));
   return cc;
 }
 

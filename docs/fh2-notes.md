@@ -126,6 +126,7 @@ The design mockups live on a private design canvas.
 - **What can be mapped** (official tool): direct level; all LFO parameters and smoothing; portamento, transpose, envelope A/D/S/R/range/depth/velocity depth and shapes, random depth; arp parameters; Euclid parameters; SRR parameters; sequencer rate, reset, gate and position; tempo, swing, display, nudge.
 
 **Measured on the module** (2026-11-01, FH-2 firmware v2.0.0, preset dump version 8). CCs went in on ch 15 over USB C, and the direct levels were read back from the preset dump (23H) before and after.
+- **Measured with the checks page (2026-11-04):** program change N loads preset slot N + 1. A CC on a setting with a small range lands in even bands of 128/n (Euclid 0–32 in 33 bands, steps held at 1; arp range 1–3; latch 0–1; the swing type only reaches 0–2). With tempoMin = tempoMax = 59 a tempo CC n gives 60 + n BPM. With Soft takeover on, a 14-bit knob still jumps.
 - **14-bit pairs, MSB first** (measured 2026-11-04): a value lands only when the coarse half (CC n) is followed by the fine half (CC n + 32). The fine half alone changes nothing; the coarse half alone waits for the next fine half.
 - **No fine relative steps** (measured 2026-11-04): with a relative mapping on CC n (below 32), relative values on CC n + 32 change nothing.
 - **Relative mappings are 7-bit.** One step moves a direct level by 128 on its 0–16383 scale. 127 steps take it from bottom to top, and the highest value reachable this way is 16256.

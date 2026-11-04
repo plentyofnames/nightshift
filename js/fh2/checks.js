@@ -106,6 +106,7 @@ const RULES = {
   'linear, rounded': (c, [lo, hi]) => lo + Math.round((c * (hi - lo)) / 127),
   'linear, rounded down': (c, [lo, hi]) => lo + Math.floor((c * (hi - lo)) / 127),
   'even bands of 128': (c, [lo, hi]) => lo + Math.floor((c * (hi - lo + 1)) / 128),
+  'even bands from 0, held at the lowest': (c, [lo, hi]) => Math.max(lo, Math.floor((c * (hi + 1)) / 128)), // Euclid steps (measured)
 };
 export function fitScaling(samples, range) {
   const misses = Object.entries(RULES).map(([rule, f]) => [rule, samples.filter(([c, v]) => f(c, range) !== v).length]);
@@ -151,26 +152,31 @@ export function check23(rig) {
     const o = hiddenOutput(rig.hardware);
     if (o == null) throw new Error('every CV output is in your rack: no jack to test on without hearing it');
     const channel = testChannel(start.config.values);
-    const values = withMapping(start.config.values, { kind: 'output', index: o, param: 'directLevel' }, { channel, cc: 20 });
+    let values = withMapping(start.config.values, { kind: 'output', index: o, param: 'directLevel' }, { channel, cc: 20 });
+    values = withMapping(values, { kind: 'output', index: o, param: 'smoothing' }, { channel, cc: 70 }); // 7-bit
     values.softTakeover = 1;
-    await install(rig, start.config, values, `a test config (Soft takeover on, ch ${channel + 1} CC 20/52 → output ${o + 1})`);
+    await install(rig, start.config, values, `a test config (Soft takeover on, ch ${channel + 1}: CC 20/52 → output ${o + 1}'s level, CC 70 → its smoothing)`);
     const preset = structuredClone(start.preset.values);
     setPath(preset, ['output', o, 'directLevel'], 8192);
-    await install(rig, start.preset, preset, 'a test preset (that output at 8192, its middle)');
+    setPath(preset, ['output', o, 'smoothing'], 64);
+    await install(rig, start.preset, preset, 'a test preset (that output’s level at 8192 and smoothing at 64, their middles)');
     const lines = [];
-    let picked = null;
-    for (const v of [2000, 6000, 8000, 8300, 10000, 3000]) {
-      rig.send([...cc(channel, 20, v >> 7), ...cc(channel, 52, v & 127)]);
-      await rig.wait(CC_MS);
-      const now = await read(rig, ['output', o, 'directLevel']);
-      rig.log(`knob ${v} → level ${now}`);
-      lines.push(`knob at ${v}: level ${now}`);
-      if (picked == null && now !== 8192) picked = v;
-    }
-    const summary = picked == null ? 'Never picked up: the level stayed at 8192'
-      : picked === 2000 ? 'Jumps: the first value far off took over at once'
-        : `Picks up: it waited, then followed from ${picked}`;
-    return { summary, lines };
+    // a knob far off, then nearer, then across the value: where does the FH-2 start following?
+    const series = async (label, values, sendOne, path, middle) => {
+      let picked = null;
+      for (const v of values) {
+        rig.send(sendOne(v));
+        await rig.wait(CC_MS);
+        const now = await read(rig, path);
+        rig.log(`${label} knob ${v} → ${now}`);
+        lines.push(`${label} knob at ${v}: ${now}`);
+        if (picked == null && now !== middle) picked = v;
+      }
+      return picked == null ? 'never followed' : picked === values[0] ? 'jumps' : `waits, then follows from ${picked}`;
+    };
+    const fine = await series('14-bit', [2000, 6000, 8000, 8300, 10000, 3000], (v) => [...cc(channel, 20, v >> 7), ...cc(channel, 52, v & 127)], ['output', o, 'directLevel'], 8192);
+    const coarse = await series('7-bit', [10, 40, 60, 66, 90, 20], (v) => cc(channel, 70, v), ['output', o, 'smoothing'], 64);
+    return { summary: `With Soft takeover on: a 14-bit knob ${fine}, a 7-bit knob ${coarse}`, lines };
   });
 }
 
@@ -222,7 +228,7 @@ export function check17(rig, scenes = []) {
       const byName = (p) => loaded.find((l) => l.program === p)?.name;
       const zero = known.filter((s) => byName(s.slot) === s.name.trim()).length;
       const one = known.filter((s) => byName(s.slot - 1) === s.name.trim()).length;
-      summary = one > zero ? 'Program change N loads slot N + 1 (counting from 0)' : zero > one ? 'Program change N loads slot N' : 'Not clear from the names: see the lines';
+      summary = one > zero ? 'Program change N loads slot N + 1' : zero > one ? 'Program change N loads slot N' : 'Not clear from the names: see the lines';
       const base = one > zero ? -1 : 0;
       for (const s of known) {
         const l = loaded.find((x) => x.program === s.slot + base);

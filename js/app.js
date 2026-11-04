@@ -1014,7 +1014,7 @@ function showOnEc4() {
   link.show(page.cells.map((c) => {
     if (!c?.map) return null;
     const v = valueOf(state.preset.values, c.key);
-    return { text: valueText(c.key, v, { range }), cc: c.map.relative ? null : { channel: c.map.channel, number: c.map.cc, value: ccFor(c.key, v, c.map.bits), bits: c.map.bits } };
+    return { text: valueText(c.key, v, { range }), cc: c.map.relative ? null : { channel: c.map.channel, number: c.map.cc, value: ccFor(c.key, v, c.map.bits, { tempoMin: state.config.values.tempoMin }), bits: c.map.bits } };
   })).catch(() => {});
 }
 
@@ -1034,7 +1034,7 @@ function onEc4Midi(bytes) {
     page.cells.forEach((c, i) => {
       if (!c?.map || c.map.channel !== m.channel || c.map.cc !== m.cc) return;
       // a relative knob sends steps, not where it is: its text waits for the read-back
-      if (!c.map.relative) link.showOne(i, valueText(c.key, fromCc(c.key, m.value, m.bits), { range })).catch(() => {});
+      if (!c.map.relative) link.showOne(i, valueText(c.key, fromCc(c.key, m.value, m.bits, { tempoMin: state.config.values.tempoMin }), { range })).catch(() => {});
       link.sent.set(i, `${m.channel}:${m.cc}:${m.value}`);
       turned.add(c.key);
     });

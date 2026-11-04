@@ -21,7 +21,7 @@ export function renderScenes(m, act) {
       s.onModule ? h('span', { class: 'tag on-module' }, 'on the FH-2') : null),
     h('td', {}, selectInput(`Flash slot of scene ${s.name}`, s.slot ?? 0, slotOptions, (v) => act.setSlot(i, v || null)),
       twice.has(s.slot) ? h('small', { class: 'warn' }, 'used twice') : null),
-    h('td', { class: 'pc' }, m.programChannel && s.slot ? `${s.slot} on ch ${m.programChannel}` : '—'),
+    h('td', { class: 'pc' }, m.programChannel && s.slot ? `${s.slot - 1} on ch ${m.programChannel}` : '—'), // program change N loads slot N + 1
     h('td', {}, i === 0 ? h('span', { class: 'dim' }, 'the first scene') : s.differences.length ? s.differences.join(', ') : h('span', { class: 'dim' }, `the same as ${first}`)),
     h('td', {}, s.fit.length ? s.fit.map((f) => h('div', { class: 'warn' }, f)) : h('span', { class: 'dim' }, 'fits'))));
 
@@ -38,5 +38,5 @@ export function renderScenes(m, act) {
     h('div', { class: 'actions' },
       h('button', { type: 'button', class: 'btn primary', disabled: !ready, onclick: act.saveAll,
         title: ready ? '' : 'Give the config and every scene a slot of its own first' }, 'Save all to flash')),
-    m.programChannel ? h('p', { class: 'note' }, 'Program change N loads slot N (check 17).') : null);
+    m.programChannel ? h('p', { class: 'note' }, 'Program change N loads slot N + 1.') : null);
 }
