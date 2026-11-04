@@ -281,7 +281,7 @@ input.text { box-sizing: border-box; width: 100%; padding: 6px 8px; border: 1px 
 details.menu { position: relative; }
 details.menu > summary { list-style: none; }
 details.menu > summary::-webkit-details-marker { display: none; }
-details.menu .menu-items { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; min-width: 190px; padding: 4px; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 12px 30px rgb(0 0 0 / 0.25); }
+details.menu .menu-items { position: fixed; z-index: 30; /* top and right set on opening (fileMenu) */ display: flex; flex-direction: column; min-width: 190px; padding: 4px; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 12px 30px rgb(0 0 0 / 0.25); }
 details.menu .menu-items button { text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 details.menu .menu-items button:hover { background: var(--panel2); }
 .empty { max-width: 640px; margin: 60px auto; padding: 24px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 12px; }

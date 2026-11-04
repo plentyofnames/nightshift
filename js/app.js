@@ -1189,7 +1189,13 @@ function fileMenu(v) {
     e.target.closest('details').open = false;
     onclick();
   } }, label);
-  return h('details', { class: 'menu' }, h('summary', { class: 'btn' }, 'File'),
+  // the list is fixed under its button, so the bar (which scrolls sideways when it must) can't cut it off
+  const place = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const width = document.documentElement.clientWidth; // without the page's scrollbar, as `right` counts
+    Object.assign(e.currentTarget.nextElementSibling.style, { top: `${r.bottom + 4}px`, right: `${Math.max(8, width - r.right)}px` });
+  };
+  return h('details', { class: 'menu' }, h('summary', { class: 'btn', onclick: place }, 'File'),
     h('div', { class: 'menu-items' },
       item('Open…', pickFiles, 'A project, or .syx dumps (several presets become scenes)'),
       item('Rack…', editHardware, 'Which expanders your FH-2 has'),
@@ -1291,10 +1297,16 @@ document.addEventListener('drop', (e) => {
   document.body.classList.remove('drop');
   if (e.dataTransfer.files.length) openFiles(e.dataTransfer.files);
 });
-// a click anywhere else closes the File menu
+// a click anywhere else closes the File menu; so does anything that moves its button away from
+// the list (which sits at a fixed place): resizing the window, scrolling the bar or the page
 document.addEventListener('click', (e) => {
   for (const m of document.querySelectorAll('details.menu[open]')) if (!m.contains(e.target)) m.open = false;
 });
+const closeMenus = () => {
+  for (const m of document.querySelectorAll('details.menu[open]')) m.open = false;
+};
+addEventListener('resize', closeMenus);
+document.addEventListener('scroll', closeMenus, true);
 document.addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open]')) return;
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
