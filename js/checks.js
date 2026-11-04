@@ -34,7 +34,7 @@ const CHECKS = [
     before: ['controlfrog 0.12. FH-2: MIDI forwarding USB C → USB A on, Send CCs on preset ld off.', 'EC4 on the FH-2\'s USB A: turn a knob there first. The check reloads the scene the FH-2 is in.'],
     run: (rig) => sceneReload(rig, keptScenes(), 'The scene is reloaded. Did the knob you turned go back?') },
   { id: 26, gig: true, title: 'Values at power-on', question: 'Power the FH-2 and the EC4 on together: do the knobs take the FH-2\'s values within about 20 s, without Func + Group?',
-    before: ['controlfrog 0.12. Leave the EC4 on setup 15: it starts where it was left, and asks only there.'],
+    before: ['controlfrog 0.12. The EC4 asks the first time setup 15 is open after power-on (an earlier 0.12 build: only if it starts there).'],
     manual: ['Yes', 'Only after Func + Group'] },
   { id: 28, gig: true, title: 'Func + Group while playing', question: 'With the music running, press Func + Group a few times: do the knobs update, and does the music go on evenly?',
     before: ['controlfrog 0.12.'],
