@@ -376,3 +376,15 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .ec4-sketch .kn b { font: 500 9px var(--mono); color: var(--dim); min-height: 11px; white-space: pre; }
 #ec4-lines { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
 #ec4-lines path { fill: none; stroke-width: 1.5; stroke-opacity: 0.35; }
+
+/* the hardware checks page */
+.checks-page main.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; padding: 20px; align-items: start; }
+.check-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.check-card.running { border-color: var(--accent); }
+.check-card h2 { font-size: 15px; margin: 0 0 6px; display: flex; gap: 10px; align-items: baseline; }
+.check-card h2 .n { font: 600 12px var(--mono); color: var(--dim); }
+.check-card p { margin: 0 0 8px; font-size: 13px; }
+.check-card ul.note { margin: 0 0 10px; padding-left: 18px; font-size: 12.5px; }
+.check-card .result { margin-top: 10px; font-size: 13px; }
+.check-card .result ul { margin: 6px 0; padding-left: 18px; font: 12px var(--mono); color: var(--dim); }
+.check-card .log { margin: 10px 0 0; max-height: 220px; overflow: auto; font: 12px var(--mono); color: var(--dim); white-space: pre-wrap; }

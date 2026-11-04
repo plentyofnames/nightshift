@@ -34,11 +34,12 @@ export function renderEc4(view, model, colors, sel, act) {
       title: 'Passes the EC4’s knobs on to the FH-2. Off while Logic does that.' }, act.thru ? 'Thru on' : 'Thru off'),
     act.stray.length > 0 && h('span', { class: 'note' }, `${act.stray.length} CCs on no page`,
       ' ', h('button', { type: 'button', class: 'btn small', onclick: act.tidy, title: act.stray.map((s) => s.label).join(', ') }, 'Remove them')),
-    // knobs mapped before they were relative by default; 14-bit ones need the FH-2's Soft takeover not to jump
+    // knobs mapped before they were relative by default; the 14-bit ones stay in step through the
+    // live link or the EC4's FH-2 sync, so Soft takeover would only make them wait (your call, 2026-11-04)
     act.relative.keys.length > 0 && h('span', { class: 'note' }, `${act.relative.keys.length} absolute knob${act.relative.keys.length === 1 ? '' : 's'}`,
       ' ', h('button', { type: 'button', class: 'btn small', onclick: () => act.makeRelative(act.relative), title: 'They can’t jump then; Send to EC4 afterwards' }, 'Make relative')),
-    !act.softTakeover && pages.some((pg) => pg.cells.some((c) => c?.map?.bits === 14)) && h('span', { class: 'note warn-note' }, 'Soft takeover off: 14-bit knobs can jump',
-      ' ', h('button', { type: 'button', class: 'btn small', onclick: act.turnOnSoftTakeover, title: 'The FH-2 then waits until a knob reaches its value' }, 'Turn on')));
+    act.softTakeover && pages.some((pg) => pg.cells.some((c) => c?.map?.bits === 14)) && h('span', { class: 'note warn-note' }, 'Soft takeover on: not needed with the FH-2 sync',
+      ' ', h('button', { type: 'button', class: 'btn small', onclick: act.turnOffSoftTakeover, title: 'With it, a knob waits until it passes the FH-2’s value' }, 'Turn off')));
 
   // objects without a page yet: a page for one takes its whole template
   const pageIds = new Set([...pages, ...extra].map((p) => p.id));

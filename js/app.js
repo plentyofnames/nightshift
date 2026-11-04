@@ -31,6 +31,7 @@ import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
 import { getPath, setPath } from './fh2/layout.js';
 import { settingsByName } from './fh2/menu.js';
 import { fromModule, anotherPatch, dueIn, MERGE_MAX } from './fh2/live.js';
+import { checksBusy } from './fh2/checks.js';
 
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
@@ -701,8 +702,10 @@ function scheduleLive() {
 async function sendLive() {
   liveTimer = null;
   if (!liveReady() || !state.unsent) return;
-  if (state.busy || turned.size || readBackTimer) {
-    liveTimer = setTimeout(sendLive, 1000); // after the EC4's knobs are read back
+  // after the EC4's knobs are read back, and not while the hardware checks page runs a check (the
+  // FH-2 holds a test config then)
+  if (state.busy || turned.size || readBackTimer || checksBusy(localStorage)) {
+    liveTimer = setTimeout(sendLive, 1000);
     return;
   }
   state.busy = true;
@@ -1183,7 +1186,8 @@ function fileMenu(v) {
       item('Rack…', editHardware, 'Which expanders your FH-2 has'),
       v && item('Save project', saveProject, 'Config, every scene and your names, in one file'),
       v && item('Save .syx', saveSyx, 'The config and this scene’s preset, for the FH-2 or Expert Sleepers’ tools'),
-      item('Example patch', loadExample, 'A made-up patch for an FH-2 with two CV and two gate expanders')));
+      item('Example patch', loadExample, 'A made-up patch for an FH-2 with two CV and two gate expanders'),
+      item('Hardware checks', () => open('checks.html', '_blank'), 'Answers to the build plan’s hardware questions, measured on your FH-2')));
 }
 
 async function loadExample() {
@@ -1246,7 +1250,7 @@ function render() {
     rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
     link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru,
     relative: toRelative(state.config.values, state.ec4Model, state.names), makeRelative: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} relative`, r.changes),
-    softTakeover: !!state.config.values.softTakeover, turnOnSoftTakeover: () => edit('Soft takeover on', [{ dump: 'config', path: ['softTakeover'], value: 1 }], { force: true }) });
+    softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy, ec4 });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
