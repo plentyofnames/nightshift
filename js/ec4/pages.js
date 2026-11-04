@@ -473,21 +473,28 @@ export function switchOn(config, view, names, model, key) {
 }
 
 // Takes `key` off every page (LIVE too) and removes its mapping if Night Shift added it.
-export function switchOff(names, model, key) {
+export const switchOff = (names, model, key) => switchOffAll(names, model, [key]);
+
+// Several at once (each list changed once, so one doesn't undo another's change).
+export function switchOffAll(names, model, keys) {
+  const drop = new Set(keys);
   const changes = [];
-  for (const [k, keys] of storedLists(names)) {
-    if (!keys.includes(key)) continue;
-    changes.push(listChange(k, keys.map((x) => (x === key ? '' : x))));
+  for (const [k, list] of storedLists(names)) {
+    if (list.some((x) => drop.has(x))) changes.push(listChange(k, list.map((x) => (drop.has(x) ? '' : x))));
   }
   const made = madeKeys(names);
-  const m = model.mapOf(key);
-  if (made.has(key)) {
+  const gone = keys.filter((k) => made.has(k));
+  for (const key of gone) {
+    const m = model.mapOf(key);
     if (m) changes.push({ dump: 'config', path: ['mapping', m.slot, 'status'], value: 0x7f });
     made.delete(key);
-    changes.push(madeChange(made));
   }
+  if (gone.length) changes.push(madeChange(made));
   return changes;
 }
+
+// The settings of a jack's own layer: its level, smoothing and LFO.
+export const jackKeys = (output, only = () => true) => LFO_PARAMS.filter(only).map((param) => settingKey({ kind: 'output', index: output, param }));
 
 // Switches on everything of an object's template (or the page's objects') that isn't on yet.
 export function wholePage(config, view, names, model, pageId) {

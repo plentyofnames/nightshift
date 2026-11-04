@@ -8,7 +8,7 @@ import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage,
-  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toRelative } from '../js/ec4/pages.js';
+  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toRelative, switchOffAll } from '../js/ec4/pages.js';
 import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncOffset, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
@@ -307,4 +307,17 @@ test('every CV jack’s level and smoothing can go on the EC4: a free jack’s, 
     eq(page(key('output', pitch.output, 'directLevel')), undefined, 'pitch replaces the level: no offset');
     eq(page(key('output', pitch.output, 'smoothing')), voice.id, 'but its smoothing');
   }
+});
+
+test('several settings come off the EC4 in one step, with the CCs Night Shift added', () => {
+  const p = fresh();
+  const a = key('euclid', 0, 'gate');
+  const b = key('euclid', 0, 'accent');
+  on(p, a);
+  on(p, b);
+  const before = modelOf(p);
+  assert(before.on.has(a) && before.on.has(b));
+  apply(p, switchOffAll(p.names, before, [a, b]));
+  const after = modelOf(p);
+  eq([after.on.has(a), after.on.has(b), after.mapOf(a), after.mapOf(b)], [false, false, null, null], 'both off, neither undoing the other');
 });

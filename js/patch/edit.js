@@ -214,24 +214,39 @@ export const removeLfo = (output) => [
   keep('lfo', output, false),
 ];
 
+// The CC mappings that set something of output `o` (its level, smoothing or LFO), removed;
+// `only` picks by the setting's name.
+function unmapOutput(cfg, o, only = () => true) {
+  const out = [];
+  cfg.mapping.forEach((m, n) => {
+    if (!isUsed(m)) return;
+    const t = targetOf(m);
+    if (t.kind === 'output' && t.index === o && only(t.param)) out.push(config(['mapping', n, 'status'], 0x7f));
+  });
+  return out;
+}
+
+// A jack's own layer back to how an unused jack is: its level at the bottom of its range, its
+// LFO off, no smoothing, no CC on any of them, and no marks (your call, 2026-11-04: removing
+// one of them clears it all, else a CC left behind keeps it listed).
+export function clearJack(values, o) {
+  const presetPart = values.preset ? [...setDirectLevel(o, 0), ...removeLfo(o), ...setSmoothing(o, 0)] : [keep('lfo', o, false)];
+  return [...presetPart, keep('level', o, false), ...unmapOutput(values.config, o)];
+}
+
+// An LFO off, with the CCs on its settings: with one left, it would still count as on.
+export const removeLfoWithCcs = (values, o) => [...removeLfo(o), ...unmapOutput(values.config, o, (p) => p.startsWith('lfo'))];
+
 // The changes that take `port` of `source` (from derive) off its jack. Sources that span
-// several jacks (clocks, knobs on one channel) lose only that port.
+// several jacks (clocks, knobs on one channel) lose only that port. A jack's own level, knob
+// or LFO goes with the rest of its layer (clearJack).
 export function removePort(values, source, port) {
   const o = port.output;
   switch (source.kind) {
     case 'level':
-      return [...setDirectLevel(o, 0), keep('level', o, false)];
-    case 'knobs': {
-      const slots = [];
-      values.config.mapping.forEach((m, n) => {
-        if (!isUsed(m)) return;
-        const t = targetOf(m);
-        if (t.kind === 'output' && t.index === o && t.param === 'directLevel') slots.push(n);
-      });
-      return slots.map((n) => config(['mapping', n, 'status'], 0x7f));
-    }
+    case 'knobs':
     case 'lfo':
-      return removeLfo(o);
+      return clearJack(values, o);
     case 'clock':
       return [config(['clock', port.clock, 'type'], 0)];
     case 'triggers':

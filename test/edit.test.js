@@ -3,7 +3,7 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -16,6 +16,7 @@ import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
 import { derive, playersOf } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
+import { mappingsOf } from '../js/patch/mappings.js';
 import { levelToVolts, voltsToLevel } from '../js/patch/tables.js';
 
 const patch = () => ({ config: blankConfig(), preset: blankPreset(), names: {} });
@@ -569,4 +570,30 @@ test('a jack’s own level and LFO stay listed while in use, even at their defau
   eq(at(5), ['lfo:5'], 'added here, it stays on at depth 0');
   apply(p, removeLfo(5));
   eq(at(5), [], 'removed: gone');
+});
+
+test('removing a jack’s knob, level or LFO clears its whole layer, CCs and all', () => {
+  const p = patch();
+  const v = () => derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, p.names);
+  const mapped = (o) => mappingsOf(p.config.values).filter((m) => m.target.kind === 'output' && m.target.index === o).map((m) => m.target.param);
+  // a knob on jack 2's level, a CC on its smoothing, an LFO on it with a CC on its depth
+  apply(p, addKnob(values(p), 1, 1, 20));
+  apply(p, addKnob(values(p), 1, 1, 21));
+  apply(p, addKnob(values(p), 1, 1, 22));
+  apply(p, [{ dump: 'config', path: ['mapping', 1, 'target'], value: 32 + 6 }, { dump: 'config', path: ['mapping', 1, 'index'], value: 64 + 1 }, // smoothing (relative)
+    { dump: 'config', path: ['mapping', 2, 'target'], value: 2 }]); // LFO depth
+  apply(p, [...setDirectLevel(1, 9000), ...setSmoothing(1, 40)]);
+  apply(p, addLfo(1));
+  eq(mapped(1).sort(), ['directLevel', 'lfoLevel', 'smoothing']);
+  const s = v().sources.find((x) => x.id === 'lfo:1');
+  apply(p, removePort(values(p), s, s.ports[0]));
+  const o = p.preset.values.output[1];
+  eq([mapped(1), o.directLevel, o.smoothing, o.lfoSine, v().outputs[1].ports], [[], 0, 0, 0, []], 'nothing left: like an unused jack');
+  // Remove the LFO takes the CCs on its settings too, else it would still count as on
+  apply(p, addLfo(2));
+  apply(p, addKnob(values(p), 2, 1, 23));
+  const slot = p.config.values.mapping.findIndex((m) => m.cc === 23 && m.status === 0x31);
+  apply(p, [{ dump: 'config', path: ['mapping', slot, 'target'], value: 2 }]);
+  apply(p, removeLfoWithCcs(values(p), 2));
+  eq([mapped(2), v().outputs[2].ports], [[], []]);
 });

@@ -5,7 +5,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
 import { outputNumber, internalName } from '../patch/hardware.js';
-import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, removeLfo, keep } from '../patch/edit.js';
+import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, keep } from '../patch/edit.js';
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
 import { playerInspector, playedBy, euclidClocks, randomClock } from './players.js';
@@ -221,7 +221,8 @@ function jackInspector(view, colors, o, onSelect, act) {
     const remove = REMOVABLE.has(s.kind) && port
       && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${p.name} from jack ${o.jack}`,
         title: s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up'
-          : s.kind === 'hid' ? 'Switch this entry off' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
+          : s.kind === 'hid' ? 'Switch this entry off'
+          : ['level', 'knobs', 'lfo'].includes(s.kind) ? 'Clear the jack: level, LFO, smoothing and their CCs' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
     return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), [chip(p.name, colors.get(s.id)), remove]);
   };
   const active = o.ports.filter((p) => !p.standby);
@@ -239,7 +240,7 @@ function jackInspector(view, colors, o, onSelect, act) {
   // every CV jack has an LFO: its editor while it's on, else a way to turn it on
   if (o.lfo) {
     parts.push(h('section', { class: 'section' }, h('h3', {}, o.lfo.alone ? 'LFO' : 'LFO on top'), lfoEditor(view, o, act, o.lfo.alone ? colors.get(`lfo:${o.index}`) ?? '#3DD6C6' : '#3DD6C6'),
-      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', onclick: () => act.edit(`Removed the LFO on jack ${o.jack}`, removeLfo(o.index)) }, 'Remove the LFO'))));
+      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', title: 'With the CCs on its settings', onclick: () => act.removeLfo(o.index, o.jack) }, 'Remove the LFO'))));
   } else if (!o.gate && o.lfoRaw) {
     parts.push(h('div', { class: 'actions' }, d
       ? h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',

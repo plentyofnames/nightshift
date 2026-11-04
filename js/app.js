@@ -7,7 +7,7 @@ import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
 import { parseDump, buildDump, splitSysex, commandOf, DUMPS } from './fh2/sysex.js';
 import { diff } from './fh2/layout.js';
 import { derive } from './patch/derive.js';
-import { History, removePort, removeSource, setName, changesTowards } from './patch/edit.js';
+import { History, removePort, removeSource, setName, changesTowards, removeLfoWithCcs } from './patch/edit.js';
 import { examplePatch } from './patch/example.js';
 import { projectToJson, projectFromJson, PROJECT_EXTENSION } from './patch/project.js';
 import { DEFAULT_HARDWARE, validHardware, blockName } from './patch/hardware.js';
@@ -22,8 +22,8 @@ import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToF
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
-import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, wholePage,
-  strayMappings, removeMappings, toRelative, SETUP } from './ec4/pages.js';
+import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
+  wholePage, strayMappings, removeMappings, toRelative, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup, syncOffset } from './ec4/setup.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
@@ -263,13 +263,22 @@ function remove(source, port) {
   try {
     const where = port ? ` ${source.kind === 'hid' ? 'on' : 'from'} jack ${port.jack}` : '';
     const links = !port && source.kind === 'euclid' && (source.clocks.length || source.restarts.length) ? ' · its clock links undone' : '';
-    edit(`${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
-      port ? removePort(values(), source, port) : removeSource(values(), source));
+    // a jack's own level, knob or LFO goes with its whole layer, off the EC4's pages too
+    const own = ['level', 'knobs', 'lfo'].includes(source.kind) ? (port ? [port] : source.ports).map((p) => p.output) : [];
+    const ec4Off = own.length ? switchOffAll(state.names, ec4Model(), own.flatMap((o) => jackKeys(o))) : [];
+    edit(own.length && port ? `Cleared jack ${port.jack}` : `${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
+      [...(port ? removePort(values(), source, port) : removeSource(values(), source)), ...ec4Off]);
     if (!port) state.selected = null;
     render();
   } catch (e) {
     status(`Couldn’t remove that: ${e.message}`, true);
   }
+}
+
+// An LFO off, with the CCs on its settings and its knobs on the EC4's pages.
+function removeLfoOf(output, jack) {
+  edit(`Removed the LFO on jack ${jack}`, [...removeLfoWithCcs(values(), output),
+    ...switchOffAll(state.names, ec4Model(), jackKeys(output, (p) => p.startsWith('lfo')))]);
 }
 
 // A player that sends somewhere, picked from the FH-2's unused ones (see ui/players.js).
@@ -1246,7 +1255,7 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, values, rename, status, ec4,
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4,
         loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }
