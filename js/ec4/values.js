@@ -48,6 +48,9 @@ const BANDS = {
   'euclid:pulses': { from: 0, n: 33 }, 'euclid:steps': { from: 0, n: 33, min: 1 }, 'euclid:rotation': { from: 0, n: 33 },
   'euclid:reset': { from: 0, n: 33 }, 'converter:arpRange': { from: 1, n: 3 }, 'converter:arpLatch': { from: 0, n: 2 },
   'global:swingType': { from: 0, n: 3 },
+  // the shift register's (not measured yet: assumed to follow the same rule over the preset
+  // tool's ranges; check 19 measures them on Random 16)
+  'srr:direction': { from: 0, n: 3 }, 'srr:length': { from: 1, n: 32 }, 'srr:scale': { from: 0, n: 19 }, 'srr:key': { from: 0, n: 25 },
 };
 export const bandsOf = (t) => BANDS[`${t.kind}:${t.param}`] ?? null;
 
@@ -82,6 +85,9 @@ export function fromCc(key, cc, bits = 7, ctx = {}) {
 const SWING = ['OFF', '16TH', '8TH', 'PENT', 'SEXT', 'SEPT', 'OCT', 'NON'];
 const ARP = { Off: 'OFF', Up: 'UP', Down: 'DOWN', Alt: 'ALT', 'Alt 2': 'ALT2', 'Step up': 'STUP', 'Step down': 'STDN', 'Step play': 'STPL',
   Random: 'RND', 'Random 2': 'RND2', 'Random 3': 'RND3', 'As played': 'PLAY' };
+const SRR_DIR = ['BACK', 'STOP', 'FWD'];
+const SRR_SCALE = ['OFF', 'CHRO', 'MAJ', 'MIN', 'TRI', 'MTRI', '5TH', 'TR+6', 'MT+6', 'TR+7', 'MT+7', '5+6', '5+7', 'PENT', 'MPEN', 'NMIN', 'HMIN', 'MIDO', 'MIDX'];
+const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const DIVISION = { 96: '1/1', 48: '1/2', 24: '1/4', 16: '1/4T', 12: '1/8', 8: '1/8T', 6: '1/16', 4: '16T', 3: '1/32', 2: '32T', 1: '24PQ' };
 
 const four = (s) => String(s).slice(0, 4);
@@ -102,6 +108,18 @@ function hz(v) {
 export function valueText(key, v, ctx = {}) {
   if (v == null) return null;
   const t = settingOf(key);
+  if (t.kind === 'srr') {
+    switch (t.param) {
+      case 'direction': return SRR_DIR[v] ?? four(v);
+      case 'scale': return SRR_SCALE[v] ?? four(v);
+      case 'key': return KEYS[v % 12]; // the MIDI scales take it as a transposition; the knob's own page shows that
+      case 'randomness': return v >= 127 ? 'LOCK' : v <= 0 ? 'INV' : four(pct(127 - v));
+      case 'attenuator': return four(pct(v));
+      case 'gateLength': return four(v ? pct(v) : 'TRIG');
+      case 'rate': return four(division(v));
+      default: return four(v);
+    }
+  }
   switch (t.param) {
     case 'directLevel': return four(volts(v, ctx.range?.(t.index) ?? 0));
     case 'lfoLevel': return four(pct(v, 16383));

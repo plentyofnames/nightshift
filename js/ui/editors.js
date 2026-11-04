@@ -6,10 +6,11 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
 import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, RANGE_VOLTS, arpModeOf, lfoHz, hzToLfo, durationName, noteName,
-  levelToVolts, LFO_RESET_CLOCK, LFO_RESET_EUCLID, ENVELOPE_TRIGGER } from '../patch/tables.js';
+  levelToVolts, LFO_RESET_CLOCK, LFO_RESET_EUCLID, ENVELOPE_TRIGGER, SRR_DIRECTIONS, SRR_SCALES, SRR_STOP, srrUsesMidiNotes, srrKeyText,
+  srrRandomnessText } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
-  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep } from '../patch/edit.js';
-import { freeCcs, voicePlan, freeEuclid } from '../patch/alloc.js';
+  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep, setSrr, setSrrJack, setPlayer } from '../patch/edit.js';
+import { freeCcs, voicePlan, freeEuclid, srrOutputs } from '../patch/alloc.js';
 import { learnCc } from './connect.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -180,6 +181,71 @@ export function euclidEditor(s, act, color) {
       num('Accent rate', 'accent', 0, 127),
       sfield(L('Reset', 'reset'), numberInput(`Reset of ${s.name}`, p.reset, { min: 0, max: 32 }, (v) => set('Reset', { reset: v })), ' beats (0 = never)')),
   ];
+}
+
+// ---- shift register (random)
+
+const SRR_JACKS = [['CV', 'CV', 'The random voltage'], ['Change', 'Change', 'A gate whenever the CV changes'], ['Trigger', 'Trigger', 'A gate whenever its first bit is set']];
+const pctOf = (v) => Math.round((v / 127) * 100);
+
+// Shift register `i` (0–15): its settings in the scene in view, its jacks, and its MIDI notes in
+// and out. From the dumps themselves, so it works for one that only sends notes and has no jack.
+export function srrEditor(view, i, act) {
+  const values = act.values();
+  const t = values.preset?.srr[i];
+  const r = values.config.srr[i];
+  const name = view.sources.find((x) => x.id === `srr:${i}`)?.name ?? `Random ${i + 1}`;
+  const set = (what, obj) => act.edit(`${what} of ${name}`, setSrr(i, obj));
+  const L = (text, param) => ec4Label(text, `srr:${i}:${param}`, act.ec4);
+  const num = (label, key, min, max, note) => sfield(L(label, key), numberInput(`${label} of ${name}`, t[key], { min, max }, (v) => set(label, { [key]: v })), note);
+  const midi = t && srrUsesMidiNotes(t.scale);
+  const parts = [];
+  if (!t) parts.push(h('p', { class: 'note' }, 'No preset loaded.'));
+  else {
+    if (t.direction === SRR_STOP) parts.push(h('p', { class: 'problem' }, 'Stopped: nothing changes until it has a direction.'));
+    parts.push(h('div', { class: 'erows' },
+      sfield(L('Direction', 'direction'), selectInput(`Direction of ${name}`, t.direction, SRR_DIRECTIONS.map((n, k) => [k, n]), (v) => set('Direction', { direction: v }))),
+      num('Length', 'length', 1, 32, ' steps, then it loops'),
+      num('Randomness', 'randomness', 0, 127, ` · ${srrRandomnessText(t.randomness)}`),
+      num('Depth', 'attenuator', 0, 127, ` · ${pctOf(t.attenuator)} % of the jack’s range`),
+      sfield(L('Scale', 'scale'), selectInput(`Scale of ${name}`, t.scale, SRR_SCALES.map((n, k) => [k, n]), (v) => set('Scale', { scale: v }))),
+      t.scale ? sfield(L(midi ? 'Transpose' : 'Key', 'key'), selectInput(`${midi ? 'Transpose' : 'Key'} of ${name}`, t.key,
+        // a scale takes the key as a note (0–11; 12–24 are the same notes again), the MIDI scales as a transposition
+        (midi ? Array.from({ length: 25 }, (_, k) => k) : [...Array.from({ length: 12 }, (_, k) => k), ...(t.key > 11 ? [t.key] : [])])
+          .map((k) => [k, srrKeyText(k, t.scale)]), (v) => set(midi ? 'Transpose' : 'Key', { key: v }))) : null,
+      num('Gate length', 'gateLength', 0, 127, t.gateLength ? ` · ${pctOf(t.gateLength)} % of a step` : ' · 0: the trigger length')));
+  }
+
+  // its jacks: the CV on a free CV jack, the two gates on any free jack
+  const left = srrOutputs(r).length;
+  const sends = !!(r.toInternal || r.toUsbC || r.toUsbA || r.toDin || r.toSelect);
+  const jackOf = { CV: r.cvOutput ? r.cvOutput - 1 : null, Change: r.changeOutputHigh ? null : r.changeOutput, Trigger: r.triggerOutputHigh ? null : r.triggerOutput };
+  const jackRow = ([port, label, title]) => {
+    const now = jackOf[port];
+    const free = view.outputs.filter((o) => o.present && !o.ports.length && (port !== 'CV' || !o.gate)).map((o) => [o.index, o.jack]);
+    const options = [[-1, '—'], ...(now != null ? [[now, view.outputs[now].jack]] : []), ...free];
+    return h('div', { class: 'erow', title }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, selectInput(`${label} jack of ${name}`, now ?? -1, options, (v) => {
+      if (v === -1) {
+        // off its last jack it stops, unless its notes still play
+        const stop = left === 1 && !sends && t ? setSrr(i, { direction: SRR_STOP }) : [];
+        act.edit(`${name}: ${label} off jack ${view.outputs[now].jack}`, [...setSrrJack(i, port, null), ...stop]);
+      } else act.edit(`${name}: ${label} on jack ${view.outputs[v].jack}`, setSrrJack(i, port, v));
+    })));
+  };
+  parts.push(h('h3', {}, 'Jacks'), h('div', { class: 'erows' }, SRR_JACKS.map(jackRow)));
+
+  // MIDI: the notes it quantises to (the MIDI scales), and its own notes out (a player)
+  const CH = Array.from({ length: 16 }, (_, c) => [c + 1, `ch ${c + 1}`]);
+  parts.push(h('h3', {}, 'MIDI'), h('div', { class: 'erows' },
+    midi || r.notesChannel ? field('Notes in', selectInput(`Notes in of ${name}`, r.notesChannel, [[0, 'none'], ...CH],
+      (v) => act.edit(v ? `${name} listens for notes on ch ${v}` : `${name} listens for no notes`, [{ dump: 'config', path: ['srr', i, 'notesChannel'], value: v }])),
+    midi && !r.notesChannel ? ' · needed for this scale' : null) : null,
+    field('Notes out', selectInput(`Notes out of ${name}`, sends ? r.channel + 1 : 0, [[0, 'off'], ...CH], (v) => act.edit(
+      v ? `${name} sends notes on ch ${v}` : `${name} sends no notes`,
+      v ? setPlayer(`srrNotes:${i}`, { channel: v - 1, dests: sends ? {} : { internal: true } })
+        : setPlayer(`srrNotes:${i}`, { dests: { internal: false, usbC: false, usbA: false, din: false, select: false } }))),
+    sends ? ' · where they go: its player' : null)));
+  return parts;
 }
 
 // ---- clocks and transport

@@ -8,7 +8,7 @@ import { outputNumber, internalName } from '../patch/hardware.js';
 import { replacesLevel } from '../patch/derive.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, keep } from '../patch/edit.js';
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
-import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor } from './editors.js';
+import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor, srrEditor } from './editors.js';
 import { playerInspector, playedBy, euclidClocks, randomClock } from './players.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
@@ -18,7 +18,7 @@ const param = (p) => PARAM_NAMES[p] ?? p;
 const yes = (b) => (b ? 'on' : 'off');
 
 // Sources that can be removed so far (M2a).
-const REMOVABLE = new Set(['voice', 'triggers', 'level', 'knobs', 'lfo', 'clock', 'euclid', 'hid']);
+const REMOVABLE = new Set(['voice', 'triggers', 'level', 'knobs', 'lfo', 'clock', 'euclid', 'hid', 'random']);
 
 // `act` is { edit(label, changes), add(output), remove(source, port?) }; each changes the
 // patch through edit.js and redraws.
@@ -107,6 +107,7 @@ function editorOf(view, s, act, color) {
     case 'triggers': return triggerEditor(view, s, act);
     case 'lfo': return lfoEditor(view, view.outputs[s.index], act, color);
     case 'euclid': return euclidEditor(s, act, color);
+    case 'random': return act ? srrEditor(view, s.index, act) : null;
     case 'clock': return clockEditor(s, act);
     case 'knobs': return knobEditor(view, s, act);
     case 'level': return levelEditor(view, s, act);

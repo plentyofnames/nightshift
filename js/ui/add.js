@@ -4,9 +4,9 @@
 import { h, $, replace, modal } from '../../vendor/lilypad/js/dom.js';
 import { icon } from './look.js';
 import { learnCc } from './connect.js';
-import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, TRIGGER_TYPES, voltsToLevel, noteName } from '../patch/tables.js';
+import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, TRIGGER_TYPES, voltsToLevel, noteName, SRR_SCALES, srrRandomnessText } from '../patch/tables.js';
 import { freeCcs, suggestCc, suggestChannel, suggestBaseGate, suggestStart, voicePlan, suggestTriggerChannel, suggestNote, jacksInTheWay } from '../patch/alloc.js';
-import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, addTrigger, VOICE_OUTPUTS, SHARED_OUTPUTS, LEVEL_TRIGGER_TYPES, isAccentType } from '../patch/edit.js';
+import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, addTrigger, addRandom, VOICE_OUTPUTS, SHARED_OUTPUTS, LEVEL_TRIGGER_TYPES, isAccentType } from '../patch/edit.js';
 
 const KINDS = [
   { id: 'voice', group: 'Notes', title: 'Pitch & gate', desc: 'A voice: mono or poly', icon: 'voice', cv: true },
@@ -14,6 +14,7 @@ const KINDS = [
   { id: 'fixed', group: 'Control', title: 'Fixed voltage', desc: 'Stored in the preset', icon: 'level', cv: true, preset: true },
   { id: 'knob', group: 'Control', title: 'MIDI knob', desc: 'A CC sets the voltage', icon: 'knobs', cv: true },
   { id: 'lfo', group: 'Modulation', title: 'LFO', desc: 'Free, or synced to the tempo', icon: 'lfo', cv: true, preset: true },
+  { id: 'random', group: 'Modulation', title: 'Random', desc: 'A shift register: a looping random CV, or random gates', icon: 'random', preset: true },
   { id: 'clock', group: 'Timing', title: 'Clock', desc: 'Divisions of the tempo', icon: 'clock' },
   { id: 'transport', group: 'Timing', title: 'Transport', desc: 'Run gate, start and stop pulses', icon: 'clock' },
   { id: 'euclid', group: 'Timing', title: 'Euclidean rhythm', desc: 'Pulses spread over steps', icon: 'euclid' },
@@ -32,6 +33,7 @@ export async function addToJack(view, values, o) {
     shape: 'sine', synced: false, hz: 1, lfoPulses: 96, depth: 100,
     base: 24, multiplier: 1, length: 0, transport: 2,
     pulses: 4, steps: 16, rotation: 0, rate: 6,
+    srrPort: o.gate ? 'Trigger' : 'CV', srrRate: 12, srrLength: 8, srrRandomness: 96, srrScale: 0,
     trigChannel: suggestTriggerChannel(values.config), trigType: 1, envSet: 0,
     voiceType: 0, voices: 2, voiceChannel: suggestChannel(values.config), outs: { cvOut: 1, gateOut: 1 }, gatesOnExpander: false, start: o.index,
   };
@@ -110,6 +112,9 @@ function build(f, values, hardware, o, where, view) {
         changes: addClock(values, o.index, { base: f.base, multiplier: f.multiplier, length: f.length }) };
     case 'transport':
       return { label: `${CLOCK_TYPES[f.transport]} on ${where}`, changes: addClock(values, o.index, { type: f.transport }) };
+    case 'random':
+      return { label: `Random ${f.srrPort === 'CV' ? 'CV' : f.srrPort.toLowerCase() + ' gates'} on ${where}`,
+        changes: addRandom(values, hardware, o.index, f.srrPort, { rate: f.srrRate, length: f.srrLength, randomness: f.srrRandomness, scale: f.srrScale }).changes };
     case 'euclid':
       return { label: `Euclid ${f.pulses} of ${f.steps} on ${where}`,
         changes: addEuclid(values, hardware, o.index, { pulses: f.pulses, steps: f.steps, rotation: f.rotation, rate: f.rate }) };
@@ -198,6 +203,14 @@ function fieldsFor(f, values, o, redraw, view) {
         field('Steps', num(f, 'steps', 1, 32)),
         field('Rotation', num(f, 'rotation', 0, 31)),
         field('Step rate', pick(f, 'rate', divisions)),
+      ];
+    case 'random':
+      return [
+        o.gate ? field('Gives', pick(f, 'srrPort', [['Trigger', 'Trigger: when its first bit is set'], ['Change', 'Change: whenever its CV changes']])) : null,
+        field('Steps at', pick(f, 'srrRate', divisions)),
+        field('Length', [num(f, 'srrLength', 1, 32), ' steps'], 'Then it loops.'),
+        field('Randomness', num(f, 'srrRandomness', 0, 127, 1, redraw), `${srrRandomnessText(f.srrRandomness)}; 127 locks the loop.`),
+        o.gate ? null : field('Scale', pick(f, 'srrScale', SRR_SCALES.slice(0, 17).map((n, k) => [k, n]))),
       ];
   }
   return [];

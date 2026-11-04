@@ -245,7 +245,12 @@ Hardware results: learning a knob works (2026-11-03).
   - Setting up: Night Shift's thru on.
   - With Logic: Night Shift's thru off.
   - Live: no computer.
-- **Pre-gig checklist** (artboard 9).
+- **Pre-gig checklist** (artboard 9). **Built (2026-11-05): the Gig tab.** One line per thing to have right before playing without a computer, green, orange (change it) or open (not done or not known yet), with a button where Night Shift can do it (Read FH-2 settings, Save all, Send to EC4, Scenes tab):
+  - Scenes and flash: the config and every scene have a slot of their own; everything saved to flash since the last change; a program change channel when there are scenes to switch.
+  - FH-2 settings, as last read from its menus: Send CCs on preset ld (or forwarding to USB A), the 14-bit byte order when there are 14-bit CCs, the startup config and preset against your slots, and the other settings that work against the patch (Local off, DIN out, Always load direct); Soft takeover in the config.
+  - EC4: the pages and sync table sent since the last change, the controlfrog version, the 64-knob cap.
+  - Night Shift can't read the FH-2's flash slots or the EC4 without loading or reading them, so it remembers fingerprints of what Save all, Save to flash and Send to EC4 wrote (`held` in the project, `js/hash.js`, `pagesFingerprint`) and compares them with what you see. Something changed on the module's panel or in another tool since isn't seen.
+  - The hardware checks page is one click away for the tests on the units themselves.
 - **FH-2 settings through the menus** (`menu.js`). The settings have no SysEx of their own, but the FH-2 can be operated like a person at the panel: `48H` presses and turns the controls, and `43H`/`44H`/`41H` read back where the menu is and what it shows (Expert Sleepers' accessibility tool works this way). Two steps:
   1. **Read only first.** Walk to each setting the checklist needs, read its value, and walk back. The checklist then shows the real state:
      - Send CCs on preset ld;
@@ -290,6 +295,7 @@ Hardware results: learning a knob works (2026-11-03).
   - The templates only say where a knob goes on its page. "+ Page for…" on the EC4 tab makes a page with an object's whole template; "Whole page" fills in the rest of one.
   - The arp commands and truncate are in the voice's arpeggiator section ("On the EC4"); nudge, tempo ±0.1 and the display ones in Settings.
   - "n CCs on no page · Remove them" on the EC4 tab lists mappings on the pages channels that are on no page (not the CC knobs, whose mapping is the source), for what the earlier "give every knob a CC" left behind. They're shown before anything is removed, and it undoes.
+- **Next (your call, 2026-11-05): moving knobs, and more than one LIVE page.** Moving a knob to another place or page; LIVE pages you make and fill yourself, as many as you like, instead of the one.
 - **Stashed for later** (your call, 2026-11-03): editing the pages.
   - Hide the pages of sources you don't play live.
   - Put two small pages in one group (two Euclids at 7 knobs each fit in 16).
@@ -353,12 +359,20 @@ Hardware results: learning a knob works (2026-11-03).
 - **A jack's MIDI knob on the jack** (your report: you couldn't find where to make it relative): its channel, CC, Learn and Relative were only on its channel's "CC → CV" source; the jack's own inspector now has them too.
 - **Absolute knobs again** (your call, 2026-11-04, after the sync worked). For a while a CC Night Shift gave a 7-bit setting was a relative mapping, so a knob couldn't jump; but then the EC4 had no value to show without Night Shift. Now every knob Night Shift maps is absolute: 14-bit ones CCAh, 7-bit ones CCAb. The live link keeps them in step while Night Shift is open, and the EC4's FH-2 sync without it: 14-bit knobs from controlfrog 0.11, 7-bit ones from 0.12 (sync table format 2, below). Soft takeover stays off. The EC4 tab offers "Make absolute" for the relative knobs Night Shift mapped in between. A knob's value text when turning: absolute knobs at once (an estimate where the FH-2 bands the CC, check 19), relative ones after the read-back.
 
-### Polish (the last milestone, your call 2026-11-04)
+### Polish (the last milestone, your call 2026-11-04; it comes very last, 2026-11-05)
+- **Mixed setups** (your idea, 2026-11-05): for a gig, one EC4 setup whose groups mix knobs for the FH-2 with knobs for other gear (the Analog Rytm). Night Shift owns setup 15 whole today; think about setups and groups again then.
 - **How the EC4's knobs feel per setting.** Every encoder tick changes the value, so a setting with few values (Euclid pulses 0–32, swing type, arp range) changes far too fast on a plain absolute knob. Each needs a slower encoder mode (the EC4's Div8, Div4, Div2) or less acceleration; which CC values land on each step is measured now (check 19: even bands). Go through the settings one by one and pick reasonable defaults. A first guess to start from (Lilypad's `docs/profiles.md`): up to 8 values Div4, up to 32 Div2, up to 128 Acc1, 14-bit Acc2.
 - **FH-2 units on the EC4 without Night Shift** (your note, 2026-11-04). With Night Shift linked, the EC4 shows values as the FH-2 means them (2.50 V, 60%, 1/16) through TEXT; plugged straight into the FH-2 it shows plain numbers. controlfrog could format them itself: Night Shift writes, per knob of setup 15, how to show its value (volts over the jack's range, %, Hz on the LFO's scale, a note value, an arp mode name…), next to the FH-2 sync table, and the firmware turns the knob's value into those four characters. Needs a controlfrog change.
 
 ### M4 and later (v0.3+)
-- Full shift-register editing.
+- **Full shift-register editing: built (2026-11-05, your call to do it first).**
+  - "Random" in the add dialog, on any free jack: on a CV jack its random CV (step rate, length, randomness, scale); on a gate jack its Trigger (when its first bit is set) or Change gate (whenever the CV changes). It takes a shift register nothing uses (no jacks, no notes) and runs it forwards in the scene in view.
+  - Its panel: direction, length (1–32 steps), randomness (with the chance a bit flips: 64 most random, 127 locked, 0 locked and inverted every pass), depth (% of the jack's range), scale (the 18 of the manual), key (a note; for the two MIDI scales a transposition), gate length (0: the trigger length); the step rate and clock source as before. "Stopped" is said in words, as the FH-2 defaults to stop.
+  - Jacks: CV, Change and Trigger, each set or cleared from the panel (the CV on a free CV jack, the gates on any). Off its last jack it stops, unless its notes still play.
+  - MIDI: notes in (for the MIDI scales) and notes out on a channel, which makes it a player; a shift register that only sends notes has the same panel under Players.
+  - EC4: value texts (FWD, MPEN, A, 84%…) and bands for direction, length, scale and key, assumed to follow check 19's rule over the preset tool's ranges until measured.
+  - **To check (hardware check 19, extended):** the CC bands of Random 16's direction, length, scale and key, and the FH-2's own names for them, read off its screen. The direction's names are the likely reading (0 backwards, 1 stop, 2 forwards: the manual says it defaults to stop, and your Init preset holds 1); Expert Sleepers' tools only show numbers. The key counts semitones from C, with 12 as no transposition for the MIDI scales.
+  - The blank preset now has the Init preset's shift registers (stopped, 8 steps); it had length 0.
 - Drum triggers with accent, velocity and envelope types.
 - Inputs X and Y as modulation into any setting.
 - HID gamepad and keyboard.
@@ -368,7 +382,6 @@ Hardware results: learning a knob works (2026-11-03).
 - Sequencer bank import/export.
 - A graphical editor for the note and drum sequencers' steps (your idea, 2026-11-03). The players in M2b leave the steps alone, so nothing there stands in its way.
 - FH-2 screen shown in the status bar.
-- **A LIVE page per scene** (your idea, 2026-11-04, tabled): a scene change could also switch the EC4 to that scene's own LIVE group. The FH-2 can't select the EC4's group, but controlfrog sees the scene's program change (checks 3 and 25) and could pick the group from a small table Night Shift writes beside the sync table (program → group). Needs a controlfrog change.
 - **Graphical LFOs and envelopes** (your idea, 2026-11-02): draw what the settings make, and redraw it as you turn a knob.
   - LFO: one cycle of the shape mix (sine, square with its pulse width, triangle, saw, random, noise), with level, phase and fade-in.
   - Envelope: the ADSR curve with its shapes, range and depth.
@@ -399,7 +412,7 @@ Each item is listed with the milestone that needs it.
 | 16 | Gamepad and keyboard entries with Usage/Type "--" do nothing on their output, whatever output is set. (The official tool's "None" for these outputs sends `0xFF` inside the SysEx; see fh2-notes.md, "The existing tools") | M2 | Night Shift never writes None there: it switches an entry off through Usage/Type, and keeps every byte 7-bit |
 | 17 | Preset program change: does program change N load preset slot N, or N + 1? And does Save all leave every scene in its slot? **Measured 2026-11-04 (checks page): program change N loads slot N + 1** (0 and 1 both gave slot 1's “Init”, 2 gave slot 3's “Scene B”), and every scene was in its slot, the same as in Night Shift. The Scenes tab now shows slot − 1 as the program change | — | — |
 | 18 | Tempo CC range (config tempoMin/tempoMax): what tempo does each value mean? **Measured with both at 59: CC n → 60 + n BPM** (60–187), so tempoMin + 1 + n; what tempoMax does is still open (run it again with them apart). Night Shift now shows the tempo knob's value and position by this | later | — |
-| 19 | How a 7-bit CC maps onto a setting whose range isn't 0–127. **Measured 2026-11-04: in even bands of 128/n.** Euclid pulses, rotation and reset: 33 bands, 0–32 (CC 4 → 1, 64 → 16, 126 → 32); steps the same, held at 1; arp range 3 bands from 1; latch off below 64; swing type only 0–2 (off, 16th, 8th: a CC can't reach the tuplet swings). Night Shift's value texts and knob positions use this; how fast each knob should turn stays in the polish milestone | — | — |
+| 19 | How a 7-bit CC maps onto a setting whose range isn't 0–127. **Measured 2026-11-04: in even bands of 128/n.** Euclid pulses, rotation and reset: 33 bands, 0–32 (CC 4 → 1, 64 → 16, 126 → 32); steps the same, held at 1; arp range 3 bands from 1; latch off below 64; swing type only 0–2 (off, 16th, 8th: a CC can't reach the tuplet swings). Night Shift's value texts and knob positions use this; how fast each knob should turn stays in the polish milestone. **Extended (2026-11-05):** Random 16's direction, length, scale and key, with the FH-2's names for them off its screen; not run yet | — | — |
 | 20 | Does reading a dump (21H, 23H) interrupt what plays, as an install does? **No** (your note, 2026-11-04) | — | — |
 | 21 | With "Enable MIDI clock out" on, does the FH-2's clock reach USB C? **Not needed any more**: live sends don't wait for the music (2026-11-04) | — | — |
 | 22 | Is the stored level added to a voice's other outputs and to a shift register's CV, as to an LFO? **Yes, on every CV-type output except pitch** (your tests, 2026-11-03/04) | — | Night Shift shows it as Offset there |

@@ -1,7 +1,7 @@
 // Colours, icons and short labels for sources.
 
 import { h } from '../../vendor/lilypad/js/dom.js';
-import { noteName } from '../patch/tables.js';
+import { noteName, SRR_SCALES } from '../patch/tables.js';
 
 const PALETTE = ['#F5A524', '#C4A1FF', '#FF7A66', '#3DD6C6', '#7FD0FF', '#B6E35A', '#6FA8FF', '#FF6FB5', '#FFD84D',
   '#4FD98A', '#E58CFF', '#F8B4A0', '#9AE6B4', '#B8BEC9'];
@@ -76,6 +76,7 @@ export function subline(s) {
     case 'lfo': return `${s.lfo.synced ? 'synced ' : ''}${s.lfo.rate}`;
     case 'euclid': return s.pattern ? `${s.pattern.pulses} of ${s.pattern.steps}${s.idle ? ' · off' : ''}` : 'pattern is in the preset';
     case 'knobs': return `MIDI ch ${s.channel + 1}`;
+    case 'random': return s.settings ? `${s.settings.length} steps · ${SRR_SCALES[s.settings.scale] ?? 'scale ?'}${s.stopped ? ' · stopped' : ''}` : 'settings are in the preset';
     case 'hid': return `only with a ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} on USB A`;
     default: return KIND_NAMES[s.kind] ?? s.kind;
   }

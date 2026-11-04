@@ -31,6 +31,19 @@ export function freeEuclid(config, hardware) {
   return config.euclid.findIndex((e, i) => free(i) && outs(e).every((o) => !isPresent(hardware, o)));
 }
 
+// A shift register nothing uses: no jacks and no notes sent anywhere; else one whose jacks are
+// all outside the rack.
+export function freeSrr(config, hardware) {
+  const sends = (r) => r.toInternal || r.toUsbC || r.toUsbA || r.toDin || r.toSelect;
+  const unused = config.srr.findIndex((r) => !sends(r) && srrOutputs(r).length === 0);
+  if (unused >= 0) return unused;
+  return config.srr.findIndex((r) => !sends(r) && srrOutputs(r).every((o) => !isPresent(hardware, o)));
+}
+
+// The jacks a shift register uses (config srr): its CV, Change and Trigger outputs.
+export const srrOutputs = (r) => [r.cvOutput ? r.cvOutput - 1 : null, r.changeOutputHigh ? null : r.changeOutput, r.triggerOutputHigh ? null : r.triggerOutput]
+  .filter((o) => o != null);
+
 export const freeMapping = (config) => config.mapping.findIndex((m) => !isUsed(m));
 
 // CCs a knob shouldn't use: bank select, data entry, sustain and sostenuto (converters

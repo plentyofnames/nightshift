@@ -99,6 +99,12 @@ export const SCALED_SETTINGS = [
   { name: 'Voice 16 arp range', t: { kind: 'converter', index: 15, param: 'arpRange' }, path: ['converter', 15, 'arpRange'], range: [1, 3] },
   { name: 'Voice 16 arp latch', t: { kind: 'converter', index: 15, param: 'arpLatch' }, path: ['converter', 15, 'arpLatch'], range: [0, 1] },
   { name: 'Swing type', t: { kind: 'global', index: 0, param: 'swingType' }, path: ['swingType'], range: [0, 7] },
+  // the shift register's, with the FH-2's own names for them read off its screen (it shows the
+  // shift register a CC just changed)
+  { name: 'Random 16 direction', t: { kind: 'srr', index: 15, param: 'direction' }, path: ['srr', 15, 'direction'], range: [0, 2], screen: true },
+  { name: 'Random 16 length', t: { kind: 'srr', index: 15, param: 'length' }, path: ['srr', 15, 'length'], range: [1, 32] },
+  { name: 'Random 16 scale', t: { kind: 'srr', index: 15, param: 'scale' }, path: ['srr', 15, 'scale'], range: [0, 18], screen: true },
+  { name: 'Random 16 key', t: { kind: 'srr', index: 15, param: 'key' }, path: ['srr', 15, 'key'], range: [0, 24], screen: true },
 ];
 const SCALE_CCS = [0, 1, 2, 3, 4, 8, 16, 31, 32, 33, 63, 64, 65, 96, 97, 126, 127]; // 2 and 97 tell the rules apart
 
@@ -126,15 +132,21 @@ export function check19(rig) {
     const fits = [];
     for (const [k, s] of SCALED_SETTINGS.entries()) {
       const samples = [];
+      const shown = new Map(); // stored value → the screen's top lines, where the FH-2 shows it
       for (const v of SCALE_CCS) {
         rig.send(cc(channel, 70 + k, v));
         await rig.wait(CC_MS);
-        samples.push([v, await read(rig, s.path)]);
+        const got = await read(rig, s.path);
+        samples.push([v, got]);
+        if (s.screen && rig.client.screenText && !shown.has(got)) {
+          shown.set(got, (await rig.client.screenText()).lines.slice(0, 3).map((l) => l.trim()).filter(Boolean).join(' / '));
+        }
       }
       const fit = fitScaling(samples, s.range);
       fits.push(fit.rule);
       rig.log(`${s.name}: ${samples.map(([c, v]) => `${c}→${v}`).join(' ')}`);
       lines.push(`${s.name} (${s.range[0]}–${s.range[1]}): ${fit.rule ?? `none fits; nearest ${fit.best}, ${fit.misses} off`} · ${samples.map(([c, v]) => `${c}→${v}`).join(', ')}`);
+      if (shown.size) lines.push(`${s.name} on the FH-2's screen: ${[...shown].map(([v, t]) => `${v}: ${t || '(nothing)'}`).join('; ')}`);
     }
     const all = new Set(fits);
     return { summary: all.size === 1 && fits[0] ? `Every setting: ${fits[0]}` : 'Not one rule for all: see the lines', lines };

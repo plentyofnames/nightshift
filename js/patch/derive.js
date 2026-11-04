@@ -8,7 +8,7 @@
 import { mappingsOf } from './mappings.js';
 import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
-  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID } from './tables.js';
+  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID, SRR_STOP } from './tables.js';
 
 // `names` are Night Shift's own names beside the dumps (edit.js setName): for sources and players
 // by id, and for the gear on a port and channel.
@@ -133,8 +133,10 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     if (!r.changeOutputHigh) ports.push({ name: 'Change', output: r.changeOutput });
     if (!r.triggerOutputHigh) ports.push({ name: 'Trigger', output: r.triggerOutput });
     if (!ports.length) return;
+    const sendsNotes = !!(r.toInternal || r.toUsbC || r.toUsbA || r.toDin || r.toSelect);
     addSource({ id: `srr:${i}`, kind: 'random', index: i, name: `Random ${i + 1}`, ports, controls: [],
-      settings: preset ? { ...preset.srr[i] } : null });
+      settings: preset ? { ...preset.srr[i] } : null, sendsNotes, notesIn: r.notesChannel,
+      stopped: preset ? preset.srr[i].direction === SRR_STOP : false });
   });
 
   // ---- USB gamepad and keyboard: they write levels directly, on top of whatever else is

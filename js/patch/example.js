@@ -73,7 +73,7 @@ export function examplePatch() {
 
   // Melody box: a shift register; CV on CV1·5, change and trigger on GT2·4–5; randomness on the EC4
   Object.assign(c.srr[0], { cvOutput: CV1(5) + 1, changeOutput: GT2(4), changeOutputHigh: 0, triggerOutput: GT2(5), triggerOutputHigh: 0 });
-  Object.assign(p.srr[0], { direction: 1, length: 8, randomness: 20, rate: 12, scale: 14, key: 2 });
+  Object.assign(p.srr[0], { direction: 2, length: 8, randomness: 100, rate: 12, attenuator: 127, scale: 14, key: 2 });
   map(c, 1, 18, 15, 2);
 
   // EC4 knobs: four levels on CV2·1–4, CC 12–15 on ch 2

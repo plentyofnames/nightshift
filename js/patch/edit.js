@@ -9,9 +9,9 @@
 
 import { getPath, setPath, diff } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
-import { freeClock, freeEuclid, freeMapping, freeConverter, freeTrigger } from './alloc.js';
+import { freeClock, freeEuclid, freeMapping, freeConverter, freeTrigger, freeSrr } from './alloc.js';
 import { isUsed, targetOf } from './mappings.js';
-import { hzToLfo, LFO_RESET_EUCLID } from './tables.js';
+import { hzToLfo, LFO_RESET_EUCLID, SRR_STOP, SRR_FORWARDS } from './tables.js';
 
 const fieldIndex = new Map(); // layout → Map(path key → field)
 function fieldOf(dump, path) {
@@ -201,6 +201,30 @@ function newEuclid(values, hardware, output, { pulses = 4, steps = 16, rotation 
   return { index: i, changes };
 }
 
+// ---- shift registers (random)
+
+// Shift register `i`'s jack for `port` ('CV', 'Change' or 'Trigger'), or none when `output` is
+// null. The CV needs a CV jack; Change and Trigger are gates and go on any jack. Change and
+// Trigger store "none" as 127 with a high bit in the addendum, as Euclid patterns do.
+export function setSrrJack(i, port, output) {
+  if (port === 'CV') return [config(['srr', i, 'cvOutput'], output == null ? 0 : output + 1)];
+  const k = port === 'Change' ? 'changeOutput' : port === 'Trigger' ? 'triggerOutput' : null;
+  if (!k) throw new Error(`a shift register has no ${port} output`);
+  return [config(['srr', i, k], output ?? 127), config(['srr', i, k + 'High'], output == null ? 1 : 0)];
+}
+
+export const setSrr = (i, obj) => fields('preset', ['srr', i], obj);
+
+// A new shift register on `output` as its `port` ('CV' on a CV jack, 'Change' or 'Trigger' on any),
+// running forwards in the scene in view: { index, changes }.
+export function addRandom(values, hardware, output, port = 'CV', { rate = 12, length = 8, randomness = 96, scale = 0, key = 0 } = {}) {
+  const i = freeSrr(values.config, hardware);
+  if (i < 0) throw noRoom('16 shift registers');
+  const changes = [...setSrrJack(i, 'CV', null), ...setSrrJack(i, 'Change', null), ...setSrrJack(i, 'Trigger', null), ...setSrrJack(i, port, output)];
+  if (values.preset) changes.push(...setSrr(i, { direction: SRR_FORWARDS, length, randomness, rate, attenuator: 127, scale, key, gateLength: 0 }));
+  return { index: i, changes };
+}
+
 // What clocks from or restarts on Euclid pattern `i` goes back to the external clock, or to
 // never restarting: for removing the pattern.
 function unlinkEuclid(c, i) {
@@ -264,6 +288,11 @@ export function removePort(values, source, port) {
       const stop = source.ports.length === 1 && !source.used && values.preset ? [preset(['euclid', source.index, 'pulses'], 0)] : [];
       return [config(['euclid', source.index, k], 127), config(['euclid', source.index, k + 'High'], 1), ...stop];
     }
+    case 'random': {
+      // off its last jack it stops, unless it still sends its notes somewhere
+      const stop = source.ports.length === 1 && !source.sendsNotes && values.preset ? setSrr(source.index, { direction: SRR_STOP }) : [];
+      return [...setSrrJack(source.index, port.name, null), ...stop];
+    }
     case 'hid':
       // Usage (gamepad) or Type (keyboard) "--" switches an entry off; its output stays as it is.
       // (Setting the output to None is what breaks in Expert Sleepers' tool: it sends 0xFF.)
@@ -288,6 +317,10 @@ export function removeSource(values, source) {
     return [config(['euclid', i, 'output'], 127), config(['euclid', i, 'outputHigh'], 1),
       config(['euclid', i, 'offOutput'], 127), config(['euclid', i, 'offOutputHigh'], 1), ...unlinkEuclid(values.config, i),
       ...(values.preset ? [preset(['euclid', i, 'pulses'], 0)] : [])];
+  }
+  if (source.kind === 'random') {
+    const stop = !source.sendsNotes && values.preset ? setSrr(source.index, { direction: SRR_STOP }) : [];
+    return [...source.ports.flatMap((p) => setSrrJack(source.index, p.name, null)), ...stop];
   }
   return source.ports.flatMap((p) => removePort(values, source, p));
 }

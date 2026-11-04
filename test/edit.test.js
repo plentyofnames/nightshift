@@ -3,7 +3,7 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, setSrrJack } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -17,7 +17,7 @@ import { buildDump, bodyOf, parseDump, DUMPS } from '../js/fh2/sysex.js';
 import { derive, playersOf, replacesLevel } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
 import { mappingsOf } from '../js/patch/mappings.js';
-import { levelToVolts, voltsToLevel } from '../js/patch/tables.js';
+import { levelToVolts, voltsToLevel, SRR_STOP, SRR_FORWARDS } from '../js/patch/tables.js';
 
 const patch = () => ({ config: blankConfig(), preset: blankPreset(), names: {} });
 const changedBytes = (before, after) => {
@@ -611,4 +611,47 @@ test('changes taken from the FH-2 in a row are one undo step; the shared rule fo
   const voice = { kind: 'voice' };
   eq(['Pitch', 'Pitch 2', 'Gate', 'Velocity gate', 'Velocity', 'Envelope'].map((n) => replacesLevel(voice, n)), [true, true, true, true, false, false]);
   eq([replacesLevel({ kind: 'random' }, 'CV'), replacesLevel({ kind: 'random' }, 'Change'), replacesLevel({ kind: 'clock' }, 'Clock 1/16')], [false, true, true]);
+});
+
+test('shift registers: added on a CV or gate jack, their jacks set and cleared, stopped off their last jack', () => {
+  const { config, preset } = examplePatch();
+  const p = { config, preset, names: {} };
+  const vals = () => ({ config: p.config.values, preset: p.preset.values });
+  const used = derive(p.config.values, p.preset.values).sources.filter((s) => s.kind === 'random').map((s) => s.index);
+  const cv = derive(p.config.values, p.preset.values).outputs.find((o) => !o.gate && o.present && !o.ports.length);
+  const gate = derive(p.config.values, p.preset.values).outputs.find((o) => o.gate && o.present && !o.ports.length);
+  const a = addRandom(vals(), EXAMPLE_HARDWARE, cv.index, 'CV');
+  assert(!used.includes(a.index), 'a shift register nothing uses');
+  apply(p, a.changes);
+  let v = derive(p.config.values, p.preset.values);
+  let s = v.sources.find((x) => x.id === `srr:${a.index}`);
+  eq(s.ports.map((x) => [x.name, x.output]), [['CV', cv.index]]);
+  eq([s.settings.direction, s.settings.length, s.settings.attenuator, s.stopped], [SRR_FORWARDS, 8, 127, false]);
+  apply(p, setSrrJack(a.index, 'Trigger', gate.index));
+  s = derive(p.config.values, p.preset.values).sources.find((x) => x.id === `srr:${a.index}`);
+  eq(s.ports.map((x) => x.name), ['CV', 'Trigger']);
+  apply(p, removePort(vals(), s, s.ports[0]));
+  s = derive(p.config.values, p.preset.values).sources.find((x) => x.id === `srr:${a.index}`);
+  eq([s.ports.map((x) => x.name), s.stopped], [['Trigger'], false], 'one jack left: still running');
+  apply(p, removePort(vals(), s, s.ports[0]));
+  v = derive(p.config.values, p.preset.values);
+  eq(v.sources.find((x) => x.id === `srr:${a.index}`), undefined, 'no jack: gone');
+  eq(p.preset.values.srr[a.index].direction, SRR_STOP, 'and stopped');
+  eq([p.config.values.srr[a.index].changeOutputHigh, p.config.values.srr[a.index].triggerOutputHigh, p.config.values.srr[a.index].cvOutput], [1, 1, 0]);
+  // on a gate jack as its trigger; removing the whole source stops it, unless it sends notes
+  const b = addRandom(vals(), EXAMPLE_HARDWARE, gate.index, 'Trigger');
+  apply(p, b.changes);
+  apply(p, setPlayer(`srrNotes:${b.index}`, { channel: 4, dests: { internal: 1 } }));
+  s = derive(p.config.values, p.preset.values).sources.find((x) => x.id === `srr:${b.index}`);
+  eq([s.ports.map((x) => [x.name, x.output]), s.sendsNotes], [[['Trigger', gate.index]], true]);
+  apply(p, removeSource(vals(), s));
+  eq(p.preset.values.srr[b.index].direction, SRR_FORWARDS, 'its notes still play: it keeps running');
+  assert(derive(p.config.values, p.preset.values).players.some((x) => x.id === `srrNotes:${b.index}`), 'as a player');
+  let threw = '';
+  try {
+    setSrrJack(0, 'Pitch', 3);
+  } catch (e) {
+    threw = e.message;
+  }
+  eq(threw, 'a shift register has no Pitch output');
 });

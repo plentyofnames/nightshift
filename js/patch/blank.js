@@ -38,6 +38,8 @@ export function blankPreset(name = 'Empty') {
       envVelocityDepth: 64, envAttackShape: 64, envDecayShape: 64, envReleaseShape: 64, randomDepth: 127,
       arpRange: 1, arpGate: 64, arpRate: 12 })),
     noteSequencer: n(4, (i) => ({ rate: [24, 6, 12, 24][i] })),
+    // the shift registers as the Init preset has them: stopped (direction 1), 8 steps, rate Ext
+    srr: n(16, () => ({ direction: 1, length: 8, randomness: 13, rate: 0, attenuator: 16, scale: 8, key: 9, gateLength: 0 })),
   };
   return parseDump(dumpMessage(CMD.INSTALL_PRESET, encode(preset, values, new Uint8Array(BODY_SIZE + 340))));
 }

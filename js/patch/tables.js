@@ -81,6 +81,30 @@ export const PARAM_NAMES = {
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 export const noteName = (n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`; // 60 = C4
 
+// ---- shift register random generators (preset srr_*). Ranges from Expert Sleepers' preset
+// tool: direction 0–2, length 1–32 bits, scale 0–18, key 0–24. The direction's names are the
+// likely reading (the manual: it defaults to stop, and the Init preset holds 1), and the key
+// counts semitones from C, with 12 as no transposition for the MIDI scales; hardware check 19
+// reads the FH-2's own names off its screen.
+export const SRR_DIRECTIONS = ['Backwards', 'Stop', 'Forwards'];
+export const SRR_STOP = 1;
+export const SRR_FORWARDS = 2;
+export const SRR_SCALES = ['Unquantized', 'Chromatic', 'Major', 'Minor', 'Triad', 'Minor triad', 'Fifth', 'Triad + 6', 'Minor triad + 6', 'Triad + 7',
+  'Minor triad + 7', 'Fifth + 6', 'Fifth + 7', 'Pentatonic', 'Minor pentatonic', 'Natural minor', 'Harmonic minor', 'MIDI notes, any octave', 'MIDI notes, exact'];
+export const srrUsesMidiNotes = (scale) => scale === 17 || scale === 18; // quantised to notes held on its notes-in channel
+export const srrKeyText = (key, scale) => {
+  if (!srrUsesMidiNotes(scale)) return NOTE_NAMES[key % 12];
+  const t = key - 12;
+  return t ? `${t > 0 ? '+' : '−'}${Math.abs(t)} semitones` : 'as played';
+};
+// The chance that a bit flips on each step: 100 % at 0, 50 % at 64 (most random), none at 127 (locked).
+export const srrFlipChance = (randomness) => Math.round(((127 - randomness) / 127) * 100);
+export function srrRandomnessText(r) {
+  if (r >= 127) return 'locked';
+  if (r <= 0) return 'locked, inverted every pass';
+  return `${srrFlipChance(r)} % chance a bit flips`;
+}
+
 // A duration in 24 ppqn pulses, as a musical value where there is one.
 const DURATIONS = { 3: '1/32', 4: '1/16T', 6: '1/16', 8: '1/8T', 9: '1/16.', 12: '1/8', 16: '1/4T', 18: '1/8.', 24: '1/4',
   32: '1/2T', 36: '1/4.', 48: '1/2', 72: '1/2.', 96: '1 bar', 192: '2 bars', 384: '4 bars' };

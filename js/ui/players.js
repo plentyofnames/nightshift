@@ -5,7 +5,7 @@
 import { h, $, modal } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, playerLine, KIND_NAMES } from './look.js';
 import { selectInput, perScene, ec4Label } from './controls.js';
-import { clockSourceInput } from './editors.js';
+import { clockSourceInput, srrEditor } from './editors.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
 import { suggestChannel, freeEuclid } from '../patch/alloc.js';
@@ -50,6 +50,13 @@ export function playerInspector(view, colors, id, onSelect, act) {
   parts.push(section('Plays inside the FH-2', plays.length
     ? plays.map((s) => h('div', { class: 'row' }, h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(`ch ${p.channel + 1}`, colors.get(s.id))))
     : h('p', { class: 'note' }, p.internal ? `Nothing listens on ch ${p.channel + 1}.` : 'Doesn’t send to the FH-2.')));
+
+  // a shift register's own settings, also when it has no jack and only sends notes
+  if (p.kind === 'random') {
+    const src = view.sources.find((s) => s.id === `srr:${p.index}`);
+    if (src) parts.push(h('div', { class: 'row' }, h('span', {}, 'Its jacks and settings: '), h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: src.id }) }, src.name)));
+    else parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), srrEditor(view, p.index, act)));
+  }
 
   // its clock
   if (f.rate && p.rate != null) {
