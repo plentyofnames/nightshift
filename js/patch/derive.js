@@ -126,16 +126,19 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     });
   });
 
-  // ---- shift register random generators
+  // ---- shift register random generators: one source each, with its jacks and its notes
+  // (your call, 2026-11-05). One that only sends notes has no jack and sits among the players,
+  // as a Euclid pattern without a jack does; its notes are the player `srrNotes:<i>`.
   config.srr.forEach((r, i) => {
     const ports = [];
     if (r.cvOutput) ports.push({ name: 'CV', output: r.cvOutput - 1 });
     if (!r.changeOutputHigh) ports.push({ name: 'Change', output: r.changeOutput });
     if (!r.triggerOutputHigh) ports.push({ name: 'Trigger', output: r.triggerOutput });
-    if (!ports.length) return;
     const sendsNotes = !!(r.toInternal || r.toUsbC || r.toUsbA || r.toDin || r.toSelect);
+    if (!ports.length && !sendsNotes) return;
     addSource({ id: `srr:${i}`, kind: 'random', index: i, name: `Random ${i + 1}`, ports, controls: [],
-      settings: preset ? { ...preset.srr[i] } : null, sendsNotes, notesIn: r.notesChannel,
+      settings: preset ? { ...preset.srr[i] } : null, sendsNotes, notesIn: r.notesChannel, player: `srrNotes:${i}`,
+      notesOut: sendsNotes ? { channel: r.channel, internal: !!r.toInternal, usbC: !!r.toUsbC, usbA: !!r.toUsbA, din: !!r.toDin, select: !!r.toSelect } : null,
       stopped: preset ? preset.srr[i].direction === SRR_STOP : false });
   });
 
@@ -202,7 +205,8 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   // Euclid without a jack instead, as is one with no jack at all.
   for (const s of sources) {
     s.parked = s.ports.length > 0 && s.ports.every((p) => p.present === false);
-    if (s.kind === 'euclid' && s.ports.every((p) => p.present === false) && (s.used || !s.ports.length)) {
+    const keeps = s.kind === 'euclid' ? s.used || !s.ports.length : s.kind === 'random' ? s.sendsNotes : false;
+    if (keeps && s.ports.every((p) => p.present === false)) {
       s.parked = false;
       s.jackless = true;
     }
@@ -363,11 +367,11 @@ function arpWaitsOf(cv, p, preset) {
 // their jacks, the usual case), and arpeggiators (as their voice), whose clock source it is,
 // with what selecting one shows. `now`: their rate is Ext, so it does.
 function clockedBy(config, preset, players, names, i) {
-  const onJacks = (r) => r.cvOutput || !r.changeOutputHigh || !r.triggerOutputHigh;
-  const out = players.filter((p) => p.clock === i + 1 && !(p.kind === 'random' && onJacks(config.srr[p.index])))
+  const counts = (r) => r.cvOutput || !r.changeOutputHigh || !r.triggerOutputHigh || r.toInternal || r.toUsbC || r.toUsbA || r.toDin || r.toSelect;
+  const out = players.filter((p) => p.clock === i + 1 && p.kind !== 'random')
     .map((p) => ({ id: p.id, name: p.name, now: p.rate === 0, select: { player: p.id } }));
   config.srr.forEach((r, k) => {
-    if (r.clock !== i + 1 || !onJacks(r)) return;
+    if (r.clock !== i + 1 || !counts(r)) return;
     const id = `srr:${k}`;
     out.push({ id, name: names[id] ?? `Random ${k + 1}`, now: preset?.srr[k].rate === 0, select: { source: id } });
   });
@@ -406,8 +410,8 @@ export function playersOf(config, preset, { all = false, names = {} } = {}) {
   config.srr.forEach((r, i) => {
     const d = dests(r);
     if (!used(d)) return;
-    players.push({ id: `srrNotes:${i}`, kind: 'random', index: i, name: `Random ${i + 1} notes`, channel: r.channel, ...d,
-      clock: r.clock, rate: preset ? preset.srr[i].rate : null });
+    players.push({ id: `srrNotes:${i}`, kind: 'random', index: i, name: names[`srr:${i}`] ?? `Random ${i + 1}`, channel: r.channel, ...d,
+      clock: r.clock, rate: preset ? preset.srr[i].rate : null, card: `srr:${i}` });
   });
   config.cvMidi.forEach((c, i) => {
     if (!c.enable) return;
@@ -446,7 +450,7 @@ function resourcesOf(config, preset, mappings, outputs, sources) {
     clocks: [count(config.clock, (c) => c.type), 32],
     triggers: [count(config.trigger, (t) => t.type), 64],
     euclids: [count(sources, (s) => s.kind === 'euclid'), 16],
-    randoms: [count(config.srr, (r) => r.cvOutput || !r.changeOutputHigh || !r.triggerOutputHigh), 16],
+    randoms: [count(config.srr, (r) => r.cvOutput || !r.changeOutputHigh || !r.triggerOutputHigh || r.toInternal || r.toUsbC || r.toUsbA || r.toDin || r.toSelect), 16],
     mappings: [mappings.length, 384],
     lfos: preset ? [count(outputs, (o) => o.lfo), 64] : null,
   };

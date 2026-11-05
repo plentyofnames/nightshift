@@ -76,7 +76,12 @@ export function subline(s) {
     case 'lfo': return `${s.lfo.synced ? 'synced ' : ''}${s.lfo.rate}`;
     case 'euclid': return s.pattern ? `${s.pattern.pulses} of ${s.pattern.steps}${s.idle ? ' · off' : ''}` : 'pattern is in the preset';
     case 'knobs': return `MIDI ch ${s.channel + 1}`;
-    case 'random': return s.settings ? `${s.settings.length} steps · ${SRR_SCALES[s.settings.scale] ?? 'scale ?'}${s.stopped ? ' · stopped' : ''}` : 'settings are in the preset';
+    case 'random': {
+      const n = s.notesOut;
+      const to = n && [n.internal && 'FH-2', n.usbC && 'USB C', n.usbA && 'USB A', n.din && 'DIN', n.select && 'Select'].filter(Boolean).join(', ');
+      const notes = n ? ` · ch ${n.channel + 1} → ${to}` : '';
+      return s.settings ? `${s.settings.length} steps · ${SRR_SCALES[s.settings.scale] ?? 'scale ?'}${notes}${s.stopped ? ' · stopped' : ''}` : `settings are in the preset${notes}`;
+    }
     case 'hid': return `only with a ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} on USB A`;
     default: return KIND_NAMES[s.kind] ?? s.kind;
   }

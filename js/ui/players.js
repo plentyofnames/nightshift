@@ -2,14 +2,15 @@
 // arpeggiator out, CV→MIDI). Their inspector, setting one up, and the "Played by" section of
 // a voice or trigger kit, which wires a sequencer to it.
 
-import { h, $, modal } from '../../vendor/lilypad/js/dom.js';
+import { h, $, modal, replace } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, playerLine, KIND_NAMES } from './look.js';
 import { selectInput, perScene, ec4Label } from './controls.js';
-import { clockSourceInput, srrEditor } from './editors.js';
+import { clockSourceInput } from './editors.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
-import { suggestChannel, freeEuclid } from '../patch/alloc.js';
-import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, moveToChannel, setLaneNote, setName, deviceKey, addEuclidWithoutJack } from '../patch/edit.js';
+import { suggestChannel, freeEuclid, freeSrr } from '../patch/alloc.js';
+import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, moveToChannel, setLaneNote, setName, deviceKey, addEuclidWithoutJack,
+  addRandomNotes } from '../patch/edit.js';
 
 const DEST_NAMES = { internal: 'FH-2 (internal)', usbC: 'USB C', usbA: 'USB A', din: 'DIN', select: 'Select bus' };
 const CHANNELS = Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]);
@@ -24,13 +25,21 @@ export function playerInspector(view, colors, id, onSelect, act) {
   const p = view.players.find((x) => x.id === id) ?? allPlayers(act.values()).find((x) => x.id === id);
   if (!p) return [h('p', { class: 'note' }, 'This player isn’t set up any more.')];
   const f = playerFields(p.id);
-  const set = (what, obj) => act.edit(`${what} of ${p.name}`, setPlayer(p.id, obj));
   const parts = [h('div', { class: 'ins-head', style: `--src:${colors.get(p.id) ?? 'var(--faint)'}` },
     h('span', { class: 'icon' }, icon(p.kind, 22)),
     h('div', { class: 'grow' }, h('h2', {}, p.name), h('span', { class: 'kind' }, `${KIND_NAMES[p.kind] ?? 'Player'} · makes MIDI, not voltage`)),
     h('button', { type: 'button', class: 'btn small', onclick: () => act.rename(p.id, p.name, p.defaultName) }, 'Rename…'))];
 
-  // channel and where it sends
+  parts.push(...playerSends(view, colors, p, onSelect, act));
+  return playerRest(view, p, f, parts, act, onSelect);
+}
+
+// A player's channel, where it sends (and the gear named there), and what it plays inside the
+// FH-2: its own panel's, and a shift register's under its MIDI.
+export function playerSends(view, colors, p, onSelect, act) {
+  const f = playerFields(p.id);
+  const set = (what, obj) => act.edit(`${what} of ${p.name}`, setPlayer(p.id, obj));
+  const parts = [];
   const box = (d) => h('label', { class: 'check' }, h('input', {
     type: 'checkbox', checked: !!p[d], 'data-key': `${p.id} ${d}`,
     onchange: (e) => set(`Sending to ${DEST_NAMES[d]}`, { dests: { [d]: e.target.checked } }),
@@ -50,13 +59,10 @@ export function playerInspector(view, colors, id, onSelect, act) {
   parts.push(section('Plays inside the FH-2', plays.length
     ? plays.map((s) => h('div', { class: 'row' }, h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(`ch ${p.channel + 1}`, colors.get(s.id))))
     : h('p', { class: 'note' }, p.internal ? `Nothing listens on ch ${p.channel + 1}.` : 'Doesn’t send to the FH-2.')));
+  return parts;
+}
 
-  // a shift register's own settings, also when it has no jack and only sends notes
-  if (p.kind === 'random') {
-    const src = view.sources.find((s) => s.id === `srr:${p.index}`);
-    if (src) parts.push(h('div', { class: 'row' }, h('span', {}, 'Its jacks and settings: '), h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: src.id }) }, src.name)));
-    else parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), srrEditor(view, p.index, act)));
-  }
+function playerRest(view, p, f, parts, act, onSelect) {
 
   // its clock
   if (f.rate && p.rate != null) {
@@ -173,14 +179,27 @@ export function euclidClocks(view, s, onSelect) {
 // Euclid pattern without a jack, to clock players and shift registers or restart LFOs
 
 const EUCLID = 'euclid';
+const RANDOM = 'random';
 
 export async function setUpPlayerDialog(view, values) {
-  const kinds = ['sequencer', 'drums', 'random'];
-  const free = allPlayers(values).filter((p) => kinds.includes(p.kind) && !(p.internal || p.usbC || p.usbA || p.din || p.select)
-    && (p.kind !== 'random' || view.sources.some((s) => s.id === `srr:${p.index}`)));
-  const euclid = freeEuclid(values.config, view.hardware) >= 0;
-  if (!free.length && !euclid) throw new Error('every sequencer already sends somewhere, and every Euclid is in use');
-  const f = { id: free[0]?.id ?? EUCLID, channel: suggestChannel(values.config), dests: { din: true }, pulses: 4, steps: 16, rate: 6 };
+  const kinds = ['sequencer', 'drums'];
+  const free = allPlayers(values).filter((p) => kinds.includes(p.kind) && !(p.internal || p.usbC || p.usbA || p.din || p.select));
+  const euclidIndex = freeEuclid(values.config, view.hardware);
+  const euclid = euclidIndex >= 0;
+  const srrIndex = freeSrr(values.config, view.hardware); // a shift register that plays notes only, without a jack
+  if (!free.length && !euclid && srrIndex < 0) throw new Error('every sequencer already sends somewhere, and every Euclid and shift register is in use');
+  // one tile per kind; each takes the first free one of its kind (your call, 2026-11-05: buttons, not a list)
+  const TYPES = [
+    { kind: 'sequencer', title: 'Note sequencer', icon: 'sequencer' },
+    { kind: 'drums', title: 'Drum sequencer', icon: 'drums' },
+    { kind: 'random', title: 'Random notes', icon: 'random' },
+    { kind: EUCLID, title: 'Euclid, no jack', icon: 'euclid' },
+  ];
+  const takes = (kind) => (kind === EUCLID ? (euclid ? { id: EUCLID, name: `Euclid ${euclidIndex + 1}, to clock or restart` } : null)
+    : kind === 'random' ? (srrIndex >= 0 ? { id: RANDOM, name: `Random ${srrIndex + 1}, notes only` } : null)
+      : free.find((p) => p.kind === kind) ?? null);
+  const first = TYPES.find((t) => takes(t.kind));
+  const f = { kind: first.kind, id: takes(first.kind).id, channel: suggestChannel(values.config), dests: { din: true }, pulses: 4, steps: 16, rate: 6 };
   const num = (key, min, max) => h('input', { type: 'number', class: 'num', min, max, value: f[key], 'aria-label': key,
     oninput: (e) => { f[key] = Math.max(min, Math.min(max, Number(e.target.value) || 0)); } });
   const forPlayer = h('div', { class: 'fields' },
@@ -197,10 +216,15 @@ export async function setUpPlayerDialog(view, values) {
     forPlayer.style.display = f.id === EUCLID ? 'none' : '';
     forEuclid.style.display = f.id === EUCLID ? '' : 'none';
   };
-  const choices = [...free.map((p) => [p.id, p.name]), ...(euclid ? [[EUCLID, 'A Euclid (no jack)']] : [])];
-  const body = h('div', { class: 'fields' },
-    h('label', { class: 'field' }, h('span', {}, 'Player'), selectInput('Player', f.id, choices, (v) => { f.id = v; show(); })),
-    forPlayer, forEuclid);
+  const tiles = h('div', { class: 'tiles player-tiles' });
+  const draw = () => replace(tiles, TYPES.map((t) => {
+    const got = takes(t.kind);
+    return h('button', { type: 'button', class: 'tile', 'aria-pressed': f.kind === t.kind ? 'true' : 'false', disabled: !got,
+      onclick: () => { Object.assign(f, { kind: t.kind, id: got.id }); draw(); show(); } },
+    icon(t.icon), h('span', {}, h('b', {}, t.title), h('span', {}, got ? got.name : 'none free')));
+  }));
+  draw();
+  const body = h('div', { class: 'player-setup' }, tiles, forPlayer, forEuclid);
   show();
   const ok = await modal($('dialog'), {
     title: 'Set up a player',
@@ -211,6 +235,11 @@ export async function setUpPlayerDialog(view, values) {
   if (f.id === EUCLID) {
     const e = addEuclidWithoutJack(values, view.hardware, { pulses: f.pulses, steps: f.steps, rate: f.rate });
     return { select: { source: `euclid:${e.index}` }, label: `Euclid ${e.index + 1}, ${f.pulses} of ${f.steps}, without a jack`, changes: e.changes };
+  }
+  if (f.id === RANDOM) {
+    const dests = Object.fromEntries(Object.keys(DEST_NAMES).map((d) => [d, !!f.dests[d]]));
+    const r = addRandomNotes(values, view.hardware, { channel: f.channel, dests });
+    return { select: { source: `srr:${r.index}` }, label: `Random ${r.index + 1} plays notes on ch ${f.channel + 1}`, changes: r.changes };
   }
   const p = free.find((x) => x.id === f.id);
   const dests = Object.fromEntries(Object.keys(playerFields(f.id).dests).map((d) => [d, !!f.dests[d]]));

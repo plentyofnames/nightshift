@@ -3,7 +3,7 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, setSrrJack } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, addRandomNotes, setSrrJack } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -375,7 +375,7 @@ test('shift-register notes and an input in note mode can play a voice too', () =
   apply(p, wirePlayer('srrNotes:2', 4));
   apply(p, wirePlayer('cvMidi:0', 4));
   const v = derive(p.config.values, p.preset.values);
-  eq(v.sources.find((s) => s.id === 'converter:0').players.map((x) => x.name), ['Random 3 notes', 'Input X → Note']);
+  eq(v.sources.find((s) => s.id === 'converter:0').players.map((x) => x.name), ['Random 3', 'Input X → Note'], 'a shift register’s notes go by its own name');
 });
 
 // ---- names and project files
@@ -654,4 +654,34 @@ test('shift registers: added on a CV or gate jack, their jacks set and cleared, 
     threw = e.message;
   }
   eq(threw, 'a shift register has no Pitch output');
+});
+
+test('a shift register that only plays notes: one source without a jack, among the players', () => {
+  const { config, preset } = examplePatch();
+  const p = { config, preset, names: {} };
+  const vals = () => ({ config: p.config.values, preset: p.preset.values });
+  const r = addRandomNotes(vals(), EXAMPLE_HARDWARE, { channel: 4, dests: { internal: true, din: true } });
+  apply(p, r.changes);
+  // clocked by a Euclid at rate Ext, as players are
+  apply(p, setPlayer(`srrNotes:${r.index}`, { clock: 1 }));
+  apply(p, setPlayerRate(`srrNotes:${r.index}`, 0));
+  let v = derive(p.config.values, p.preset.values);
+  const s = v.sources.find((x) => x.id === `srr:${r.index}`);
+  eq([s.ports.length, s.jackless, s.sendsNotes, s.notesOut.channel, s.notesOut.din, s.settings.direction], [0, true, true, 4, true, SRR_FORWARDS]);
+  const notes = v.players.find((x) => x.id === `srrNotes:${r.index}`);
+  eq([notes.name, notes.card], [`Random ${r.index + 1}`, `srr:${r.index}`], 'its notes are the shift register itself');
+  eq(v.sources.find((x) => x.id === 'euclid:0').clocks.find((c) => c.id === `srr:${r.index}`)?.select, { source: `srr:${r.index}` });
+  // a jack later: the same source, now with a jack
+  const free = v.outputs.find((o) => !o.gate && o.present && !o.ports.length);
+  apply(p, setSrrJack(r.index, 'CV', free.index));
+  v = derive(p.config.values, p.preset.values);
+  eq([v.sources.find((x) => x.id === `srr:${r.index}`).ports.length, !!v.sources.find((x) => x.id === `srr:${r.index}`).jackless], [1, false]);
+  // removed from its jack it plays on; removed again (no jack) it stops and sends nothing
+  apply(p, removeSource(vals(), v.sources.find((x) => x.id === `srr:${r.index}`)));
+  v = derive(p.config.values, p.preset.values);
+  const left = v.sources.find((x) => x.id === `srr:${r.index}`);
+  eq([left.ports.length, left.jackless], [0, true]);
+  apply(p, removeSource(vals(), left));
+  v = derive(p.config.values, p.preset.values);
+  eq([v.sources.some((x) => x.id === `srr:${r.index}`), v.players.some((x) => x.id === `srrNotes:${r.index}`), p.preset.values.srr[r.index].direction], [false, false, SRR_STOP]);
 });

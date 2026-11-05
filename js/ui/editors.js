@@ -244,7 +244,7 @@ export function srrEditor(view, i, act) {
       v ? `${name} sends notes on ch ${v}` : `${name} sends no notes`,
       v ? setPlayer(`srrNotes:${i}`, { channel: v - 1, dests: sends ? {} : { internal: true } })
         : setPlayer(`srrNotes:${i}`, { dests: { internal: false, usbC: false, usbA: false, din: false, select: false } }))),
-    sends ? ' · where they go: its player' : null)));
+    null)));
   return parts;
 }
 

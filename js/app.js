@@ -1206,6 +1206,9 @@ async function editHardware() {
 
 function select(sel) {
   if (sel?.addPlayer) return setUpPlayer();
+  // a shift register's notes are part of it: its own panel has them
+  const srr = /^srrNotes:(\d+)$/.exec(sel?.player ?? '');
+  if (srr) sel = { source: `srr:${srr[1]}` };
   const same = sel && state.selected && sel.source === state.selected.source && sel.output === state.selected.output && sel.player === state.selected.player;
   state.selected = same ? null : sel;
   render();

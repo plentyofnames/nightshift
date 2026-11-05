@@ -9,7 +9,7 @@ import { replacesLevel } from '../patch/derive.js';
 import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, keep } from '../patch/edit.js';
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor, srrEditor } from './editors.js';
-import { playerInspector, playedBy, euclidClocks, randomClock } from './players.js';
+import { playerInspector, playedBy, euclidClocks, randomClock, playerSends } from './players.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -77,7 +77,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
   if (s.kind === 'voice' || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors));
 
   parts.push(section('Comes out of', s.ports.length ? s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))
-    : h('p', { class: 'note' }, 'No jack: it runs as long as it has pulses.')));
+    : h('p', { class: 'note' }, s.kind === 'random' ? 'No jack: it plays its notes only.' : 'No jack: it runs as long as it has pulses.')));
   if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed out: not in your rack.'));
   if (s.standby) parts.push(h('p', { class: 'note' }, `Only with a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} on USB A.`));
 
@@ -85,6 +85,9 @@ function sourceInspector(view, colors, s, onSelect, act) {
   if (s.kind === 'random' && act) parts.push(randomClock(view, s, act));
   const editor = editorOf(view, s, act, color);
   if (editor) parts.push(h('section', { class: 'section' }, h('h3', {}, 'Settings'), editor));
+  // a shift register's notes: where they go and what they play, as a player's panel has it
+  const notes = s.kind === 'random' && act && view.players.find((p) => p.id === s.player);
+  if (notes) parts.push(...playerSends(view, colors, notes, onSelect, act));
   else {
     const settings = settingsOf(s, act);
     if (settings.length) parts.push(section('Settings', settings));

@@ -36,7 +36,14 @@ function arpMark(s) {
 const FH2_OUT = (i) => ({ x: i < 4 ? 62 : 162, y: 362 + 70 * (i % 4) });
 const EXP_OUT = (j) => ({ x: 56, y: 140 + 68 * j });
 
+// "plays 2": the voices a shift register's notes play inside the FH-2.
+const playsOfIn = (view) => (s) => {
+  const n = view.players.find((p) => p.card === s.id)?.plays.length ?? 0;
+  return n ? `plays ${n}` : '';
+};
+
 export function renderStage(view, colors, selected, onSelect) {
+  const playsOf = playsOfIn(view);
   const nodes = [];
   const anchors = new Map(); // source id → { x, y }
   const midiAt = new Map(); // source or player id → y of its card's middle, for MIDI cables
@@ -69,7 +76,7 @@ export function renderStage(view, colors, selected, onSelect) {
   // ---- players: they make MIDI, not voltage, so they have no jacks
   nodes.push(h('div', { class: 'group-title', style: `top:${y}px;left:${GX}px` }, 'Players'));
   y += HEAD;
-  for (const p of view.players) {
+  for (const p of view.players.filter((x) => !x.card)) { // a shift register's notes show on its own card
     const on = selected?.player === p.id;
     midiAt.set(p.id, y + 28);
     nodes.push(h('button', {
@@ -81,7 +88,7 @@ export function renderStage(view, colors, selected, onSelect) {
     h('span', { class: 'count' }, p.plays.length ? `plays ${p.plays.length}` : '')));
     y += CARD_STEP;
   }
-  // Euclid patterns without a jack: they only clock players or restart LFOs
+  // Euclid patterns and shift registers without a jack: they clock players, restart LFOs, or play notes
   for (const s of view.sources.filter((x) => x.jackless)) {
     const on = selected?.source === s.id;
     midiAt.set(s.id, y + 28);
@@ -91,7 +98,7 @@ export function renderStage(view, colors, selected, onSelect) {
     },
     h('span', { class: 'icon' }, icon(s.kind)),
     h('span', { class: 'txt' }, h('span', { class: 'name' }, s.name), h('span', { class: 'sub' }, `${subline(s)} · no jack`)),
-    h('span', { class: 'count' }, s.clocks.length ? `clocks ${s.clocks.length}` : s.restarts.length ? `restarts ${s.restarts.length}` : '')));
+    h('span', { class: 'count' }, s.kind === 'random' ? playsOf(s) : s.clocks.length ? `clocks ${s.clocks.length}` : s.restarts.length ? `restarts ${s.restarts.length}` : '')));
     y += CARD_STEP;
   }
   nodes.push(h('button', { type: 'button', class: 'btn add-player', style: `top:${y}px;left:${GX}px`, onclick: () => onSelect({ addPlayer: true }) }, 'Set up a player…'));
@@ -196,12 +203,13 @@ export function renderStage(view, colors, selected, onSelect) {
     }
   }
   // ---- MIDI cables, in the gutter: faint always, bright when either end is selected
-  const pairs = view.players.flatMap((p) => p.plays.filter((sid) => midiAt.has(sid) && midiAt.has(p.id)).map((sid) => [p, sid]));
+  const cardOf = (p) => p.card ?? p.id; // a shift register's notes start from its own card
+  const pairs = view.players.flatMap((p) => p.plays.filter((sid) => midiAt.has(sid) && midiAt.has(cardOf(p))).map((sid) => [p, sid]));
   pairs.forEach(([p, sid], k) => {
-    const y1 = midiAt.get(p.id);
+    const y1 = midiAt.get(cardOf(p));
     const y2 = midiAt.get(sid);
     const bulge = Math.min(GX - 6, 12 + Math.abs(y1 - y2) / 14 + (k % 3) * 4);
-    const on = selected?.player === p.id || selected?.source === sid;
+    const on = selected?.player === p.id || selected?.source === sid || selected?.source === p.card;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', `M ${GX} ${y1} C ${GX - bulge} ${y1}, ${GX - bulge} ${y2}, ${GX} ${y2}`);
     path.setAttribute('class', 'midi' + (on ? ' on' : ''));

@@ -225,6 +225,17 @@ export function addRandom(values, hardware, output, port = 'CV', { rate = 12, le
   return { index: i, changes };
 }
 
+// A shift register that only plays notes (no jack), on `channel` to `dests` ({ internal: true,
+// din: true, … }), running forwards in the scene in view: { index, changes }.
+export function addRandomNotes(values, hardware, { channel, dests, rate = 12, length = 8, randomness = 96, scale = 1 } = {}) {
+  const i = freeSrr(values.config, hardware);
+  if (i < 0) throw noRoom('16 shift registers');
+  const changes = [...setSrrJack(i, 'CV', null), ...setSrrJack(i, 'Change', null), ...setSrrJack(i, 'Trigger', null),
+    ...setPlayer(`srrNotes:${i}`, { channel, dests })];
+  if (values.preset) changes.push(...setSrr(i, { direction: SRR_FORWARDS, length, randomness, rate, attenuator: 127, scale, key: 0, gateLength: 0 }));
+  return { index: i, changes };
+}
+
 // What clocks from or restarts on Euclid pattern `i` goes back to the external clock, or to
 // never restarting: for removing the pattern.
 function unlinkEuclid(c, i) {
@@ -319,6 +330,11 @@ export function removeSource(values, source) {
       ...(values.preset ? [preset(['euclid', i, 'pulses'], 0)] : [])];
   }
   if (source.kind === 'random') {
+    // off its jacks it plays on as a player, if it sends notes; one with no jack (only notes) stops
+    if (!source.ports.length) {
+      return [...setPlayer(`srrNotes:${source.index}`, { dests: { internal: false, usbC: false, usbA: false, din: false, select: false } }),
+        ...(values.preset ? setSrr(source.index, { direction: SRR_STOP }) : [])];
+    }
     const stop = !source.sendsNotes && values.preset ? setSrr(source.index, { direction: SRR_STOP }) : [];
     return [...source.ports.flatMap((p) => setSrrJack(source.index, p.name, null)), ...stop];
   }
