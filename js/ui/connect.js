@@ -4,7 +4,7 @@
 import { midiAccess, midiTransport, portPairs, EC4_NAME } from '../../vendor/lilypad/js/midi.js';
 import { Device } from '../../vendor/lilypad/js/device.js';
 import { Fh2 } from '../fh2/client.js';
-import { readSettings } from '../fh2/menu.js';
+import { readSettings, readCalibrations } from '../fh2/menu.js';
 
 const FH2_NAME = /fh-?2/i;
 const SETTLE_MS = 500; // after an install, before reading it back (as tools/fh2dump.py does)
@@ -128,6 +128,10 @@ export async function learnCc(timeoutMs = 15000) {
 // Reads the FH-2's own settings by walking its menus (menu.js); changes nothing.
 export function readFh2Settings(pair, onStep, log) {
   return withClient(pair, log, (client) => readSettings(client, { onStep }));
+}
+
+export function readFh2Calibrations(pair, outputs, onStep, log) {
+  return withClient(pair, log, (client) => readCalibrations(client, { outputs, onStep }));
 }
 
 // ---- the EC4, through controlfrog's protocol (Lilypad's device.js)

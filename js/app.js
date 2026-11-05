@@ -17,7 +17,7 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, ec4Port, withEc4,
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, ec4Port, withEc4,
   openEc4, watchEc4, fh2Output, pullPresetFromFh2 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
@@ -40,6 +40,7 @@ import { checksBusy } from './fh2/checks.js';
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
 const FH2_SETTINGS_KEY = 'nightshift.fh2settings'; // the FH-2's own settings, as last read
+const FH2_CAL_KEY = 'nightshift.fh2calibrations'; // its calibration slots and startup slots, as last read
 const LIVE_KEY = 'nightshift.live'; // '0' while Live is off
 const BASE_KEY = 'nightshift.onfh2'; // what the FH-2 held as Night Shift last knew it (live editing)
 const PATCH_ID_KEY = 'nightshift.patchid'; // which patch the kept one is: every file, Get into nothing or example is a new one
@@ -59,6 +60,7 @@ const state = {
   link: 'unknown', // 'connecting', 'connected', 'offline' (no FH-2 port) or 'no-midi' (the browser refuses)
   port: '',
   fh2Settings: storedSettings(), // { at, port, pages } as last read from the module's menus, or null
+  fh2Calibrations: storedSettings(FH2_CAL_KEY), // { at, port, slots, startup } as last read (menu.js readCalibrations), or null
   sync: null, // how what you see compares with the FH-2: { kind: 'same' | 'scene' | 'differs' | 'unknown', scene }
   unsent: false, // what you see isn't what the FH-2 holds (or we don't know what it holds)
   busy: false,
@@ -122,9 +124,9 @@ function storedPatchId() {
 
 const newPatchId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
-function storedSettings() {
+function storedSettings(key = FH2_SETTINGS_KEY) {
   try {
-    return JSON.parse(localStorage.getItem(FH2_SETTINGS_KEY)) ?? null;
+    return JSON.parse(localStorage.getItem(key)) ?? null;
   } catch {
     return null;
   }
@@ -792,6 +794,27 @@ async function readModuleSettings() {
   });
 }
 
+// The FH-2's calibrations, read from its menus without loading or changing anything (about a
+// minute): every flash slot, and the startup slot of each CV jack in the rack.
+async function readModuleCalibrations() {
+  const ok = await modal($('dialog'), {
+    title: 'Read the FH-2’s calibrations?',
+    body: h('p', { class: 'note' }, 'Night Shift turns through its Calibrations and Startup pages without loading or changing anything (about a minute). Don’t touch the module meanwhile.'),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Read them', value: true, primary: true }],
+  });
+  if (!ok) return;
+  const outputs = Math.max(0, ...state.view.outputs.filter((o) => o.present && !o.gate).map((o) => o.index + 1));
+  await withFh2(async (pair) => {
+    status('Reading calibrations…');
+    const r = await readFh2Calibrations(pair, outputs, (s) => status(`Reading ${s}`));
+    state.fh2Calibrations = { at: new Date().toISOString(), port: pair.name, ...r };
+    try {
+      localStorage.setItem(FH2_CAL_KEY, JSON.stringify(state.fh2Calibrations));
+    } catch {}
+    status(`Read ${r.slots.filter((x) => x.output != null).length} calibrations`);
+  });
+}
+
 async function saveFlash() {
   const configSlot = state.slots.config ?? 0;
   const presetSlot = state.slots.scenes[state.scene] ?? 0;
@@ -1349,7 +1372,7 @@ function render() {
     relative: toAbsolute(state.config.values, state.ec4Model, state.names), makeAbsolute: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} absolute`, r.changes),
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
-    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, busy: state.busy, ec4 });
+    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4 });
   else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,
     scenes: () => { state.tab = 'scenes'; render(); }, checks: () => open('checks.html', '_blank'), busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
@@ -1358,7 +1381,7 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4,
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4, calibrations: state.fh2Calibrations,
         loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }

@@ -58,13 +58,17 @@ export class Fh2StandIn {
 // changes to settings (choosing which route or type to look at isn't one), and `pressed`
 // records every Settings item pressed, so tests can catch a careless walk. MIDI Forwarding and
 // History Inclusion remember their cursor and editing state between visits (`forwarding`,
-// `historyIncl`), as the module does.
+// `historyIncl`), as the module does. Calibrations (walked 2026-11-05): Load calibration turns
+// through 70 slots and loads one on a press (`loaded`); Settings › Calibration › Startup shows
+// each output's startup slot, and a turn on its Calibration field changes it (a change).
 const PORTS = ['DIN', 'USB A', 'USB C', 'SEL'];
 const TYPES = ['Note On/Off', 'CC', 'Pitch Bend', 'Real Time', 'Aftertouch'];
 export const DEVICES = ['Generic', 'Launch Control', 'Launch Control XL', 'Launchpad Mini', 'Launchpad Pro', 'Launchpad Mini Mk3', 'Launchpad X', 'Launchpad Pro Mk3'];
 
+const CAL_ITEMS = ['Auto-calibrate', 'Tuner', 'Load calibration', 'Save calibration', 'Reset calibration', 'Name calibration', 'View calibration'];
+
 export class MenuModel {
-  constructor({ pages } = {}) {
+  constructor({ pages, calibrations, startup } = {}) {
     this.main = ['Presets', 'Configurations', 'Sequencer Banks', 'Calibrations', 'Settings', 'Misc', 'Resets'];
     this.settings = ['General page 1', 'General page 2', 'General page 3', 'Calibration', 'MIDI Forwarding', 'History Inclusion',
       'USB Device Name', 'USB Device Settings', 'Reset Settings'];
@@ -86,9 +90,17 @@ export class MenuModel {
     this.historyIncl = { field: 0, editing: false, a: 0 }; // field 0 the type, 1 its On/Off
     this.changes = 0;
     this.pressed = [];
+    // 70 slots: { output (0-based), name } or null; yours, as walked: 1–4 for outputs 1–4
+    this.calibrations = calibrations ?? Array.from({ length: 70 }, (_, k) => (k < 4 ? { output: k, name: '' } : null));
+    this.startup = startup ?? Array.from({ length: 64 }, (_, o) => (o < 4 ? o + 1 : 0)); // slot per output, 0 none
+    this.loaded = []; // slots a press in Load calibration loaded
+    this.slot = 0;
+    this.startupState = { field: 0, editing: false, output: 0 };
   }
 
   list() {
+    if (this.level === 'calibrations') return CAL_ITEMS;
+    if (this.level === 'setcal') return ['Basic', 'Startup'];
     return this.level === 'main' ? this.main : this.level === 'settings' ? this.settings : this.level === 'devices' ? DEVICES : this.pages[this.page].map(([n]) => n);
   }
 
@@ -108,6 +120,7 @@ export class MenuModel {
       case 'main':
         if (turn) this.i = wrap(this.i + turn, this.main.length);
         else if (e === 1 && this.main[this.i] === 'Settings') Object.assign(this, { level: 'settings', i: 0 });
+        else if (e === 1 && this.main[this.i] === 'Calibrations') Object.assign(this, { level: 'calibrations', i: 0 });
         else if (e === 4) Object.assign(this, { level: 'overview', i: 0 });
         return;
       case 'settings': {
@@ -122,6 +135,43 @@ export class MenuModel {
         else if (item === 'History Inclusion') Object.assign(this, { level: 'historyIncl', parent: back, screenState: this.historyIncl });
         else if (item === 'USB Device Name') Object.assign(this, { level: 'name', parent: back });
         else if (item === 'USB Device Settings') Object.assign(this, { level: 'devices', parent: back, i: 0 });
+        else if (item === 'Calibration') Object.assign(this, { level: 'setcal', i: 0 });
+        return;
+      }
+      case 'calibrations': {
+        if (turn) return void (this.i = wrap(this.i + turn, CAL_ITEMS.length));
+        if (e === 4) return void Object.assign(this, { level: 'main', i: this.main.indexOf('Calibrations') });
+        if (e !== 1) return;
+        this.pressed.push(CAL_ITEMS[this.i]);
+        if (CAL_ITEMS[this.i] === 'Load calibration') Object.assign(this, { level: 'loadcal', slot: 0 });
+        else this.changes++; // anything else here could start, save or reset something
+        return;
+      }
+      case 'loadcal':
+        if (turn) this.slot = wrap(this.slot + turn, 70);
+        else if (e === 1) this.loaded.push(this.slot + 1);
+        else if (e === 4) Object.assign(this, { level: 'calibrations', i: CAL_ITEMS.indexOf('Load calibration') });
+        return;
+      case 'setcal': {
+        if (turn) return void (this.i = wrap(this.i + turn, 2));
+        if (e === 4) return void Object.assign(this, { level: 'settings', i: this.settings.indexOf('Calibration') });
+        if (e !== 1) return;
+        this.pressed.push(['Basic', 'Startup'][this.i]);
+        if (this.i === 1) Object.assign(this, { level: 'startup', startupState: { field: 0, editing: false, output: 0 } });
+        else this.changes++; // Basic sets an output's voltage as the cursor moves
+        return;
+      }
+      case 'startup': {
+        const t = this.startupState;
+        if (e === 4) return void Object.assign(this, { level: 'setcal', i: 1 }); // from editing too
+        if (e === 1) return void (t.editing = !t.editing);
+        if (!turn) return;
+        if (!t.editing) return void (t.field = Math.max(0, Math.min(1, t.field + turn)));
+        if (t.field === 0) t.output = wrap(t.output + turn, 64);
+        else {
+          this.startup[t.output] = wrap(this.startup[t.output] + turn, 71);
+          this.changes++;
+        }
         return;
       }
       case 'devices':
@@ -184,6 +234,18 @@ export class MenuModel {
       }
       case 'historyIncl': return { mode: 1, lines: ['Include in history', `${TYPES[st.a].padEnd(13)}${this.history[TYPES[st.a]]}`, '', ''] };
       case 'name': return { mode: 1, lines: ['USB Device Name', '', '', ''] };
+      case 'calibrations': return { mode: 1, lines: ['Calibrations', '', item(), ''] };
+      case 'setcal': return { mode: 1, lines: ['Calibration', '', item(), ''] };
+      case 'loadcal': {
+        const c = this.calibrations[this.slot];
+        return { mode: 1, lines: [`Load calibration ${this.slot + 1}`, c?.name ?? '', c ? `For output ${c.output + 1}` : '<Empty>', ''] };
+      }
+      case 'startup': {
+        const o = this.startupState.output;
+        const k = this.startup[o];
+        const match = k ? (this.calibrations[k - 1]?.output === o ? 'Match!' : '') : '(None)';
+        return { mode: 1, lines: [`Output      ${o + 1}`, `Calibration ${k}  ${match}`, '', ''] };
+      }
       default: return { mode: 1, lines: [this.pages[this.page][this.i][0], '', this.pages[this.page][this.i][1], ''] };
     }
   }
@@ -194,6 +256,8 @@ export class MenuModel {
     if (this.level === 'forwarding') return ['MIDI Forwarding from', 'MIDI Forwarding to', `MIDI Forwarding from ${PORTS[st.a]} to ${this.dsts(st.a)[st.b]}`][st.field];
     if (this.level === 'historyIncl') return ['Include in history', TYPES[st.a]][st.field];
     if (this.level === 'name') return 'USB Device Name';
+    if (this.level === 'loadcal') return 'Load calibration';
+    if (this.level === 'startup') return ['Output', 'Calibration'][this.startupState.field];
     return 'Sorry';
   }
 
@@ -203,6 +267,8 @@ export class MenuModel {
     if (this.level === 'forwarding') return st.field === 0 ? PORTS[st.a] : this.dsts(st.a)[st.b];
     if (this.level === 'historyIncl') return TYPES[st.a];
     if (this.level === 'name') return `${this.name.padEnd(8)}\x01: cursor at 0 :  `;
+    if (this.level === 'loadcal') return String(this.slot + 1);
+    if (this.level === 'startup') return String(this.startupState.field ? this.startup[this.startupState.output] : this.startupState.output + 1);
     return '';
   }
 }

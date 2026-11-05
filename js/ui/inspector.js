@@ -10,6 +10,8 @@ import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, keep } f
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor, srrEditor } from './editors.js';
 import { playerInspector, playedBy, euclidClocks, randomClock, playerSends } from './players.js';
+import { calibrationOf } from '../fh2/menu.js';
+import { calibrationText } from './settings.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
@@ -180,7 +182,7 @@ function parkedInspector(view, colors, onSelect) {
 // CV…) it is added, as to an LFO: an offset (your tests, 2026-11-03/04: every CV-type output but pitch).
 // With the FH-2's "Always load direct" on (`loadDirect`, as last read), a preset load puts it on
 // the others too, until what drives the jack sends something.
-function jackSettings(o, edit, ec4, { driver = null, loadDirect = false } = {}) {
+function jackSettings(o, edit, ec4, { driver = null, loadDirect = false, calibrations = null } = {}) {
   const r = o.rangeIndex;
   const where = `jack ${o.jack}`;
   const rangeSelect = h('select', { 'aria-label': `Range of ${where}`, 'data-key': `range ${where}`, onchange: (e) => edit(`Range of ${where}: ${RANGES[+e.target.value]}`, setRange(o.index, +e.target.value)) },
@@ -201,6 +203,8 @@ function jackSettings(o, edit, ec4, { driver = null, loadDirect = false } = {}) 
     row('Gate high', voltsInput(`Gate high level of ${where}`, o.gateLevels.high, r, (v) => edit(`Gate levels of ${where}`, setGateLevels(o.index, o.gateLevels.low, v)))),
   ];
   if (o.lfoReset) rows.push(row('LFO restarts on', `${o.lfoReset.type}`));
+  // its calibration on the FH-2, as last read (Settings tab)
+  if (calibrations) rows.push(row('Calibration', h('span', { class: 'dim', title: `Read ${new Date(calibrations.at).toLocaleString()}` }, calibrationText(calibrationOf(calibrations, o.index)))));
   return [
     section('Jack settings', rows),
     preset ? null : h('p', { class: 'note' }, 'No preset loaded: no stored level or smoothing.'),
@@ -248,7 +252,7 @@ function jackInspector(view, colors, o, onSelect, act) {
       : h('button', { type: 'button', class: 'btn per-scene', title: 'A sine at 1 Hz, full depth: change it below',
         onclick: () => act.edit(`LFO on jack ${o.jack}`, addLfo(o.index)) }, 'Add an LFO')));
   }
-  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: d ? { name: d.s.name, replaces } : null, loadDirect: act.loadDirect }));
+  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: d ? { name: d.s.name, replaces } : null, loadDirect: act.loadDirect, calibrations: act.calibrations }));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;
 }

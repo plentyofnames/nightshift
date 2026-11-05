@@ -5,7 +5,7 @@
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { TAP_TYPES, START_STOP_TYPES, PARAM_NAMES, noteName } from '../patch/tables.js';
-import { settingsByName, settingsWarnings, settingText } from '../fh2/menu.js';
+import { settingsByName, settingsWarnings, settingText, calibrationOf } from '../fh2/menu.js';
 
 const section = (title, ...rows) => h('section', { class: 'settings-section' }, h('h3', {}, title), rows);
 const field = (label, control, unit, title) => h('div', { class: 'erow', title }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control, unit));
@@ -82,7 +82,26 @@ export function renderSettings(view, c, p, sceneName, act) {
     settingsWarnings(settingsByName(read.pages), view).map((w) => h('p', { class: w.level === 'warn' ? 'problem' : 'note' }, w.text)),
     read.pages.map((pg) => readPage(pg)));
 
-  return h('div', { class: 'settings-page' }, head, scene, config, module, controls);
+  // its calibrations, as last read: each CV jack's startup slot and the slots saved for it
+  const cal = act.cal;
+  const jacks = view.outputs.filter((o) => o.present && !o.gate);
+  const calRows = cal ? jacks.map((o) => [o, calibrationOf(cal, o.index)]).filter(([, c]) => c.startup || c.saved.length)
+    .map(([o, c]) => field(`Jack ${o.jack}`, h('span', { class: 'dim' }, calibrationText(c)))) : [];
+  const calibrations = section('Calibrations',
+    h('div', { class: 'settings-head' },
+      h('button', { type: 'button', class: 'btn', disabled: act.busy, onclick: act.readCal, title: 'Turns through its calibration pages; loads and changes nothing' },
+        cal ? 'Read calibrations again' : 'Read calibrations'),
+      h('span', { class: 'note' }, cal ? `${cal.slots.filter((x) => x.output != null).length} of 70 slots used · read ${new Date(cal.at).toLocaleString()}` : 'Not read yet')),
+    cal ? (calRows.length ? h('div', { class: 'erows' }, calRows) : h('p', { class: 'note' }, 'No calibration for the jacks in your rack.')) : null);
+
+  return h('div', { class: 'settings-page' }, head, scene, config, module, calibrations, controls);
+}
+
+// "slot 1 at power-on · saved: 1, 5", from calibrationOf.
+export function calibrationText(c) {
+  const start = c.startup == null ? null : c.startup ? `slot ${c.startup} at power-on${c.match ? '' : ' (another jack’s)'}` : 'none at power-on';
+  const saved = c.saved.length ? `saved: ${c.saved.join(', ')}` : null;
+  return [start, saved].filter(Boolean).join(' · ') || '—';
 }
 
 // One page of the FH-2's settings as read. MIDI Forwarding gets a row per source, the USB device

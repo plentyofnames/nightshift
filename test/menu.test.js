@@ -3,7 +3,7 @@
 
 import { test, assert, eq } from './harness.js';
 import { Fh2 } from '../js/fh2/client.js';
-import { readSettings, settingsByName, MenuError } from '../js/fh2/menu.js';
+import { readSettings, readCalibrations, calibrationOf, settingsByName, MenuError } from '../js/fh2/menu.js';
 import { screenTextOf, message, CMD } from '../js/fh2/sysex.js';
 import { Fh2StandIn, MenuModel } from './standin.js';
 
@@ -124,4 +124,41 @@ test('reading twice in a row works, and an On/Off left under the cursor stops th
     assert(err instanceof MenuError, `${where}: stopped`);
     eq([m.changes, m.level], [0, 'overview'], `${where}: nothing changed, back home`);
   }
+});
+
+test('reading the calibrations: every slot and each output’s startup slot, changing and loading nothing', async () => {
+  const calibrations = Array.from({ length: 70 }, (_, k) => (k < 4 ? { output: k, name: '' } : k === 9 ? { output: 6, name: 'MOOG' } : null));
+  const startup = Array.from({ length: 64 }, (_, o) => (o < 4 ? o + 1 : o === 6 ? 10 : o === 7 ? 3 : 0));
+  const menu = new MenuModel({ calibrations, startup });
+  const { client } = setUp(menu);
+  const steps = [];
+  const r = await readCalibrations(client, { outputs: 16, wait: 0, onStep: (s) => steps.push(s) });
+  eq(r.slots.length, 70);
+  eq(r.slots.filter((s) => s.output != null).map((s) => [s.slot, s.output, s.name]), [[1, 0, ''], [2, 1, ''], [3, 2, ''], [4, 3, ''], [10, 6, 'MOOG']]);
+  eq(r.startup.slice(0, 9).map((x) => [x.output, x.slot, x.match]),
+    [[0, 1, true], [1, 2, true], [2, 3, true], [3, 4, true], [4, 0, false], [5, 0, false], [6, 10, true], [7, 3, false], [8, 0, false]],
+    'output 8 starts with slot 3, which is output 3’s: no match');
+  eq(r.startup.length, 16);
+  eq([menu.changes, menu.loaded, menu.level], [0, [], 'overview'], 'nothing changed, nothing loaded, back on the overview');
+  eq(menu.pressed.filter((p) => /Basic|Save|Reset|Auto|Name/.test(p)), [], 'never Basic, Save, Reset, Name or Auto-calibrate');
+  eq(menu.startupState.output, 0, 'the Startup page left on output 1');
+  eq(steps.length, 70 + 16);
+});
+
+test('reading the calibrations starts from wherever the display is', async () => {
+  const menu = new MenuModel();
+  Object.assign(menu, { level: 'loadcal', slot: 12 }); // left inside Load calibration
+  const { client } = setUp(menu);
+  const r = await readCalibrations(client, { outputs: 8, wait: 0 });
+  eq([r.slots.filter((s) => s.output != null).length, r.startup.map((x) => x.slot).join(' ')], [4, '1 2 3 4 0 0 0 0']);
+  eq([menu.changes, menu.loaded], [0, []]);
+});
+
+test('one jack’s calibrations from what was read', () => {
+  const cal = { slots: [{ slot: 1, output: 0, name: '' }, { slot: 2, output: 7, name: '' }, { slot: 5, output: 0, name: 'MOOG' }],
+    startup: [{ output: 0, slot: 5, match: true }, { output: 1, slot: 0, match: false }] };
+  eq(calibrationOf(cal, 0), { startup: 5, match: true, saved: [1, 5] });
+  eq(calibrationOf(cal, 1), { startup: 0, match: false, saved: [] });
+  eq(calibrationOf(cal, 7), { startup: null, match: false, saved: [2] }, 'past the outputs read: its saved slots only');
+  eq(calibrationOf(null, 0).startup, null);
 });

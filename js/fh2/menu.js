@@ -18,7 +18,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // [{ page, items: [{ name, value }] }]: the General pages, MIDI Forwarding (one item per route,
 // "USB A → DIN"), History Inclusion, USB Device Name, and each USB device type's page
 // ("USB: Launchpad X"). `onStep(text)` reports progress.
-export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200, onStep, more = true } = {}) {
+// The guarded moves both readers make: an event and a pause, a screen line, whether anything is
+// open (43H answers "Sorry" then), the open item's name, and turning a menu to an item.
+function walker(client, wait) {
   const step = async (event) => {
     await client.remote(event);
     await sleep(wait);
@@ -37,6 +39,18 @@ export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200,
     }
     throw new MenuError(`didn’t find “${want}” in the menu`);
   };
+  // back to the overview, whatever is open (left first: a long hold with a setting open wasn't tried)
+  const home = async () => {
+    try {
+      if (!(await nothingOpen())) await step('left');
+      await step('home');
+    } catch {}
+  };
+  return { step, line, nothingOpen, expect, turnTo, home };
+}
+
+export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200, onStep, more = true } = {}) {
+  const { step, line, nothingOpen, expect, turnTo } = walker(client, wait);
   const fields = (text) => text.trim().split(/\s{2,}/).filter(Boolean);
 
   // a list of settings (a General page, a USB device): press, read, left, turn, once round
@@ -203,6 +217,78 @@ export async function readSettings(client, { pages = SETTINGS_PAGES, wait = 200,
     } catch {}
   }
   return result;
+}
+
+// The FH-2's calibrations, changing nothing (the menus as walked on 2026-11-05, fh2-notes.md):
+// what each of the 70 flash slots holds, by turning through Calibrations › Load calibration
+// without pressing (a press would load one), and which slot each of the first `outputs` outputs
+// loads at power-on, by turning the Output field of Settings › Calibration › Startup (never its
+// Calibration field). { slots: [{ slot, output (0-based) or null, name }], startup: [{ output,
+// slot (0 none), match }] }.
+export async function readCalibrations(client, { outputs = 16, wait = 200, onStep } = {}) {
+  const { step, line, nothingOpen, expect, turnTo, home } = walker(client, wait);
+  const value = async () => Number((await client.itemValue()).text);
+  const result = { slots: [], startup: [] };
+  try {
+    await home(); // left first: a long hold with something open wasn't tried
+    if ((await client.screenText()).mode !== 0) throw new MenuError('the display didn’t go back to the overview');
+    await step('press');
+    await turnTo('Calibrations', 10);
+    await step('press');
+    if ((await line(0)) !== 'Calibrations') throw new MenuError('the Calibrations menu didn’t open');
+    await turnTo('Load calibration', 10);
+    await step('press');
+    await expect('Load calibration', 'on opening');
+    for (let k = 1; k <= 70; k++) {
+      if ((await value()) !== k) throw new MenuError(`slot ${await value()} where ${k} was expected`);
+      const { lines } = await client.screenText();
+      const m = /^For output (\d+)/.exec(lines[2].trim());
+      result.slots.push({ slot: k, output: m ? Number(m[1]) - 1 : null, name: m ? lines[1].trim() : '' });
+      onStep?.(`calibration slot ${k}`);
+      await step('cw'); // picks the next slot; only a press would load one
+      await expect('Load calibration', 'turning through the slots');
+    }
+    await step('left'); // leaves without loading
+    if (!(await nothingOpen())) throw new MenuError('Load calibration didn’t close');
+    await step('left'); // the main menu
+    await turnTo('Settings', 10);
+    await step('press');
+    if ((await line(0)) !== 'Settings') throw new MenuError('the Settings menu didn’t open');
+    await turnTo('Calibration', 12);
+    await step('press');
+    if ((await line(0)) !== 'Calibration') throw new MenuError('Settings › Calibration didn’t open');
+    await turnTo('Startup', 3); // never Basic: moving over its values sets the outputs
+    await step('press');
+    await expect('Output', 'on opening Startup');
+    await step('press'); // the Output field: turning it now only shows another output
+    await expect('Output', 'on opening the output field');
+    for (let o = 0; o < outputs; o++) {
+      if ((await value()) !== o + 1) throw new MenuError(`output ${await value()} where ${o + 1} was expected`);
+      const l = await line(1);
+      const m = /^Calibration\s+(\d+)/.exec(l);
+      result.startup.push({ output: o, slot: m ? Number(m[1]) : null, match: /Match!/.test(l) });
+      onStep?.(`startup calibration of output ${o + 1}`);
+      if (o < outputs - 1) {
+        await step('cw');
+        await expect('Output', 'picking the next output');
+      }
+    }
+    for (let o = outputs - 1; o > 0; o--) {
+      await step('ccw');
+      await expect('Output', 'going back to output 1');
+    }
+    await step('left'); // closes the field and the page
+  } finally {
+    await home();
+  }
+  return result;
+}
+
+// One output's calibrations, from readCalibrations' result: the slot it loads at power-on (0
+// none, null not read), whether that slot is its own, and the slots saved for it.
+export function calibrationOf(cal, output) {
+  const s = cal?.startup?.find((x) => x.output === output);
+  return { startup: s ? s.slot : null, match: !!s?.match, saved: (cal?.slots ?? []).filter((x) => x.output === output).map((x) => x.slot) };
 }
 
 // Settings by name, from readSettings' result: { 'Enable DIN MIDI out': '0', … }.
