@@ -1,13 +1,11 @@
 // The guided auto-calibration (a jack's panel, "Calibrate…", your idea, 2026-11-05): what to patch,
-// then the FH-2's own screen, live while it runs (a screenshot about twice a second), so the curve
-// can be judged before it is accepted; then Accept or Abandon once the FH-2 asks "Accept?".
-// Closing the dialog while it runs abandons the run. Accepted, it can be named and saved into an
-// empty flash slot, and loaded at power-on.
+// then the run. While it measures Night Shift sends the FH-2 nothing (screenshots during the run
+// don't work, your test, 2026-11-05); once the FH-2 asks "Accept?", "Show curve" brings its screen
+// here, so the curve can be judged, then Accept or Abandon. Closing the dialog while it runs
+// abandons the run. Accepted, it can be named and saved into an empty flash slot, and loaded at
+// power-on.
 
 import { h, $, replace } from '../../vendor/lilypad/js/dom.js';
-
-const POLL_MS = 500;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const NAME_LENGTH = 16;
 const today = () => {
@@ -15,7 +13,7 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// `start()`, `watch()` → { rows, asks }, `finish(accept)`, `save({ name, slot, onStep })` →
+// `start()`, `watch()` → { rows, asks } (only once the run is over), `finish(accept)`, `save({ name, slot, onStep })` →
 // { slot, name }, `powerOn(slot)`: from menu.js, on an open FH-2 client. `free`: the empty slots as
 // last read, or null (then the first empty one is found on the module). Resolves to 'saved',
 // 'accepted', 'abandoned' or null (cancelled before it started).
@@ -23,7 +21,7 @@ export function calibrationDialog({ jack, start, watch, finish, save, powerOn, f
   return new Promise((resolve) => {
     const dialog = $('dialog');
     const screen = h('canvas', { width: 128, height: 32, class: 'fh2-screen', role: 'img', 'aria-label': 'The FH-2’s screen' });
-    const s = { phase: 'patch', error: '', polling: false, result: null,
+    const s = { phase: 'patch', error: '', shown: false, result: null,
       name: today(), slot: free?.[0] ?? null, atPowerOn: true, step: '', saved: null, powerOnError: '' };
     const body = h('div', { class: 'modal calibrate' });
 
@@ -37,12 +35,10 @@ export function calibrationDialog({ jack, start, watch, finish, save, powerOn, f
       ctx.putImageData(img, 0, 0);
     };
     const close = (result) => {
-      s.polling = false;
       dialog.close();
       resolve(result);
     };
     const end = async (accept) => {
-      s.polling = false;
       s.phase = 'finishing';
       render();
       try {
@@ -51,28 +47,24 @@ export function calibrationDialog({ jack, start, watch, finish, save, powerOn, f
         s.phase = accept && save ? 'keep' : 'done';
       } catch (e) {
         s.error = e.message;
-        s.phase = accept ? 'asks' : 'error'; // an early Accept leaves the run going
-        if (accept) poll();
+        s.phase = accept ? 'asks' : 'error';
       }
       render();
     };
-    const poll = async () => {
-      if (s.polling) return;
-      s.polling = true;
-      while (s.polling) {
-        try {
-          const w = await watch();
-          draw(w.rows);
-          if (w.asks && s.phase === 'running') {
-            s.phase = 'asks';
-            render();
-          }
-        } catch (e) {
-          s.error = `No screen from the FH-2: ${e.message}`;
-          render();
-        }
-        await sleep(POLL_MS);
+    // once the FH-2 shows "Accept?": its screen, once
+    const look = async () => {
+      Object.assign(s, { phase: 'looking', error: '' });
+      render();
+      try {
+        const w = await watch();
+        draw(w.rows);
+        s.shown = true;
+        if (w.asks) s.phase = 'asks';
+        else Object.assign(s, { phase: 'running', error: 'It doesn’t ask “Accept?” yet.' });
+      } catch (e) {
+        Object.assign(s, { phase: 'running', error: `No screen from the FH-2: ${e.message}` });
       }
+      render();
     };
     // name it (the FH-2 takes ASCII), save it, then load it at power-on if asked
     const keep = async () => {
@@ -104,7 +96,6 @@ export function calibrationDialog({ jack, start, watch, finish, save, powerOn, f
         await start();
         s.phase = 'running';
         render();
-        poll();
       } catch (e) {
         s.error = e.message;
         s.phase = 'error';
@@ -116,6 +107,7 @@ export function calibrationDialog({ jack, start, watch, finish, save, powerOn, f
     const view = () => {
       const note = (t) => h('p', { class: 'note' }, t);
       const err = s.error ? h('p', { class: 'problem' }, s.error) : null;
+      const shot = s.shown ? screen : null;
       switch (s.phase) {
         case 'patch':
           return [h('h2', {}, `Calibrate jack ${jack}`),
@@ -125,15 +117,20 @@ export function calibrationDialog({ jack, start, watch, finish, save, powerOn, f
         case 'starting':
           return [h('h2', {}, `Calibrate jack ${jack}`), note('Starting…')];
         case 'running':
+          return [h('h2', {}, `Calibrating jack ${jack}`), err,
+            note('Measuring. Once the FH-2 asks “Accept?”, show its curve here.'),
+            h('div', { class: 'modal-buttons' }, btn('Abandon', () => end(false)), btn('Show curve', look, true))];
+        case 'looking':
+          return [h('h2', {}, `Calibrating jack ${jack}`), note('…')];
         case 'asks':
           return [h('h2', {}, `Calibrating jack ${jack}`), screen, err,
-            note(s.phase === 'asks' ? 'Done. A good curve rises evenly. Unplug the VCO from input X first, then accept.' : 'Measuring: the curve is drawn as it goes.'),
-            h('div', { class: 'modal-buttons' }, btn('Abandon', () => end(false)), btn('Accept', () => end(true), true, s.phase !== 'asks'))];
+            note('A good curve rises evenly. Unplug the VCO from input X first, then accept.'),
+            h('div', { class: 'modal-buttons' }, btn('Abandon', () => end(false)), btn('Accept', () => end(true), true))];
         case 'finishing':
-          return [h('h2', {}, `Calibrating jack ${jack}`), screen, note('…')];
+          return [h('h2', {}, `Calibrating jack ${jack}`), shot, note('…')];
         case 'keep': {
           const full = free && !free.length;
-          return [h('h2', {}, `Jack ${jack} calibrated`), screen,
+          return [h('h2', {}, `Jack ${jack} calibrated`), shot,
             note('In use on the jack until power-off. Save it to keep it.'), err,
             h('div', { class: 'fields calibrate-save' },
               h('label', { class: 'field' }, h('span', {}, 'Name'), h('input', { type: 'text', class: 'text', maxlength: NAME_LENGTH, value: s.name,
@@ -145,14 +142,14 @@ export function calibrationDialog({ jack, start, watch, finish, save, powerOn, f
             h('div', { class: 'modal-buttons' }, btn('Not now', () => close('accepted')), btn('Save', keep, true, full))];
         }
         case 'saving':
-          return [h('h2', {}, `Saving jack ${jack}’s calibration`), screen, note(s.step)];
+          return [h('h2', {}, `Saving jack ${jack}’s calibration`), shot, note(s.step)];
         case 'saved':
-          return [h('h2', {}, `Saved in slot ${s.saved.slot}`), screen,
+          return [h('h2', {}, `Saved in slot ${s.saved.slot}`), shot,
             note(`${s.saved.name ? `“${s.saved.name}”, f` : 'F'}or jack ${jack}.${s.atPowerOn && !s.powerOnError ? ' Loads at power-on.' : ''}`),
             s.powerOnError ? h('p', { class: 'problem' }, `Not set at power-on: ${s.powerOnError}`) : null,
             h('div', { class: 'modal-buttons' }, btn('Close', () => close('saved'), true))];
         case 'done':
-          return [h('h2', {}, s.result === 'accepted' ? `Jack ${jack} calibrated` : 'Abandoned'), screen,
+          return [h('h2', {}, s.result === 'accepted' ? `Jack ${jack} calibrated` : 'Abandoned'), shot,
             note(s.result === 'accepted' ? 'In use on the jack until power-off.' : `Jack ${jack} keeps the calibration it had.`),
             h('div', { class: 'modal-buttons' }, btn('Close', () => close(s.result), true))];
         default:

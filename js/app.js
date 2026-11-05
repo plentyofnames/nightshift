@@ -871,7 +871,7 @@ function noteCalibrations({ saved, startup }) {
   } catch {}
 }
 
-// The guided auto-calibration of a jack, its curve shown live (ui/calibrate.js): accepted, it is in
+// The guided auto-calibration of a jack, its curve shown once it asks "Accept?" (ui/calibrate.js): accepted, it is in
 // use on the jack until power-off, and can be named and saved into an empty slot and loaded at
 // power-on, all in the same dialog.
 async function calibrateJack(output) {

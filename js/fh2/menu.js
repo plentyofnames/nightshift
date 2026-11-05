@@ -493,7 +493,8 @@ export async function startAutoCalibration(client, { output, wait = 200 } = {}) 
   }
 }
 
-// While the run goes on: the screen as pixels and as text, and whether it asks "Accept?".
+// Once the run is over (during it a screenshot doesn't work, your test, 2026-11-05): the screen as
+// pixels and as text, and whether it asks "Accept?".
 export async function watchAutoCalibration(client) {
   const [rows, text] = [await client.screenshot(), await client.screenText()];
   return { rows, lines: text.lines, asks: text.lines.some((l) => /accept\?/i.test(l)) };
