@@ -19,11 +19,12 @@ const dragged = (e) => {
 // addPage(pageId), whole(pageId), map(), send(), rename(pageId), stray (mappings on no page),
 // tidy(), busy, note (the EC4's state, one line), link ({ ours, setup, group } while linked,
 // else null), thru, toggleThru() }. Knobs are dragged to another place (they swap) or onto a
-// LIVE page in the list.
+// LIVE page in the list. A place holds a knob, a push, or both; a push alone is selected like a knob
+// (and taken off there). Pages past the 16th can be opened too, to take things off them.
 export function renderEc4(view, model, colors, sel, act) {
   const { pages, extra, unmapped, channel } = model;
-  const page = pages.find((p) => p.id === sel?.page) ?? pages[0];
-  const first = page ? page.cells.findIndex(Boolean) : -1;
+  const page = [...pages, ...extra].find((p) => p.id === sel?.page) ?? pages[0];
+  const first = page ? page.cells.findIndex((c, i) => c || page.pushes[i]) : -1;
   const knob = page && sel?.page === page.id && sel.knob != null ? sel.knob : first;
   const sourceName = (id) => view.sources.find((s) => s.id === id)?.name ?? view.players.find((p) => p.id === id)?.name ?? null;
   const colorOf = (c) => (c?.source && colors.get(c.source)) || 'var(--faint)';
@@ -73,7 +74,8 @@ export function renderEc4(view, model, colors, sel, act) {
       h('span', { class: 'n' }, String(pg.group + 1)),
       h('span', { class: 'name' }, pg.name),
       h('span', { class: 'src' }, pg.live ? 'yours' : pg.sub ?? sourceName(pg.source) ?? ''))),
-    extra.length > 0 && h('p', { class: 'problem' }, `${extra.length} more don’t fit: ${extra.map((p) => p.name).join(', ')}`),
+    extra.length > 0 && h('p', { class: 'problem' }, `${extra.length} more don’t fit: `, extra.map((pg, k) => [k ? ', ' : '',
+      h('button', { type: 'button', class: 'linkish', onclick: () => act.select(pg.id, null), title: 'Open it, to take things off it' }, pg.name)])),
     addPage,
     h('button', { type: 'button', class: 'btn small ec4-add-live', disabled: !room, onclick: act.addLive,
       title: room ? 'A page of your own, from any source' : `${GROUPS} pages at most` }, '+ LIVE page'));
@@ -91,9 +93,10 @@ export function renderEc4(view, model, colors, sel, act) {
     page.cells.map((c, i) => h('span', { class: i === knob ? 'on' : '' }, c ? c.short : '')));
   const knobs = h('div', { class: 'ec4-knobs' }, page.cells.map((c, i) => h('button', {
     type: 'button', class: 'tile' + (c ? '' : ' free') + (c && !c.map ? ' unmapped' : '') + (c?.gone ? ' gone' : ''),
-    'aria-pressed': c && i === knob ? 'true' : 'false', style: `--src:${colorOf(c)}`,
-    'aria-label': c ? `Knob ${i + 1}: ${c.label}` : `Knob ${i + 1}: free, add a setting`,
-    onclick: () => (c ? act.select(page.id, i) : act.pick(page.id, i)),
+    style: `--src:${colorOf(c ?? page.pushes[i])}`,
+    'aria-label': c ? `Knob ${i + 1}: ${c.label}` : page.pushes[i] ? `Knob ${i + 1}: free, push: ${page.pushes[i].label}` : `Knob ${i + 1}: free, add a setting`,
+    'aria-pressed': (c || page.pushes[i]) && i === knob ? 'true' : 'false',
+    onclick: () => (c || page.pushes[i] ? act.select(page.id, i) : act.pick(page.id, i)),
     draggable: !!(c || page.pushes[i]),
     ondragstart: (e) => {
       e.dataTransfer.setData(DRAG, `${page.id}|${i}`);
@@ -109,13 +112,13 @@ export function renderEc4(view, model, colors, sel, act) {
     },
   },
   h('span', { class: 'short' }, c ? c.short : '····'),
-  h('span', { class: 'label' }, c ? c.label : '+ add'),
+  h('span', { class: 'label' }, c ? c.label : page.pushes[i] ? 'free knob' : '+ add'),
   page.pushes[i] && h('span', { class: 'push' }, `push: ${page.pushes[i].label}`),
   c && h('span', { class: 'addr' }, address(c), !page.live && c.lives?.length ? ` · ${c.lives.map((id) => model.lives.find((l) => l.id === id)?.name).join(', ')}` : ''))));
 
   const face = h('section', { class: 'ec4-face', 'aria-label': `Page ${page.name}` },
     h('div', { class: 'ec4-title' },
-      h('h3', {}, `Page ${page.group + 1} · `, h('span', { class: 'mono' }, page.name)),
+      h('h3', {}, page.group != null ? `Page ${page.group + 1} · ` : 'Doesn’t fit · ', h('span', { class: 'mono' }, page.name)),
       h('span', { class: 'actions' },
         fillable && h('button', { type: 'button', class: 'btn small', onclick: () => act.whole(page.id), title: 'Switches on the rest of the template' }, 'Whole page'),
         h('button', { type: 'button', class: 'btn small', onclick: () => act.rename(page.id), title: 'Four characters, shown on the EC4' }, 'Rename'),
@@ -125,15 +128,27 @@ export function renderEc4(view, model, colors, sel, act) {
   const c = page.cells[knob];
   const push = page.pushes[knob];
   const row = (k, v) => h('div', { class: 'erow' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v));
-  const detail = c && h('aside', { class: 'ec4-knob', 'aria-label': 'Selected knob' },
+  // the push under the knob: what it does, and taking it off (its CC goes too, if Night Shift added it)
+  const pushRow = row('Push', push ? [`${push.gone ? 'gone from the patch' : push.label} · ${address(push)} `,
+    h('button', { type: 'button', class: 'btn small', onclick: () => act.off(push.key), title: 'Off the EC4' }, 'Take off')] : '—');
+  const placeRow = row('Place', h('select', { 'aria-label': `Place of knob ${knob + 1}`, onchange: (e) => act.move(page.id, knob, Number(e.target.value)) },
+    page.cells.map((x, i) => h('option', { value: String(i), selected: i === knob },
+      `${i + 1}${i === knob ? '' : x ? ` · swap with ${x.short}` : page.pushes[i] ? ` · swap with push ${page.pushes[i].label.toLowerCase()}` : ' · free'}`))));
+  const pushOnly = !c && push && h('aside', { class: 'ec4-knob', 'aria-label': 'Selected push' },
+    h('h3', {}, `Push ${knob + 1} · `, h('span', { class: 'mono', style: `color:${colorOf(push)}` }, push.short)),
+    h('div', { class: 'erows' }, row('Controls', push.gone ? 'gone from the patch' : `${sourceName(push.source) ?? 'Global'} · ${push.label.toLowerCase()}`),
+      row('Sends', address(push)), placeRow),
+    h('div', { class: 'actions' },
+      h('button', { type: 'button', class: 'btn', onclick: () => act.pick(page.id, knob), title: 'A setting on the knob above it' }, '+ Knob'),
+      h('button', { type: 'button', class: 'btn', onclick: () => act.off(push.key), title: 'Off the EC4' }, 'Take push off')));
+  const detail = pushOnly || c && h('aside', { class: 'ec4-knob', 'aria-label': 'Selected knob' },
     h('h3', {}, `Knob ${knob + 1} · `, h('span', { class: 'mono', style: `color:${colorOf(c)}` }, c.short)),
     h('div', { class: 'erows' },
       row('Controls', c.gone ? 'gone from the patch' : `${sourceName(c.source) ?? 'Global'} · ${c.label.toLowerCase()}`),
       row('Sends', address(c)),
       row('Resolution', !c.map ? '—' : c.map.relative ? 'relative (up/down)' : c.map.bits === 14 ? '14-bit' : '7-bit'),
-      row('Push', push ? `${push.label} · ${address(push)}` : '—'),
-      row('Place', h('select', { 'aria-label': `Place of knob ${knob + 1}`, onchange: (e) => act.move(page.id, knob, Number(e.target.value)) },
-        page.cells.map((x, i) => h('option', { value: String(i), selected: i === knob }, `${i + 1}${i === knob ? '' : x ? ` · swap with ${x.short}` : ' · free'}`))))),
+      pushRow,
+      placeRow),
     // on a LIVE page of your own: each LIVE page is a button (on it, or off it; from a LIVE page, moved there)
     h('div', { class: 'actions' },
       model.lives.filter((l) => l.id !== page.id).map((l) => {

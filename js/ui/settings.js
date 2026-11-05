@@ -75,7 +75,9 @@ export function renderSettings(view, c, p, sceneName, act) {
   // the MIDI controls of global things (tempo, swing, display…), from the CC mappings
   const globals = view.mappings.filter((m) => m.target.kind === 'global');
   const controls = globals.length ? section('Controlled by MIDI',
-    globals.map((m) => field(PARAM_NAMES[m.target.param] ?? m.target.param, h('span', { class: 'dim' }, `ch ${m.channel + 1} · CC ${m.cc}${m.relative ? ' (relative)' : ''}`)))) : null;
+    globals.map((m) => field(PARAM_NAMES[m.target.param] ?? m.target.param, [h('span', { class: 'dim' }, `ch ${m.channel + 1} · CC ${m.cc}${m.relative ? ' (relative)' : ''}`), ' ',
+      act.removeMapping && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove CC ${m.cc} on ch ${m.channel + 1} for ${PARAM_NAMES[m.target.param] ?? m.target.param}`,
+        title: 'Remove this CC mapping (off the EC4 too)', onclick: () => act.removeMapping(m) }, '×')]))) : null;
 
   // the FH-2's own settings, as last read (read only for now: change them on the module)
   const module = read && section('FH-2 settings',

@@ -9,7 +9,7 @@ import { clockSourceInput } from './editors.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
 import { suggestChannel, freeEuclid, freeSrr } from '../patch/alloc.js';
-import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, moveToChannel, setLaneNote, setName, deviceKey, addEuclidWithoutJack,
+import { playerFields, setPlayer, setPlayerRate, wirePlayer, unwirePlayer, turnOffInput, moveToChannel, setLaneNote, setName, deviceKey, addEuclidWithoutJack,
   addRandomNotes } from '../patch/edit.js';
 
 const DEST_NAMES = { internal: 'FH-2 (internal)', usbC: 'USB C', usbA: 'USB A', din: 'DIN', select: 'Select bus' };
@@ -103,8 +103,11 @@ function playerRest(view, p, f, parts, act, onSelect) {
   }
 
   if (p.kind === 'input') parts.push(h('p', { class: 'note' }, 'Scaling: in the config tool for now.'));
-  parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn',
-    onclick: () => act.edit(`Stopped ${p.name}`, setPlayer(p.id, { dests: Object.fromEntries(Object.keys(f.dests).map((d) => [d, false])) })) }, 'Stop sending')));
+  // stopped, a player leaves the stage; an input stays one while its CV → MIDI is on, so it is turned off
+  parts.push(h('div', { class: 'actions' }, p.kind === 'input'
+    ? h('button', { type: 'button', class: 'btn', onclick: () => act.edit(`${p.name} off`, turnOffInput(p.index)), title: `Input ${'XY'[p.index]} sends no MIDI then` }, 'Turn off')
+    : h('button', { type: 'button', class: 'btn',
+      onclick: () => act.edit(`Stopped ${p.name}`, setPlayer(p.id, { dests: Object.fromEntries(Object.keys(f.dests).map((d) => [d, false])) })) }, 'Stop sending')));
   return parts;
 }
 

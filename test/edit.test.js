@@ -3,7 +3,7 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, addRandomNotes, setSrrJack } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, addRandomNotes, setSrrJack, turnOffInput } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -684,4 +684,16 @@ test('a shift register that only plays notes: one source without a jack, among t
   apply(p, removeSource(vals(), left));
   v = derive(p.config.values, p.preset.values);
   eq([v.sources.some((x) => x.id === `srr:${r.index}`), v.players.some((x) => x.id === `srrNotes:${r.index}`), p.preset.values.srr[r.index].direction], [false, false, SRR_STOP]);
+});
+
+test('an input turned off leaves the stage; stopped, it would stay', () => {
+  const { config, preset } = examplePatch();
+  const p = { config, preset, names: {} };
+  apply(p, [{ dump: 'config', path: ['cvMidi', 0, 'enable'], value: 1 }, { dump: 'config', path: ['cvMidi', 0, 'toUsbA'], value: 1 }]);
+  const listed = () => playersOf(p.config.values, p.preset.values).some((x) => x.id === 'cvMidi:0');
+  eq(listed(), true);
+  apply(p, setPlayer('cvMidi:0', { dests: { usbA: false } }));
+  eq(listed(), true, 'sending nowhere, still on');
+  apply(p, turnOffInput(0));
+  eq([listed(), p.config.values.cvMidi[0].enable], [false, 0]);
 });

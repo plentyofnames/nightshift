@@ -8,7 +8,7 @@ import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage, addLivePage, removeLivePage, movePlace, toLivePage, liveIds,
-  strayMappings, removeMappings, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
+  strayMappings, removeMappings, dropMapping, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
 import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncEntry, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES, SYNC_EXTRA, SYNC_FORMAT } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
@@ -426,4 +426,56 @@ test('moving a place swaps the knob and the push under it', () => {
   const after = modelOf(p).pages.find((x) => x.id === 'converter:0');
   eq([after.cells[free]?.key ?? null, after.pushes[free]?.key, after.cells[withPush], after.pushes[withPush]], [k, push, null, null]);
   eq(movePlace(p.names, 'converter:0', 3, 3), [], 'onto itself: nothing');
+});
+
+test('a push comes off the EC4 like a knob, its CC too; a page of pushes only goes with them', () => {
+  const p = fresh();
+  const nudge = key('global', 0, 'nudgeSlower');
+  const slots = () => p.config.values.mapping.filter((m) => m.status !== 0x7f).length;
+  const [before, stray] = [slots(), strayMappings(viewOf(p), modelOf(p))];
+  const r = on(p, nudge);
+  eq([r.where.page, r.where.push, slots()], ['clock', true, before + 1], 'on a push of the clock page, with a CC');
+  eq(modelOf(p).pages.find((pg) => pg.id === 'clock').cells.every((c) => !c), true, 'no knob on that page, only the push');
+  apply(p, switchOff(p.names, modelOf(p), nudge));
+  const m = modelOf(p);
+  eq([m.on.has(nudge), m.pages.some((pg) => pg.id === 'clock'), slots(), strayMappings(viewOf(p), m)], [false, false, before, stray], 'no CC left behind');
+});
+
+test('a setting gone from the patch can still come off the EC4', () => {
+  const p = fresh();
+  const pulses = key('euclid', 9, 'pulses'); // Euclid 10, not in the patch (any more)
+  p.names['ec4:live'] = [pulses, ...Array(15).fill('')].join(',');
+  let m = modelOf(p);
+  const cell = m.pages.find((pg) => pg.id === 'live').cells.find((c) => c?.key === pulses);
+  eq([cell?.gone, m.known.has(pulses), m.on.has(pulses)], [true, false, true], 'still on LIVE, marked gone');
+  apply(p, switchOff(p.names, m, pulses));
+  m = modelOf(p);
+  eq([m.on.has(pulses), liveKeys(p.names).includes(pulses)], [false, false]);
+});
+
+test('one CC mapping removed: off the EC4 too, also when Night Shift didn’t add it', () => {
+  const p = fresh();
+  const view = viewOf(p);
+  const own = view.mappings.find((m) => m.target.kind === 'global' && m.target.param === 'tempo'); // the config's own
+  assert(own, 'the example maps the tempo');
+  const tempo = settingKey(own.target);
+  on(p, tempo); // on the clock page, with the config's mapping
+  apply(p, dropMapping(p.names, modelOf(p), own.slot, tempo));
+  const m = modelOf(p);
+  eq([p.config.values.mapping[own.slot].status, m.on.has(tempo), m.mapOf(tempo)], [0x7f, false, null]);
+  // a mapping of a setting on no page: just gone
+  const other = viewOf(p).mappings.find((x) => x.target.kind !== 'unknown' && !m.on.has(settingKey(x.target)));
+  apply(p, dropMapping(p.names, m, other.slot, settingKey(other.target)));
+  eq(p.config.values.mapping[other.slot].status, 0x7f);
+});
+
+test('pages past the 16th can be opened: their CCs are known, but they need none', () => {
+  const p = fresh();
+  for (const o of modelOf(p).objects) if (o.knobs[0]) on(p, o.knobs[0].key);
+  p.names['ec4:lives'] = 'live,live:2,live:3,live:4,live:5';
+  const m = modelOf(p);
+  eq([m.pages.length, m.extra.length], [16, 1]);
+  const last = m.extra[0];
+  const c = last.cells.find(Boolean);
+  eq([last.group, !!c.map, m.unmapped.includes(c.key)], [undefined, true, false]);
 });

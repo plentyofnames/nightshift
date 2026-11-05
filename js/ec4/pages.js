@@ -371,13 +371,14 @@ export function pagesOf(view, names = {}) {
     pg.cells.forEach((c, i) => at(c, i, false));
     pg.pushes.forEach((c, i) => at(c, i, true));
   }
-  for (const pg of pages) {
+  // the pages past the 16th too, so they can be opened and emptied; only the ones that fit need CCs
+  for (const pg of all) {
     for (const c of [...pg.cells, ...pg.pushes]) {
       if (!c) continue;
       c.map = mapOf(c.key);
       c.lives = lives.filter((pg) => pg.cells.some((x) => x?.key === c.key)).map((pg) => pg.id);
       c.onLive = c.lives.length > 0;
-      if (!c.map && !c.gone) unmapped.add(c.key);
+      if (!c.map && !c.gone && pg.group != null) unmapped.add(c.key);
     }
   }
   return { pages, extra: all.slice(GROUPS), objects, known, on, mapOf, channel: pagesChannels(view)[0] ?? null,
@@ -602,6 +603,12 @@ export function strayMappings(view, model) {
       const o = c && model.objects.find((x) => x.knobs.includes(c) || x.commands.includes(c));
       return { slot: m.slot, key, label: c ? `${o.name}: ${c.label.toLowerCase()}` : key };
     });
+}
+// One mapping gone (from "Controlled by MIDI"): slot `slot`, for setting `key`; a setting on the
+// EC4 comes off it too, since a knob without its CC does nothing.
+export function dropMapping(names, model, slot, key) {
+  const off = model.on.has(key) ? switchOff(names, model, key) : [];
+  return off.some((c) => c.dump === 'config' && c.path[1] === slot) ? off : [...off, ...removeMappings(names, [{ slot, key }])];
 }
 export function removeMappings(names, stray) {
   const made = madeKeys(names);

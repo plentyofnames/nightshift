@@ -460,6 +460,8 @@ export function setPlayerRate(id, rate) {
 // A player plays a voice or trigger kit inside the FH-2 when it sends to internal on their channel.
 export const wirePlayer = (id, channel) => setPlayer(id, { channel, dests: { internal: true } });
 export const unwirePlayer = (id) => setPlayer(id, { dests: { internal: false } });
+// An input's CV → MIDI off: it stays a player while it is on, wherever it sends.
+export const turnOffInput = (i) => [config(['cvMidi', i, 'enable'], 0)];
 
 export const setLaneNote = (lane, note) => [config(['drumSequencer', 0, 'laneNote', lane, 'value'], note)];
 

@@ -26,7 +26,7 @@ import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
   addLivePage, removeLivePage, movePlace, toLivePage, isLive,
-  wholePage, strayMappings, removeMappings, toAbsolute, SETUP } from './ec4/pages.js';
+  wholePage, strayMappings, removeMappings, dropMapping, settingKey, toAbsolute, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, SYNC_FORMAT, SYNC_MAX } from './ec4/setup.js';
 import { fingerprint } from './hash.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
@@ -1015,8 +1015,8 @@ const ec4 = {
   },
   toggle(key) {
     const model = ec4Model();
-    const c = model.known.get(key);
-    if (model.on.has(key)) return edit(`Off the EC4: ${c.label.toLowerCase()}`, switchOff(state.names, model, key));
+    const c = model.known.get(key); // none for a setting gone from the patch, which can still be taken off
+    if (model.on.has(key)) return edit(`Off the EC4: ${c ? c.label.toLowerCase() : 'a setting gone from the patch'}`, switchOff(state.names, model, key));
     const r = switchOn(state.config.values, state.view, state.names, model, key);
     ec4Edit(r.where ? `On the EC4: ${r.where.name} ${r.where.push ? 'push' : 'knob'} ${r.where.index + 1}` : '', r);
   },
@@ -1032,6 +1032,11 @@ function wholeEc4(pageId) {
   if (!r.count) return status('Nothing more on its template');
   state.ec4.sel = { page: pageId, knob: null };
   edit(`${r.count} on the EC4`, r.changes);
+}
+
+// One CC mapping removed, from "Controlled by MIDI" (undoable); a setting on the EC4 comes off it too.
+function removeMappingOf(m) {
+  edit(`CC ${m.cc} on ch ${m.channel + 1} removed`, dropMapping(state.names, ec4Model(), m.slot, settingKey(m.target)));
 }
 
 // Mappings on the pages channels that are on no page: listed, then removed after a yes.
@@ -1462,7 +1467,7 @@ function render() {
     relative: toAbsolute(state.config.values, state.ec4Model, state.names), makeAbsolute: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} absolute`, r.changes),
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
-    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4 });
+    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4, removeMapping: removeMappingOf });
   else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,
     scenes: () => { state.tab = 'scenes'; render(); }, checks: () => open('checks.html', '_blank'), busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
@@ -1471,7 +1476,7 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration, calibrate: calibrateJack,
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, removeMapping: removeMappingOf, values, rename, status, ec4, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration, calibrate: calibrateJack,
         loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }

@@ -16,6 +16,9 @@ import { calibrationText } from './settings.js';
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
 const ccLabel = (m) => `← ch ${m.channel + 1} · CC ${m.cc}${m.relative ? ' (relative)' : ''}`;
+// a CC mapping with an × to remove it (a setting on the EC4 comes off it too)
+const mappingRow = (m, act) => row(param(m.target.param), '', [ccLabel(m), ' ', act.removeMapping && h('button', { type: 'button', class: 'remove',
+  'aria-label': `Remove CC ${m.cc} on ch ${m.channel + 1} for ${param(m.target.param)}`, title: 'Remove this CC mapping (off the EC4 too)', onclick: () => act.removeMapping(m) }, '×')]);
 const param = (p) => PARAM_NAMES[p] ?? p;
 const yes = (b) => (b ? 'on' : 'off');
 
@@ -96,7 +99,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
   }
 
   if (s.controls.length) {
-    parts.push(section('Controlled by MIDI', s.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
+    parts.push(section('Controlled by MIDI', s.controls.map((m) => mappingRow(m, act))));
   }
   if (REMOVABLE.has(s.kind)) {
     parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.remove(s) },
@@ -272,7 +275,7 @@ function jackInspector(view, colors, o, onSelect, act) {
         onclick: () => act.edit(`LFO on jack ${o.jack}`, addLfo(o.index)) }, 'Add an LFO')));
   }
   if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: d ? { name: d.s.name, replaces } : null, loadDirect: act.loadDirect, calibrations: act.calibrations, act }));
-  if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
+  if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => mappingRow(m, act))));
   return parts;
 }
 
