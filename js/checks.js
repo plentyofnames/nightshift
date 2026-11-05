@@ -1,10 +1,12 @@
-// The hardware checks page (checks.html): runs the checks in fh2/checks.js on the FH-2 one at a
-// time, shows what each does as it goes, and keeps the results in the browser, to copy into
-// docs/build-plan.md. While a check runs it marks itself busy in the browser's storage, so a
-// Night Shift tab open beside it doesn't send its live edits into the test (app.js liveReady).
+// The hardware checks page (checks.html): runs the checks in fh2/checks.js on the FH-2 (and those
+// in bcr32/checks.js on the BCR32) one at a time, shows what each does as it goes, and keeps the
+// results in the browser, to copy into docs/build-plan.md. While an FH-2 check runs it marks
+// itself busy in the browser's storage, so a Night Shift tab open beside it doesn't send its live
+// edits into the test (app.js liveReady).
 
 import { h, $, replace } from '../vendor/lilypad/js/dom.js';
-import { midiTransport } from '../vendor/lilypad/js/midi.js';
+import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';
+import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcrPreset } from './bcr32/checks.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
 import { check17, check18, check19, check23, sceneReload, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
@@ -39,6 +41,21 @@ const CHECKS = [
   { id: 28, gig: true, title: 'Func + Group while playing', question: 'With the music running, press Func + Group a few times: do the knobs update, and does the music go on evenly?',
     before: ['controlfrog 0.12.'],
     manual: ['Fine', 'Stutters', 'No update'] },
+  // the BCR32 on its first day (build plan, M4): nothing is written to it
+  { id: 'B1', bcr: true, title: 'Firmware and ports', question: 'Which firmware does it run, and which MIDI ports does it show?',
+    before: ['BCR32 on the Mac over USB.'], run: bcrIdentify },
+  { id: 'B2', bcr: true, title: '14-bit order', question: 'With a knob on absolute 14-bit, which half of the CC pair comes first?',
+    before: ['Set a knob to absolute 14-bit on a CC below 32 (front panel or BCR32 Studio).'], run: bcr14bit },
+  { id: 'B3', bcr: true, title: 'Relative modes', question: 'What does each relative mode send for one notch, and which does the FH-2 take?',
+    before: ['You set a knob to Rel1, Rel2 and Rel3 in turn; the check says when.'], run: bcrRelative },
+  { id: 'B4', bcr: true, title: 'LED rings', question: 'When a knob’s CC comes in, does its ring move?',
+    before: ['A knob on absolute 7-bit. Sent only to the CTRL port: CCs on ZAQ could change the sequencer.'], run: bcrRings },
+  { id: 'B5', bcr: true, title: 'Display', question: 'Turn a knob: what does the OLED show?',
+    before: ['Controller mode.'], manual: ['Value only', 'Name and value', 'Nothing'] },
+  { id: 'B6', bcr: true, title: 'Read a preset', question: 'Does it hand over its working preset as BCL text?',
+    before: ['Controller mode, sequencer stopped. A read: nothing is written.'], run: bcrPreset },
+  { id: 'B7', bcr: true, title: 'On the FH-2’s USB A', question: 'Plugged into the FH-2’s USB A (beside the EC4, through the hub), does the FH-2 react to its knobs?',
+    before: ['Give a knob the channel and CC of a knob on an EC4 page: the FH-2 maps that one.'], manual: ['Reacts', 'Nothing'] },
 ];
 
 const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, port: '', error: '', asking: null };
@@ -89,11 +106,49 @@ function log(text) {
   render();
 }
 
+// The BCR32's ports: its CTRL port to send to, every port of it to listen on.
+async function bcrRig() {
+  const access = await midiAccess();
+  const live = (p) => p.state !== 'disconnected' && /bcr/i.test(p.name);
+  const ins = [...access.inputs.values()].filter(live);
+  const outs = [...access.outputs.values()].filter(live);
+  const ctrl = outs.find((p) => /ctrl/i.test(p.name)) ?? outs.find((p) => !/zaq/i.test(p.name));
+  if (!ctrl) throw new Error(outs.length ? 'no CTRL port on the BCR32' : 'no BCR32 port: is it connected over USB?');
+  state.port = ctrl.name;
+  const listeners = new Set();
+  for (const i of ins) i.onmidimessage = (e) => [...listeners].forEach((f) => f(e.data));
+  return {
+    ports: { ins: ins.map((p) => p.name), outs: outs.map((p) => p.name), ctrl: ctrl.name },
+    send: (bytes) => ctrl.send(Uint8Array.from(bytes)),
+    listen: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    next: (filter, ms) => new Promise((resolve) => {
+      const f = (m) => {
+        const r = filter(m);
+        if (r == null) return;
+        clearTimeout(t);
+        listeners.delete(f);
+        resolve(r);
+      };
+      const t = setTimeout(() => {
+        listeners.delete(f);
+        resolve(null);
+      }, ms);
+      listeners.add(f);
+    }),
+    close: () => ins.forEach((i) => { i.onmidimessage = null; }),
+    log, ask, wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+  };
+}
+
 async function runCheck(c) {
   if (state.running) return;
   state.running = c.id;
   state.log = [];
   state.error = '';
+  if (c.bcr) return runBcrCheck(c);
   const busy = setInterval(() => markBusy(true), 1000);
   markBusy(true);
   render();
@@ -122,6 +177,24 @@ async function runCheck(c) {
     client?.close();
     clearInterval(busy);
     markBusy(false);
+    state.running = null;
+    render();
+  }
+}
+
+async function runBcrCheck(c) {
+  render();
+  let rig = null;
+  try {
+    rig = await bcrRig();
+    const r = await c.run(rig);
+    state.results[c.id] = { at: new Date().toISOString(), ...r };
+    save();
+  } catch (e) {
+    state.error = e.message;
+    log(`Stopped: ${e.message}`);
+  } finally {
+    rig?.close();
     state.running = null;
     render();
   }
@@ -180,13 +253,14 @@ function render() {
   replace($('#app'),
     h('header', { class: 'bar' },
       h('div', { class: 'brand' }, 'Night Shift · hardware checks'),
-      h('span', { class: 'note' }, state.port ? `FH-2 on “${state.port}”` : 'Each check puts your config and preset back; nothing goes to flash'),
+      h('span', { class: 'note' }, state.port ? `On “${state.port}”` : 'Each check puts your config and preset back; nothing goes to flash'),
       h('div', { class: 'grow' }),
       state.error && h('span', { class: 'status' }, state.error),
       h('button', { type: 'button', class: 'btn', onclick: copy }, 'Copy results'),
       h('a', { class: 'btn', href: 'index.html' }, 'Night Shift')),
-    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig).map(card),
+    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig && !c.bcr).map(card),
       h('h2', { class: 'checks-head' }, 'Before a gig'), CHECKS.filter((c) => c.gig).map(card),
+      h('h2', { class: 'checks-head' }, 'BCR32, day one'), CHECKS.filter((c) => c.bcr).map(card),
       h('section', { class: 'check-card' }, h('h2', {}, 'Results'), h('pre', { class: 'log' }, resultsText()))));
 }
 
