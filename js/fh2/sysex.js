@@ -18,6 +18,7 @@ export const CMD = {
   REQUEST_VERSION: 0x22,
   REQUEST_PRESET: 0x23,
   MESSAGE: 0x32, // the reply to REQUEST_VERSION
+  SCREENSHOT_REPLY: 0x33,
   REQUEST_SCREEN_TEXT: 0x41,
   SCREEN_TEXT: 0x42,
   REQUEST_ITEM_NAME: 0x43, // the name of the menu item open on the display
@@ -36,6 +37,26 @@ export function isFh2(msg) {
 }
 
 export const commandOf = (msg) => (isFh2(msg) ? msg[5] : -1);
+
+// 33H: the display as 128 × 32 pixels (Expert Sleepers' screenshot tool): after `… 33 00 00`, 512
+// bytes as pairs of 7 bits (low first), four bytes per column, bit y the row y. Rows of 0/1.
+export function screenshotOf(msg) {
+  const data = msg.slice(8, -1);
+  const bytes = Array.from({ length: 512 }, (_, i) => (data[2 * i] ?? 0) | ((data[2 * i + 1] ?? 0) << 7));
+  const cols = Array.from({ length: 128 }, (_, x) => (bytes[4 * x] | (bytes[4 * x + 1] << 8) | (bytes[4 * x + 2] << 16) | (bytes[4 * x + 3] << 24)) >>> 0);
+  return Array.from({ length: 32 }, (_, y) => cols.map((c) => (c >>> y) & 1));
+}
+
+// The other way round, for a stand-in.
+export function screenshotMessage(rows) {
+  const bytes = [];
+  for (let x = 0; x < 128; x++) {
+    let c = 0;
+    for (let y = 0; y < 32; y++) if (rows[y]?.[x]) c |= 1 << y;
+    bytes.push(c & 255, (c >>> 8) & 255, (c >>> 16) & 255, (c >>> 24) & 255);
+  }
+  return [...HEADER, CMD.SCREENSHOT_REPLY, 0, 0, ...bytes.flatMap((b) => [b & 127, b >> 7]), 0xF7];
+}
 
 export function message(cmd, payload = []) {
   return Uint8Array.from([...HEADER, cmd, ...payload, 0xF7]);

@@ -265,18 +265,40 @@ function calibrationPages(client, wait) {
     }
   };
   const toCalibrations = () => open([['Calibrations', 10, 'Calibrations'], ['Load calibration', 10, null]]);
-  // Startup remembers where its cursor was (your FH-2, 2026-11-05). On Output, nothing a turn does
-  // changes a setting; on Calibration it can't be told whether that field is open, where a turn
-  // would change it, so the walk stops there and you move it on the module.
+  // Which field of Startup the cursor is on, and whether it is open, from a screenshot (fieldFocus),
+  // or null without one.
+  const focus = async () => {
+    try {
+      const f = fieldFocus(await client.screenshot());
+      return f && { field: f.top < 6 ? 'Output' : 'Calibration', open: f.open };
+    } catch {
+      return null;
+    }
+  };
+  const mustBe = async (field, open, where) => {
+    const f = await focus();
+    if (f && (f.field !== field || f.open !== open)) throw new MenuError(`the ${f.field} field is ${f.open ? 'open' : 'under the cursor'} where the ${field} field should be ${open ? 'open' : 'under the cursor'} (${where})`);
+  };
+  // Startup remembers where its cursor was, and whether a field is open (your FH-2, 2026-11-05).
+  // A press closes an open field without changing it, and a turn with nothing open only moves the
+  // cursor, so with screenshots the page is set right without a turn that could change a setting:
+  // the cursor on Output, nothing open. Without them, the cursor on Calibration stops the walk.
   const toStartup = async () => {
     await open([['Settings', 10, 'Settings'], ['Calibration', 12, 'Calibration'], ['Startup', 3, null]]); // never Basic
+    for (let k = 0; k < 3; k++) {
+      const f = await focus();
+      if (!f || (f.field === 'Output' && !f.open)) break;
+      await w.step(f.open ? 'press' : 'ccw');
+    }
+    const f = await focus();
+    if (f && (f.field !== 'Output' || f.open)) throw new MenuError('Startup’s cursor wouldn’t go back to Output');
     const at = await client.itemName();
     if (at === 'Calibration') {
       throw new MenuError('Startup’s cursor is on Calibration: on the FH-2 (Settings › Calibration › Startup) press first if its number is being edited, then turn to Output, and try again');
     }
     if (at !== 'Output') throw new MenuError(`“${at}” where “Output” was expected (on opening Startup)`);
   };
-  return { ...w, slotShown, outputShown, calibrationShown, turnValue, toCalibrations, toStartup };
+  return { ...w, slotShown, outputShown, calibrationShown, turnValue, toCalibrations, toStartup, mustBe };
 }
 
 // The FH-2's calibrations, changing nothing: what each of the 70 flash slots holds, by turning
@@ -366,13 +388,16 @@ export async function setStartupCalibration(client, { output, slot, wait = 200 }
     await p.turnValue(p.outputShown, output + 1, { what: 'output' });
     await p.step('press'); // closes the Output field
     at = null;
+    await p.mustBe('Output', false, 'before moving the cursor');
     await p.step('cw'); // the cursor onto the Calibration field (were the Output field still open, it would show the next output: caught here)
     at = 'cursor';
     await p.expect('Calibration', 'moving to the calibration field');
     if ((await p.outputShown()) !== output + 1) throw new MenuError('the output moved instead of the cursor');
+    await p.mustBe('Calibration', false, 'before opening the calibration field');
     await p.step('press'); // opens it: from here a turn changes the setting
     at = 'calibration';
     await p.expect('Calibration', 'on opening the calibration field');
+    await p.mustBe('Calibration', true, 'before turning the calibration');
     await p.turnValue(async () => (await p.calibrationShown())?.slot ?? null, slot, { what: 'calibration', onTurn: () => { turned = true; } });
     await p.step('press'); // closes it
     at = 'cursor';
@@ -405,6 +430,22 @@ export async function setStartupCalibration(client, { output, slot, wait = 200 }
   } finally {
     await p.home();
   }
+}
+
+// Where the cursor is on a page like Startup, from a screenshot (rows of 0/1): the FH-2 draws a
+// dotted box round the value the cursor is on, and a solid one while that field is open (your
+// FH-2, 2026-11-05: Output's box spans rows 0–10, Calibration's 10–22). { top (the box's top row),
+// open }, or null when no box is seen. An edge is 10 lit pixels in a row (solid) or 5 lit pixels
+// two apart with gaps between (dotted); text has neither.
+export function fieldFocus(rows) {
+  for (let y = 0; y < rows.length; y++) {
+    const r = rows[y];
+    for (let x = 0; x + 9 < r.length; x++) {
+      if (r.slice(x, x + 10).every(Boolean)) return { top: y, open: true };
+      if ([0, 2, 4, 6, 8].every((k) => r[x + k]) && [1, 3, 5, 7].every((k) => !r[x + k])) return { top: y, open: false };
+    }
+  }
+  return null;
 }
 
 // One output's calibrations, from readCalibrations' result: the slot it loads at power-on (0

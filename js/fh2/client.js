@@ -3,7 +3,7 @@
 // Installs (10H, 13H) and saves to flash (18H, 19H) have no reply: check an install by
 // pulling the dump again (verifyInstall).
 
-import { CMD, DUMPS, message, commandOf, parseDump, buildDump, textOf, screenTextOf, itemValueOf, remote, saveConfig, savePreset, displayMessage } from './sysex.js';
+import { CMD, DUMPS, message, commandOf, parseDump, buildDump, textOf, screenTextOf, itemValueOf, remote, saveConfig, savePreset, displayMessage , screenshotOf } from './sysex.js';
 import { diff } from './layout.js';
 
 export class TimeoutError extends Error {
@@ -77,6 +77,11 @@ export class Fh2 extends EventTarget {
 
   async screenText() {
     return screenTextOf(await this._request(message(CMD.REQUEST_SCREEN_TEXT), CMD.SCREEN_TEXT));
+  }
+
+  // the display as 128 × 32 pixels (rows of 0/1)
+  async screenshot() {
+    return screenshotOf(await this._request(message(CMD.SCREENSHOT), CMD.SCREENSHOT_REPLY));
   }
 
   // The menu item open on the display: its name ("Sorry" when none is) and value.

@@ -2,7 +2,7 @@
 // requests the client makes, and keeps what is installed. Replies arrive asynchronously,
 // as they would over MIDI.
 
-import { CMD, commandOf, message } from '../js/fh2/sysex.js';
+import { CMD, commandOf, message, screenshotMessage } from '../js/fh2/sysex.js';
 
 export class Fh2StandIn {
   constructor({ config, preset, version = 'v2.0', silent = false } = {}) {
@@ -44,6 +44,10 @@ export class Fh2StandIn {
         const { mode, lines } = this.menu.screen();
         const chars = lines.map((l) => l.padEnd(32, ' ').slice(0, 32)).join('');
         return this._reply(port, message(CMD.SCREEN_TEXT, [mode, ...[...chars].map((c) => (c === ' ' ? 0 : c.charCodeAt(0)))]));
+      }
+      case CMD.SCREENSHOT: { // `picture` null: an FH-2 that doesn't answer
+        const rows = this.menu.picture();
+        return rows ? this._reply(port, screenshotMessage(rows)) : undefined;
       }
       case CMD.REQUEST_ITEM_NAME: return this._reply(port, text(CMD.ITEM_NAME, this.menu.itemName()));
       case CMD.REQUEST_ITEM_VALUE: return this._reply(port, message(CMD.ITEM_VALUE, [this.menu.level === 'name' ? 1 : 0, ...[...this.menu.itemValue()].map((c) => c.charCodeAt(0)), 0]));
@@ -248,6 +252,21 @@ export class MenuModel {
       }
       default: return { mode: 1, lines: [this.pages[this.page][this.i][0], '', this.pages[this.page][this.i][1], ''] };
     }
+  }
+
+  // The display's pixels, as far as a walk looks at them: on Startup the box round the field the
+  // cursor is on, dotted while it is closed and solid while it is open, where your FH-2 draws it
+  // (Output rows 0–10, Calibration 10–20, or 12–22 when open; columns 71–84).
+  picture() {
+    const rows = Array.from({ length: 32 }, () => new Array(128).fill(0));
+    if (this.level !== 'startup') return rows;
+    const t = this.startupState;
+    const [top, bottom] = t.field === 0 ? [0, 10] : t.editing ? [12, 22] : [10, 20];
+    for (let x = 72; x <= 83; x++) {
+      rows[top][x] = rows[bottom][x] = t.editing || x % 2 === 1 ? 1 : 0;
+    }
+    for (let y = top + 1; y < bottom; y++) rows[y][71] = rows[y][84] = t.editing || y % 2 === 0 ? 1 : 0;
+    return rows;
   }
 
   itemName() {

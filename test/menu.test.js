@@ -243,8 +243,9 @@ test('Startup remembers its cursor: Night Shift leaves it on Output, and stops i
   eq((await readCalibrations(client, { outputs: 8, wait: 0 })).startup.map((x) => x.slot), [1, 0, 3, 4, 0, 0, 0, 0]);
   eq(await setStartupCalibration(client, { output: 1, slot: 2, wait: 0 }), { output: 1, slot: 2, match: true });
   eq(menu.startup.slice(0, 4), [1, 2, 3, 4]);
-  // left on Calibration (by hand, or by an older Night Shift): no turn, a clear message
+  // left on Calibration, and no screenshots to tell whether that field is open: no turn, a clear message
   Object.assign(menu.startupState, { field: 1, editing: true });
+  menu.picture = () => null;
   const before = [...menu.startup];
   let error = '';
   try {
@@ -254,4 +255,29 @@ test('Startup remembers its cursor: Night Shift leaves it on Output, and stops i
   }
   assert(error.startsWith('Startup’s cursor is on Calibration'), error);
   eq(menu.startup, before, 'nothing changed');
+});
+
+test('the cursor box in real screenshots of Startup: dotted round a closed field, solid round an open one', async () => {
+  const { fieldFocus } = await import('../js/fh2/menu.js');
+  const { OUTPUT_CURSOR, OUTPUT_OPEN, CALIBRATION_CURSOR, rowsOf } = await import('./fixtures-startup.js');
+  const { screenshotOf, screenshotMessage } = await import('../js/fh2/sysex.js');
+  eq(fieldFocus(rowsOf(OUTPUT_CURSOR)), { top: 0, open: false });
+  eq(fieldFocus(rowsOf(OUTPUT_OPEN)), { top: 0, open: true });
+  eq(fieldFocus(rowsOf(CALIBRATION_CURSOR)), { top: 10, open: false });
+  eq(fieldFocus(rowsOf('')), null, 'no box');
+  const rows = rowsOf(CALIBRATION_CURSOR);
+  eq(screenshotOf(screenshotMessage(rows)), rows, 'the 33H packing both ways');
+});
+
+test('with screenshots Night Shift sets Startup right itself, also with Calibration left open', async () => {
+  const menu = new MenuModel();
+  const { client } = setUp(menu);
+  Object.assign(menu.startupState, { field: 1, editing: true }); // left open on Calibration
+  const before = [...menu.startup];
+  eq(await setStartupCalibration(client, { output: 2, slot: 0, wait: 0 }), { output: 2, slot: 0, match: false });
+  eq(menu.startup.map((s, o) => (o === 2 ? before[o] : s)), before, 'closed with a press, cursor moved with nothing open: only output 3 changed');
+  eq([menu.startupState.field, menu.startupState.editing], [0, false]);
+  // and reading from the same state
+  Object.assign(menu.startupState, { field: 1, editing: false });
+  eq((await readCalibrations(client, { outputs: 4, wait: 0 })).startup.map((x) => x.slot), [1, 2, 0, 4]);
 });
