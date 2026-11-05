@@ -217,7 +217,7 @@ export const setSrr = (i, obj) => fields('preset', ['srr', i], obj);
 
 // A new shift register on `output` as its `port` ('CV' on a CV jack, 'Change' or 'Trigger' on any),
 // running forwards in the scene in view: { index, changes }.
-export function addRandom(values, hardware, output, port = 'CV', { rate = 12, length = 8, randomness = 96, scale = 0, key = 0 } = {}) {
+export function addRandom(values, hardware, output, port = 'CV', { rate = 12, length = 8, randomness = 96, scale = 0, key = 12 } = {}) {
   const i = freeSrr(values.config, hardware);
   if (i < 0) throw noRoom('16 shift registers');
   const changes = [...setSrrJack(i, 'CV', null), ...setSrrJack(i, 'Change', null), ...setSrrJack(i, 'Trigger', null), ...setSrrJack(i, port, output)];
@@ -227,12 +227,12 @@ export function addRandom(values, hardware, output, port = 'CV', { rate = 12, le
 
 // A shift register that only plays notes (no jack), on `channel` to `dests` ({ internal: true,
 // din: true, … }), running forwards in the scene in view: { index, changes }.
-export function addRandomNotes(values, hardware, { channel, dests, rate = 12, length = 8, randomness = 96, scale = 1 } = {}) {
+export function addRandomNotes(values, hardware, { channel, dests, rate = 12, length = 8, randomness = 96, scale = 1, key = 12 } = {}) {
   const i = freeSrr(values.config, hardware);
   if (i < 0) throw noRoom('16 shift registers');
   const changes = [...setSrrJack(i, 'CV', null), ...setSrrJack(i, 'Change', null), ...setSrrJack(i, 'Trigger', null),
     ...setPlayer(`srrNotes:${i}`, { channel, dests })];
-  if (values.preset) changes.push(...setSrr(i, { direction: SRR_FORWARDS, length, randomness, rate, attenuator: 127, scale, key: 0, gateLength: 0 }));
+  if (values.preset) changes.push(...setSrr(i, { direction: SRR_FORWARDS, length, randomness, rate, attenuator: 127, scale, key, gateLength: 0 }));
   return { index: i, changes };
 }
 

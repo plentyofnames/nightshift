@@ -88,6 +88,16 @@ export function lfoEditor(view, o, act, color) {
       ? [sfield(L('One cycle', 'lfoTempoBase'), selectInput(`Cycle of the ${where}`, r.lfoTempoBase, divisionOptions(), (v) => set('Cycle', { lfoTempoBase: v }))),
         sfield(L('Times', 'lfoTempoMultiplier'), numberInput(`Cycle multiplier of the ${where}`, r.lfoTempoMultiplier, { min: 1, max: 127 }, (v) => set('Cycle', { lfoTempoMultiplier: v })))]
       : [sfield(L('Rate', 'lfoSpeed'), numberInput(`Rate of the ${where}`, lfoHz(r.lfoSpeed).toFixed(2), { min: 0.1, max: 10, step: 0.01 }, (v) => set('Rate', { lfoSpeed: hzToLfo(v) })), ' Hz')]),
+    // the other timing's knobs, when they are on the EC4: the FH-2 takes whichever rate was set
+    // last, so turning one switches the timing (code review, 2026-11-05)
+    ...(() => {
+      const on = (p) => act.ec4?.state(`output:${o.index}:${p}`)?.on;
+      if (r.lfoSynced && on('lfoSpeed')) return [field(L('Free rate', 'lfoSpeed'), h('span', { class: 'note' }, 'on the EC4: turning it makes the LFO free'))];
+      if (!r.lfoSynced && (on('lfoTempoBase') || on('lfoTempoMultiplier'))) {
+        return [field(h('span', {}, L('One cycle', 'lfoTempoBase'), ' ', L('Times', 'lfoTempoMultiplier')), h('span', { class: 'note' }, 'on the EC4: turning one syncs the LFO'))];
+      }
+      return [];
+    })(),
     sfield(L('Depth', 'lfoLevel'), slider(`Depth of the ${where}`, Math.round((r.lfoLevel / 16383) * 100), { min: 0, max: 100, show: (v) => `${v}%`, preview: preview('lfoLevel', (v) => Math.round((v / 100) * 16383)) },
       (v) => set('Depth', { lfoLevel: Math.round((v / 100) * 16383) }))),
     // on its own it swings around the jack's stored level: that is its offset
@@ -404,6 +414,11 @@ export function voiceEditor(view, s, act, color) {
   const L = (text, param) => ec4Label(text, `converter:${s.index}:${param}`, act.ec4);
   // glide and legato only happen where one voice plays one note after another: mono and Unison
   const oneLine = cv.type === 0 || cv.allocation === 2 || cv.allocation === 3;
+  // the Random output's depth, which its EC4 page has too (code review, 2026-11-05)
+  if (pf && cv.randomOut) {
+    parts.push(h('div', { class: 'erows' }, sfield(L('Random depth', 'randomDepth'), slider(`Random depth of ${s.name}`, pf.randomDepth,
+      { min: 0, max: 127, show: (v) => `${Math.round((v / 127) * 100)}%` }, (v) => pset('Random depth', { randomDepth: v })))));
+  }
   parts.push(h('h4', {}, 'Pitch'), h('div', { class: 'erows' },
     pf && sfield(L('Transpose', 'transpose'), numberInput(`Transpose of ${s.name}`, pf.transpose - 64, { min: -64, max: 63 }, (v) => pset('Transpose', { transpose: v + 64 })), ' semitones'),
     pf && oneLine && sfield(L('Glide', 'portamento'), slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),

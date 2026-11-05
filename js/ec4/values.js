@@ -85,7 +85,7 @@ export function fromCc(key, cc, bits = 7, ctx = {}) {
 const SWING = ['OFF', '16TH', '8TH', 'PENT', 'SEXT', 'SEPT', 'OCT', 'NON'];
 const ARP = { Off: 'OFF', Up: 'UP', Down: 'DOWN', Alt: 'ALT', 'Alt 2': 'ALT2', 'Step up': 'STUP', 'Step down': 'STDN', 'Step play': 'STPL',
   Random: 'RND', 'Random 2': 'RND2', 'Random 3': 'RND3', 'As played': 'PLAY' };
-const SRR_DIR = ['BACK', 'STOP', 'FWD'];
+const SRR_DIR = ['STOP', 'FWD', 'BACK']; // as SRR_DIRECTIONS
 const SRR_SCALE = ['OFF', 'CHRO', 'MAJ', 'MIN', 'TRI', 'MTRI', '5TH', 'TR+6', 'MT+6', 'TR+7', 'MT+7', '5+6', '5+7', 'PENT', 'MPEN', 'NMIN', 'HMIN', 'MIDO', 'MIDX'];
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const DIVISION = { 96: '1/1', 48: '1/2', 24: '1/4', 16: '1/4T', 12: '1/8', 8: '1/8T', 6: '1/16', 4: '16T', 3: '1/32', 2: '32T', 1: '24PQ' };

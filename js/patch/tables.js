@@ -83,12 +83,14 @@ export const noteName = (n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
 
 // ---- shift register random generators (preset srr_*). Ranges from Expert Sleepers' preset
 // tool: direction 0–2, length 1–32 bits, scale 0–18, key 0–24. The direction's names are the
-// likely reading (the manual: it defaults to stop, and the Init preset holds 1), and the key
-// counts semitones from C, with 12 as no transposition for the MIDI scales; hardware check 19
+// likely reading: the manual says it defaults to stop and lists "forwards, backwards, or stop",
+// and the shift registers nobody touched in your patch hold 0 (code review, 2026-11-05: an
+// earlier reading took 1 as stop, from one you had edited). The key counts semitones from C,
+// with 12 as no transposition for the MIDI scales (untouched ones hold 12). Hardware check 19
 // reads the FH-2's own names off its screen.
-export const SRR_DIRECTIONS = ['Backwards', 'Stop', 'Forwards'];
-export const SRR_STOP = 1;
-export const SRR_FORWARDS = 2;
+export const SRR_DIRECTIONS = ['Stop', 'Forwards', 'Backwards'];
+export const SRR_STOP = 0;
+export const SRR_FORWARDS = 1;
 export const SRR_SCALES = ['Unquantized', 'Chromatic', 'Major', 'Minor', 'Triad', 'Minor triad', 'Fifth', 'Triad + 6', 'Minor triad + 6', 'Triad + 7',
   'Minor triad + 7', 'Fifth + 6', 'Fifth + 7', 'Pentatonic', 'Minor pentatonic', 'Natural minor', 'Harmonic minor', 'MIDI notes, any octave', 'MIDI notes, exact'];
 export const srrUsesMidiNotes = (scale) => scale === 17 || scale === 18; // quantised to notes held on its notes-in channel

@@ -4,6 +4,7 @@
 // derive() until real dumps exist, and what "Try the example" opens.
 
 import { blankConfig, blankPreset } from './blank.js';
+import { SRR_FORWARDS } from './tables.js';
 
 // Stored output numbers for the jacks used below.
 const jack = (j) => j - 1; // FH-2 jacks 1–8
@@ -73,7 +74,7 @@ export function examplePatch() {
 
   // Melody box: a shift register; CV on CV1·5, change and trigger on GT2·4–5; randomness on the EC4
   Object.assign(c.srr[0], { cvOutput: CV1(5) + 1, changeOutput: GT2(4), changeOutputHigh: 0, triggerOutput: GT2(5), triggerOutputHigh: 0 });
-  Object.assign(p.srr[0], { direction: 2, length: 8, randomness: 100, rate: 12, attenuator: 127, scale: 14, key: 2 });
+  Object.assign(p.srr[0], { direction: SRR_FORWARDS, length: 8, randomness: 100, rate: 12, attenuator: 127, scale: 14, key: 2 });
   map(c, 1, 18, 15, 2);
 
   // EC4 knobs: four levels on CV2·1–4, CC 12–15 on ch 2

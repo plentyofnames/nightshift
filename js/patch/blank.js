@@ -30,18 +30,21 @@ export function blankConfig(name = 'Empty') {
 export function blankPreset(name = 'Empty') {
   const values = {
     version: PRESET_VERSION, name, tempo: 1200,
-    output: n(64, () => ({ directLevel: 0, lfoLevel: 16383, lfoSpeed: 8192, lfoTempoBase: 24, lfoTempoMultiplier: 1,
+    output: n(64, () => ({ directLevel: 0, lfoLevel: 16383, lfoSpeed: 0, lfoTempoBase: 24, lfoTempoMultiplier: 1,
       lfoPulseWidth: 64, lfoSaw: 64 })),
-    euclid: n(16, () => ({ pulses: 0, steps: 16, rate: 6, gate: 64 })),
+    euclid: n(16, () => ({ pulses: 0, steps: 16, rate: 12, gate: 0 })), // as all 16 in your patch: 1/8, a trigger
     // as in the FH-2's Init preset: 64 is the middle (no transpose, linear shapes)
     converter: n(16, () => ({ transpose: 64, envAttack: 64, envDecay: 64, envSustain: 64, envRelease: 64, envRange: 2, envDepth: 127,
       envVelocityDepth: 64, envAttackShape: 64, envDecayShape: 64, envReleaseShape: 64, randomDepth: 127,
       arpRange: 1, arpGate: 64, arpRate: 12 })),
-    noteSequencer: n(4, (i) => ({ rate: [24, 6, 12, 24][i], gateLength: [48, 112, 64, 64][i], reset: [16, 0, 0, 0][i] })),
+    // gate 50 %, no reset (the gates and resets of your patch's sequencers are your own)
+    noteSequencer: n(4, (i) => ({ rate: [24, 6, 12, 24][i], gateLength: 64, reset: 0 })),
     // the drum lanes as Init has them: 16 steps at 1/16, reset every 4 beats (they had rate 0)
     drumSequencer: [{ lane: n(8, () => ({ start: 0, end: 15, rate: 6, reset: 4 })) }],
-    // the shift registers as the Init preset has them: stopped (direction 1), 8 steps, rate Ext
-    srr: n(16, () => ({ direction: 1, length: 8, randomness: 13, rate: 0, attenuator: 16, scale: 8, key: 9, gateLength: 0 })),
+    // the shift registers as the FH-2 leaves them (the 14 untouched in your patch): stopped,
+    // 8 steps, most random, 1/16, full depth, unquantised, key 12 (code review, 2026-11-05: these
+    // had been taken from Random 1, which you had edited)
+    srr: n(16, () => ({ direction: 0, length: 8, randomness: 64, rate: 6, attenuator: 127, scale: 0, key: 12, gateLength: 0 })),
   };
   return parseDump(dumpMessage(CMD.INSTALL_PRESET, encode(preset, values, new Uint8Array(BODY_SIZE + 340))));
 }
