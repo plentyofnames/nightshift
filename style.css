@@ -243,6 +243,8 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .subbox h4 { margin-top: 2px; }
 .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: min(860px, 86vw); }
 .player-setup { display: flex; flex-direction: column; gap: 14px; }
+.calibrate { min-width: min(560px, 86vw); }
+.calibrate .fh2-screen { display: block; width: 100%; max-width: 512px; aspect-ratio: 4 / 1; image-rendering: pixelated; border-radius: 6px; background: #06090d; margin: 8px 0; }
 .player-setup .player-tiles { min-width: min(720px, 80vw); }
 .field.wide { grid-column: 1 / -1; }
 .checks { display: flex; flex-wrap: wrap; gap: 6px; }

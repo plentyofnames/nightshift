@@ -219,6 +219,11 @@ function jackSettings(o, edit, ec4, { driver = null, loadDirect = false, calibra
         onclick: () => act.loadCalibration?.(o.index, s), title: 'Into the FH-2’s RAM; the power-on slot stays' }, `Slot ${s}`)))));
     }
   }
+  // the FH-2's auto-calibration of this jack, with its curve shown live (ui/calibrate.js)
+  if (o.present && act.calibrate) {
+    rows.push(row(calibrations ? '' : 'Calibration', h('button', { type: 'button', class: 'btn small', onclick: () => act.calibrate(o.index),
+      title: 'The FH-2 measures a VCO on input X and draws its curve; you accept it or not' }, 'Calibrate…')));
+  }
   return [
     section('Jack settings', rows),
     preset ? null : h('p', { class: 'note' }, 'No preset loaded: no stored level or smoothing.'),

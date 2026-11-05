@@ -17,7 +17,7 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, loadFh2Calibration, setFh2StartupCalibration, ec4Port, withEc4,
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, loadFh2Calibration, setFh2StartupCalibration, withFh2Client, ec4Port, withEc4,
   openEc4, watchEc4, fh2Output, pullPresetFromFh2 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
@@ -33,7 +33,8 @@ import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
 import { getPath, setPath } from './fh2/layout.js';
-import { settingsByName } from './fh2/menu.js';
+import { settingsByName, startAutoCalibration, watchAutoCalibration, finishAutoCalibration } from './fh2/menu.js';
+import { calibrationDialog } from './ui/calibrate.js';
 import { fromModule, anotherPatch, dueIn, MERGE_MAX } from './fh2/live.js';
 import { checksBusy } from './fh2/checks.js';
 
@@ -865,6 +866,21 @@ async function setPowerOnCalibration(output, slot) {
   });
 }
 
+// The guided auto-calibration of a jack, its curve shown live (ui/calibrate.js): accepted, it is in
+// use on the jack until power-off; saving it to a slot is the next step.
+async function calibrateJack(output) {
+  const jack = state.view.outputs[output].jack;
+  await withFh2((pair) => withFh2Client(pair, async (client) => {
+    const r = await calibrationDialog({
+      jack,
+      start: () => startAutoCalibration(client, { output }),
+      watch: () => watchAutoCalibration(client),
+      finish: (accept) => finishAutoCalibration(client, { accept }),
+    });
+    if (r) status(r === 'accepted' ? `Jack ${jack} calibrated, until power-off` : `Calibration of jack ${jack} abandoned`);
+  }));
+}
+
 async function saveFlash() {
   const configSlot = state.slots.config ?? 0;
   const presetSlot = state.slots.scenes[state.scene] ?? 0;
@@ -1431,7 +1447,7 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration,
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration, calibrate: calibrateJack,
         loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }

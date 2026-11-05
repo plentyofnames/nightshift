@@ -138,6 +138,11 @@ export function loadFh2Calibration(pair, slot, output, log) {
   return withClient(pair, log, (client) => loadCalibration(client, { slot, output }));
 }
 
+// An FH-2 client open for as long as `work(client)` runs (the auto-calibration dialog).
+export function withFh2Client(pair, work, log) {
+  return withClient(pair, log, work);
+}
+
 export function setFh2StartupCalibration(pair, output, slot, log) {
   return withClient(pair, log, (client) => setStartupCalibration(client, { output, slot }));
 }

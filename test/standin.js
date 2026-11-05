@@ -98,6 +98,14 @@ export class MenuModel {
     this.calibrations = calibrations ?? Array.from({ length: 70 }, (_, k) => (k < 4 ? { output: k, name: '' } : null));
     this.startup = startup ?? Array.from({ length: 64 }, (_, o) => (o < 4 ? o + 1 : 0)); // slot per output, 0 none
     this.loaded = []; // slots a press in Load calibration loaded
+    // Auto-calibrate: its page remembers cursor, open field and output; a run (`runs`) draws for
+    // `runLength` screen reads, then asks "Accept?"; `accepted` and `abandoned` record how it ended
+    this.autoState = { field: 0, editing: false, output: 0 };
+    this.runs = [];
+    this.accepted = [];
+    this.abandoned = [];
+    this.runLength = 3;
+    this.run = null;
     this.slot = 0;
     this.startupState = { field: 0, editing: false, output: 0 };
   }
@@ -148,6 +156,7 @@ export class MenuModel {
         if (e !== 1) return;
         this.pressed.push(CAL_ITEMS[this.i]);
         if (CAL_ITEMS[this.i] === 'Load calibration') this.level = 'loadcal'; // where it was left (your FH-2 may reopen there)
+        else if (CAL_ITEMS[this.i] === 'Auto-calibrate') this.level = 'autocal';
         else this.changes++; // anything else here could start, save or reset something
         return;
       }
@@ -156,6 +165,26 @@ export class MenuModel {
         else if (e === 1) this.loaded.push(this.slot + 1);
         else if (e === 4) Object.assign(this, { level: 'calibrations', i: CAL_ITEMS.indexOf('Load calibration') });
         return;
+      case 'autocal': {
+        const t = this.autoState;
+        if (e === 4) return void Object.assign(this, { level: 'calibrations', i: CAL_ITEMS.indexOf('Auto-calibrate') });
+        if (e === 1) {
+          if (t.field === 0) return void (t.editing = !t.editing);
+          this.runs.push(t.output + 1);
+          return void Object.assign(this, { level: 'autorun', run: { reads: 0 } });
+        }
+        if (!turn) return;
+        if (t.editing) t.output = wrap(t.output + turn, 64);
+        else t.field = Math.max(0, Math.min(1, t.field + turn));
+        return;
+      }
+      case 'autorun': {
+        const done = this.run.reads >= this.runLength;
+        if (e === 4) this.abandoned.push(this.autoState.output + 1);
+        else if (e === 1 && done) this.accepted.push(this.autoState.output + 1);
+        else return; // a press before "Accept?" does nothing
+        return void Object.assign(this, { level: 'autocal', run: null });
+      }
       case 'setcal': {
         if (turn) return void (this.i = wrap(this.i + turn, 2));
         if (e === 4) return void Object.assign(this, { level: 'settings', i: this.settings.indexOf('Calibration') });
@@ -239,6 +268,11 @@ export class MenuModel {
       case 'historyIncl': return { mode: 1, lines: ['Include in history', `${TYPES[st.a].padEnd(13)}${this.history[TYPES[st.a]]}`, '', ''] };
       case 'name': return { mode: 1, lines: ['USB Device Name', '', '', ''] };
       case 'calibrations': return { mode: 1, lines: ['Calibrations', '', item(), ''] };
+      case 'autocal': return { mode: 1, lines: [`Output    ${this.autoState.output + 1}`, '          GO!', '', ''] };
+      case 'autorun': {
+        this.run.reads++;
+        return { mode: 1, lines: ['', '', '', this.run.reads > this.runLength ? '           Accept?' : ''] };
+      }
       case 'setcal': return { mode: 1, lines: ['Calibration', '', item(), ''] };
       case 'loadcal': {
         const c = this.calibrations[this.slot];
@@ -259,6 +293,17 @@ export class MenuModel {
   // (Output rows 0–10, Calibration 10–20, or 12–22 when open; columns 71–84).
   picture() {
     const rows = Array.from({ length: 32 }, () => new Array(128).fill(0));
+    if (this.level === 'autorun') { // the curve so far: a line up from the bottom left
+      for (let x = 0; x < Math.min(128, (this.run.reads + 1) * 24); x++) rows[31 - Math.floor(x / 4)][x] = 1;
+      return rows;
+    }
+    if (this.level === 'autocal') { // the box round Output (rows 0–10) or GO! (10–20)
+      const a = this.autoState;
+      const [top, bottom] = a.field === 0 ? [0, 10] : [10, 20];
+      for (let x = 72; x <= 83; x++) rows[top][x] = rows[bottom][x] = a.editing || x % 2 === 1 ? 1 : 0;
+      for (let y = top + 1; y < bottom; y++) rows[y][71] = rows[y][84] = a.editing || y % 2 === 0 ? 1 : 0;
+      return rows;
+    }
     if (this.level !== 'startup') return rows;
     const t = this.startupState;
     const [top, bottom] = t.field === 0 ? [0, 10] : t.editing ? [12, 22] : [10, 20];
@@ -276,6 +321,7 @@ export class MenuModel {
     if (this.level === 'historyIncl') return ['Include in history', TYPES[st.a]][st.field];
     if (this.level === 'name') return 'USB Device Name';
     if (this.level === 'loadcal') return 'Load calibration';
+    if (this.level === 'autocal') return ['Output', 'GO!'][this.autoState.field];
     if (this.level === 'startup') return ['Output', 'Calibration'][this.startupState.field];
     return 'Sorry';
   }
@@ -287,6 +333,7 @@ export class MenuModel {
     if (this.level === 'historyIncl') return TYPES[st.a];
     if (this.level === 'name') return `${this.name.padEnd(8)}\x01: cursor at 0 :  `;
     if (this.level === 'loadcal') return String(this.slot + 1);
+    if (this.level === 'autocal') return this.autoState.field ? 'Press to begin auto-calibration' : String(this.autoState.output + 1);
     // a calibration of 0 comes back as text, not as a number (your FH-2, 2026-11-05)
     if (this.level === 'startup') return this.startupState.field ? (this.startup[this.startupState.output] ? String(this.startup[this.startupState.output]) : '(None)') : String(this.startupState.output + 1);
     return '';

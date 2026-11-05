@@ -298,7 +298,15 @@ function calibrationPages(client, wait) {
     }
     if (at !== 'Output') throw new MenuError(`“${at}” where “Output” was expected (on opening Startup)`);
   };
-  return { ...w, slotShown, outputShown, calibrationShown, turnValue, toCalibrations, toStartup, mustBe };
+  // the box round the field under the cursor, from a screenshot, or null without one
+  const box = async () => {
+    try {
+      return fieldFocus(await client.screenshot());
+    } catch {
+      return null;
+    }
+  };
+  return { ...w, open, box, slotShown, outputShown, calibrationShown, turnValue, toCalibrations, toStartup, mustBe };
 }
 
 // The FH-2's calibrations, changing nothing: what each of the 70 flash slots holds, by turning
@@ -427,6 +435,68 @@ export async function setStartupCalibration(client, { output, slot, wait = 200 }
       }
     } catch {}
     throw e;
+  } finally {
+    await p.home();
+  }
+}
+
+// ---- auto-calibration (Calibrations › Auto-calibrate, walked 2026-11-05): a page of two fields,
+// "Output n" and "GO!". With nothing open a turn moves the cursor; a press on Output opens it and a
+// turn then picks the output; a press on GO! starts the run. The FH-2 then steps the output
+// through voltages, measures the VCO on input X, draws the curve, and asks "Accept?": a press
+// accepts it (onto that output, in RAM), the left button abandons it. These need screenshots, to
+// see the cursor's box and to show you the curve.
+
+// Goes to Auto-calibrate, picks `output` (0-based) and presses GO!. Resolves once the run has
+// started; on any surprise it backs out to the overview first.
+export async function startAutoCalibration(client, { output, wait = 200 } = {}) {
+  const p = calibrationPages(client, wait);
+  try {
+    await p.open([['Calibrations', 10, 'Calibrations'], ['Auto-calibrate', 10, null]]);
+    // the page as it was left: the Output field closed under the cursor first
+    for (let k = 0; k < 3; k++) {
+      const [name, f] = [await client.itemName(), await p.box()];
+      if (!f) throw new MenuError('no screenshot from the FH-2: its cursor can’t be seen');
+      if (name === 'Output' && !f.open) break;
+      if (f.open) await p.step('press'); // the Output field open: a press closes it
+      else if (name === 'GO!') await p.step('ccw'); // nothing open: the turn moves the cursor
+      else throw new MenuError(`“${name}” on the Auto-calibrate page`);
+    }
+    const ready = async (name, open, where) => {
+      const [n, f] = [await client.itemName(), await p.box()];
+      if (n !== name || !f || f.open !== open) throw new MenuError(`not on ${name}${open ? ', open' : ''} (${where})`);
+    };
+    await ready('Output', false, 'on opening Auto-calibrate');
+    await p.step('press'); // opens the Output field
+    await ready('Output', true, 'opening the output field');
+    await p.turnValue(p.outputShown, output + 1, { what: 'output' });
+    await p.step('press'); // closes it
+    await ready('Output', false, 'closing the output field');
+    await p.step('cw'); // the cursor onto GO!
+    await ready('GO!', false, 'moving to GO!');
+    if ((await p.outputShown()) !== output + 1) throw new MenuError('the output moved instead of the cursor');
+    if (!/auto-calibration/i.test((await client.itemValue()).text)) throw new MenuError('GO! doesn’t say it begins the auto-calibration');
+    await p.step('press'); // GO!
+  } catch (e) {
+    await p.home();
+    throw e;
+  }
+}
+
+// While the run goes on: the screen as pixels and as text, and whether it asks "Accept?".
+export async function watchAutoCalibration(client) {
+  const [rows, text] = [await client.screenshot(), await client.screenText()];
+  return { rows, lines: text.lines, asks: text.lines.some((l) => /accept\?/i.test(l)) };
+}
+
+// Ends the run: `accept` presses (only once it asks "Accept?"), else the left button abandons it.
+// Then back to the overview.
+export async function finishAutoCalibration(client, { accept, wait = 200 } = {}) {
+  const p = calibrationPages(client, wait);
+  // too early: nothing is pressed and the run goes on (a long hold in the middle of it wasn't tried)
+  if (accept && !(await watchAutoCalibration(client)).asks) throw new MenuError('it doesn’t ask “Accept?” yet');
+  try {
+    await p.step(accept ? 'press' : 'left');
   } finally {
     await p.home();
   }

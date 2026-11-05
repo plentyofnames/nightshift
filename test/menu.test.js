@@ -3,7 +3,7 @@
 
 import { test, assert, eq } from './harness.js';
 import { Fh2 } from '../js/fh2/client.js';
-import { readSettings, readCalibrations, calibrationOf, loadCalibration, setStartupCalibration, settingsByName, MenuError } from '../js/fh2/menu.js';
+import { readSettings, readCalibrations, calibrationOf, loadCalibration, setStartupCalibration, startAutoCalibration, watchAutoCalibration, finishAutoCalibration, settingsByName, MenuError } from '../js/fh2/menu.js';
 import { screenTextOf, message, CMD } from '../js/fh2/sysex.js';
 import { Fh2StandIn, MenuModel } from './standin.js';
 
@@ -280,4 +280,50 @@ test('with screenshots Night Shift sets Startup right itself, also with Calibrat
   // and reading from the same state
   Object.assign(menu.startupState, { field: 1, editing: false });
   eq((await readCalibrations(client, { outputs: 4, wait: 0 })).startup.map((x) => x.slot), [1, 2, 0, 4]);
+});
+
+test('auto-calibration: picks the jack’s output, starts, shows the curve, accepts or abandons', async () => {
+  const menu = new MenuModel();
+  Object.assign(menu.autoState, { field: 1, editing: false, output: 6 }); // left on GO! with output 7
+  const { client } = setUp(menu);
+  await startAutoCalibration(client, { output: 2, wait: 0 });
+  eq([menu.runs, menu.level], [[3], 'autorun'], 'started on output 3, not the 7 it was left on');
+  let w = await watchAutoCalibration(client);
+  eq([w.asks, w.rows.length, w.rows[31][0]], [false, 32, 1], 'the curve so far, no question yet');
+  let early = '';
+  try {
+    await finishAutoCalibration(client, { accept: true, wait: 0 });
+  } catch (e) {
+    early = e.message;
+  }
+  eq([early, menu.accepted, menu.level], ['it doesn’t ask “Accept?” yet', [], 'autorun'], 'no accepting before it asks: the run goes on');
+  // wait for the question, accept
+  for (let k = 0; k < 5 && !w.asks; k++) w = await watchAutoCalibration(client);
+  w = await watchAutoCalibration(client);
+  eq(w.asks, true);
+  await finishAutoCalibration(client, { accept: true, wait: 0 });
+  eq([menu.accepted, menu.level], [[3], 'overview']);
+  // and abandoning one
+  await startAutoCalibration(client, { output: 0, wait: 0 });
+  await finishAutoCalibration(client, { accept: false, wait: 0 });
+  eq([menu.abandoned.at(-1), menu.accepted, menu.level], [1, [3], 'overview']);
+  eq(menu.changes, 0, 'nothing else changed');
+});
+
+test('auto-calibration starts only where it can see the cursor, from an open Output field too', async () => {
+  const menu = new MenuModel();
+  Object.assign(menu.autoState, { field: 0, editing: true, output: 4 }); // the Output field left open
+  const { client } = setUp(menu);
+  await startAutoCalibration(client, { output: 5, wait: 0 });
+  eq(menu.runs, [6]);
+  await finishAutoCalibration(client, { accept: false, wait: 0 });
+  // without screenshots: no run at all
+  menu.picture = () => null;
+  let error = '';
+  try {
+    await startAutoCalibration(client, { output: 0, wait: 0 });
+  } catch (e) {
+    error = e.message;
+  }
+  eq([error, menu.runs.length, menu.level], ['no screenshot from the FH-2: its cursor can’t be seen', 1, 'overview']);
 });
