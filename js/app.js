@@ -872,20 +872,23 @@ function noteCalibrations({ saved, startup }) {
 }
 
 // The guided auto-calibration of a jack, its curve shown once it asks "Accept?" (ui/calibrate.js): accepted, it is in
-// use on the jack until power-off, and can be named and saved into an empty slot and loaded at
-// power-on, all in the same dialog.
+// use on the jack until power-off, and can be named and saved into an empty slot (or over one of
+// the jack's own) and loaded at power-on, all in the same dialog.
 async function calibrateJack(output) {
   const jack = state.view.outputs[output].jack;
-  const free = state.fh2Calibrations?.slots.filter((x) => x.output == null).map((x) => x.slot) ?? null;
+  const slots = state.fh2Calibrations?.slots;
+  const free = slots?.filter((x) => x.output == null).map((x) => x.slot) ?? null;
+  const own = slots?.filter((x) => x.output === output).map(({ slot, name }) => ({ slot, name })) ?? [];
   await withFh2((pair) => withFh2Client(pair, async (client) => {
     const r = await calibrationDialog({
       jack,
       free,
+      own,
       start: () => startAutoCalibration(client, { output }),
       watch: () => watchAutoCalibration(client),
       finish: (accept) => finishAutoCalibration(client, { accept }),
-      save: async ({ name, slot, onStep }) => {
-        const saved = await saveCalibration(client, { output, slot, name, onStep });
+      save: async ({ name, slot, replace, onStep }) => {
+        const saved = await saveCalibration(client, { output, slot, name, replace, onStep });
         noteCalibrations({ saved });
         return saved;
       },

@@ -382,7 +382,7 @@ test('saving a calibration: “Are you sure?” answered, and a page that moves 
   // saved nowhere (the FH-2 ignores the press): it says so
   menu.save = () => {};
   menu.saveAsks = false;
-  eq(await failure(() => saveCalibration(client, { output: 1, slot: 13, wait: 0 })), 'slot 13 doesn’t hold output 2’s calibration after saving: check it on the module');
+  eq(await failure(() => saveCalibration(client, { output: 1, slot: 13, wait: 0 })), 'slot 13 doesn’t show output 2’s calibration after saving: check it on the module');
 });
 
 test('Save calibration reopened on its slots: back to the outputs first', async () => {
@@ -392,4 +392,21 @@ test('Save calibration reopened on its slots: back to the outputs first', async 
   const { client } = setUp(menu);
   const r = await saveCalibration(client, { output: 3, slot: 6, wait: 0 });
   eq([r.slot, menu.savedCals], [6, [{ slot: 6, output: 4, name: '' }]]);
+});
+
+test('replacing a calibration: only the same jack’s slot, and only when asked to', async () => {
+  const menu = new MenuModel();
+  menu.saveAsks = 'used';
+  const { client } = setUp(menu);
+  // slot 3 holds output 3's (yours): refused without `replace`
+  eq(await failure(() => saveCalibration(client, { output: 2, slot: 3, name: 'New', wait: 0 })), 'slot 3 isn’t empty (output 3’s)');
+  eq(await failure(() => saveCalibration(client, { output: 2, slot: 2, name: 'New', replace: true, wait: 0 })), 'slot 2 is output 2’s, not output 3’s');
+  eq(menu.savedCals, []);
+  const steps = [];
+  const r = await saveCalibration(client, { output: 2, slot: 3, name: 'New', replace: true, wait: 0, onStep: (t) => steps.push(t) });
+  eq([r, menu.savedCals, steps.at(-1)], [{ slot: 3, output: 2, name: 'New' }, [{ slot: 3, output: 3, name: 'New' }], 'replacing slot 3'], 'asked “Are you sure?” and answered');
+  // a replace the FH-2 ignores: the slot still shows the old name
+  menu.save = () => {};
+  eq(await failure(() => saveCalibration(client, { output: 2, slot: 3, name: 'Newer', replace: true, wait: 0 })), 'slot 3 doesn’t show the new calibration after saving: check it on the module');
+  eq(menu.level, 'overview');
 });

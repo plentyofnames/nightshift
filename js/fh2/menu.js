@@ -540,16 +540,21 @@ export async function nameCalibration(client, { name, wait = 200 } = {}) {
 }
 
 // Saves the calibration in use on `output` (0-based) into flash slot `slot` (1–70), which must be
-// empty; without `slot`, into the first empty one from slot 1. With `name`, Name calibration
-// first (nothing is saved if the FH-2 doesn't take it). Resolves to { slot, output, name } as the
-// slot then shows it; read back on Load calibration if the Save page doesn't show it.
-export async function saveCalibration(client, { output, slot = null, name, wait = 200, onStep } = {}) {
+// empty, or, with `replace`, hold that same output's calibration (never another output's: the FH-2
+// can't delete one, so replacing is how a slot is reused); without `slot`, into the first empty
+// one from slot 1. With `name`, Name calibration first (nothing is saved if the FH-2 doesn't take
+// it). Resolves to { slot, output, name } as the slot then shows it; read back on Load calibration
+// if the Save page doesn't show it (a replaced slot: by its new name, when it has one).
+export async function saveCalibration(client, { output, slot = null, name, replace = false, wait = 200, onStep } = {}) {
   if (name != null) {
     onStep?.('naming it');
     await nameCalibration(client, { name, wait });
   }
   const p = calibrationPages(client, wait);
   let saved = null;
+  let replacing = false;
+  // the slot as saved: that output's, and when replacing one under a new name, that name
+  const fresh = (x) => x.output === output && (!replacing || !name?.trim() || x.name === name.trim());
   try {
     onStep?.('picking the output');
     await p.open([['Calibrations', 10, 'Calibrations'], ['Save calibration', 10, null]]);
@@ -571,19 +576,23 @@ export async function saveCalibration(client, { output, slot = null, name, wait 
       slot = await p.saveSlotShown();
     }
     const before = await shownHere();
-    if (!before.empty) throw new MenuError(`slot ${slot} isn’t empty${before.output != null ? ` (output ${before.output + 1}’s)` : ''}`);
-    onStep?.(`saving into slot ${slot}`);
+    replacing = before.output === output;
+    if (!before.empty && !(replace && replacing)) {
+      throw new MenuError(replace && before.output != null ? `slot ${slot} is output ${before.output + 1}’s, not output ${output + 1}’s`
+        : `slot ${slot} isn’t empty${before.output != null ? ` (output ${before.output + 1}’s)` : ''}`);
+    }
+    onStep?.(replacing ? `replacing slot ${slot}` : `saving into slot ${slot}`);
     await p.step('press'); // saves
     if ((await client.screenText()).lines.some((l) => /sure/i.test(l))) await p.step('press');
     const after = await shownHere();
-    if ((await p.saveSlotShown()) === slot && after.output === output) saved = { slot, ...after };
+    if ((await p.saveSlotShown()) === slot && fresh(after)) saved = { slot, ...after };
   } finally {
     await p.home();
   }
   if (!saved) { // the page moved on: look at the slot on Load calibration (turns, never a press)
     onStep?.(`checking slot ${slot}`);
     const s = await calibrationSlot(client, { slot, wait });
-    if (s.output !== output) throw new MenuError(`slot ${slot} doesn’t hold output ${output + 1}’s calibration after saving: check it on the module`);
+    if (!fresh(s)) throw new MenuError(`slot ${slot} doesn’t show ${replacing ? 'the new' : `output ${output + 1}’s`} calibration after saving: check it on the module`);
     saved = { slot, ...s };
   }
   return { slot, output, name: saved.name };

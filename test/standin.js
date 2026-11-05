@@ -70,7 +70,7 @@ export class Fh2StandIn {
 // is a change); Save calibration a list of outputs, then the slots, where a press saves the
 // output's calibration with that name (`savedCals`), overwriting a used slot as readily. After
 // saving it stays on the slot (`saveThen` 'outputs': goes back to the outputs); `saveAsks` asks
-// "Are you sure?" first; `saveKeepsPlace` reopens it where it was left.
+// "Are you sure?" first ('used': only over a used slot); `saveKeepsPlace` reopens it where it was left.
 const PORTS = ['DIN', 'USB A', 'USB C', 'SEL'];
 const TYPES = ['Note On/Off', 'CC', 'Pitch Bend', 'Real Time', 'Aftertouch'];
 export const DEVICES = ['Generic', 'Launch Control', 'Launch Control XL', 'Launchpad Mini', 'Launchpad Pro', 'Launchpad Mini Mk3', 'Launchpad X', 'Launchpad Pro Mk3'];
@@ -209,7 +209,7 @@ export class MenuModel {
           return;
         }
         if (turn) t.slot = wrap(t.slot + turn, 70);
-        else if (e === 1 && this.saveAsks) t.asking = true;
+        else if (e === 1 && (this.saveAsks === true || (this.saveAsks === 'used' && this.calibrations[t.slot]))) t.asking = true;
         else if (e === 1) this.save();
         return;
       }

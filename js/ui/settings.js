@@ -87,12 +87,19 @@ export function renderSettings(view, c, p, sceneName, act) {
   const jacks = view.outputs.filter((o) => o.present && !o.gate);
   const calRows = cal ? jacks.map((o) => [o, calibrationOf(cal, o.index)]).filter(([, c]) => c.startup || c.saved.length)
     .map(([o, c]) => field(`Jack ${o.jack}`, h('span', { class: 'dim' }, calibrationText(c)))) : [];
+  // every saved one (a saved slot names its output), with its name, and whether it loads at power-on
+  const savedRows = cal ? cal.slots.filter((x) => x.output != null).map((x) => {
+    const atPowerOn = cal.startup.some((st) => st.output === x.output && st.slot === x.slot);
+    return field(`Slot ${x.slot}`, h('span', { class: x.name ? '' : 'dim' }, [x.name ? `“${x.name}”` : 'unnamed',
+      `jack ${view.outputs[x.output]?.jack ?? x.output + 1}`, atPowerOn ? 'at power-on' : null].filter(Boolean).join(' · ')));
+  }) : [];
   const calibrations = section('Calibrations',
     h('div', { class: 'settings-head' },
       h('button', { type: 'button', class: 'btn', disabled: act.busy, onclick: act.readCal, title: 'Turns through its calibration pages; loads and changes nothing' },
         cal ? 'Read calibrations again' : 'Read calibrations'),
       h('span', { class: 'note' }, cal ? `${cal.slots.filter((x) => x.output != null).length} of 70 slots used · read ${new Date(cal.at).toLocaleString()}` : 'Not read yet')),
-    cal ? (calRows.length ? h('div', { class: 'erows' }, calRows) : h('p', { class: 'note' }, 'No calibration for the jacks in your rack.')) : null);
+    cal ? (calRows.length ? h('div', { class: 'erows' }, calRows) : h('p', { class: 'note' }, 'No calibration for the jacks in your rack.')) : null,
+    savedRows.length ? [h('h4', {}, 'Saved'), h('div', { class: 'erows' }, savedRows)] : null);
 
   return h('div', { class: 'settings-page' }, head, scene, config, module, calibrations, controls);
 }
