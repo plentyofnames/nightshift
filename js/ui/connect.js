@@ -4,7 +4,7 @@
 import { midiAccess, midiTransport, portPairs, EC4_NAME } from '../../vendor/lilypad/js/midi.js';
 import { Device } from '../../vendor/lilypad/js/device.js';
 import { Fh2 } from '../fh2/client.js';
-import { readSettings, readCalibrations } from '../fh2/menu.js';
+import { readSettings, readCalibrations, loadCalibration, setStartupCalibration } from '../fh2/menu.js';
 
 const FH2_NAME = /fh-?2/i;
 const SETTLE_MS = 500; // after an install, before reading it back (as tools/fh2dump.py does)
@@ -132,6 +132,14 @@ export function readFh2Settings(pair, onStep, log) {
 
 export function readFh2Calibrations(pair, outputs, onStep, log) {
   return withClient(pair, log, (client) => readCalibrations(client, { outputs, onStep }));
+}
+
+export function loadFh2Calibration(pair, slot, output, log) {
+  return withClient(pair, log, (client) => loadCalibration(client, { slot, output }));
+}
+
+export function setFh2StartupCalibration(pair, output, slot, log) {
+  return withClient(pair, log, (client) => setStartupCalibration(client, { output, slot }));
 }
 
 // ---- the EC4, through controlfrog's protocol (Lilypad's device.js)

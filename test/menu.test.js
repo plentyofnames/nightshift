@@ -3,7 +3,7 @@
 
 import { test, assert, eq } from './harness.js';
 import { Fh2 } from '../js/fh2/client.js';
-import { readSettings, readCalibrations, calibrationOf, settingsByName, MenuError } from '../js/fh2/menu.js';
+import { readSettings, readCalibrations, calibrationOf, loadCalibration, setStartupCalibration, settingsByName, MenuError } from '../js/fh2/menu.js';
 import { screenTextOf, message, CMD } from '../js/fh2/sysex.js';
 import { Fh2StandIn, MenuModel } from './standin.js';
 
@@ -161,4 +161,36 @@ test('one jack’s calibrations from what was read', () => {
   eq(calibrationOf(cal, 1), { startup: 0, match: false, saved: [] });
   eq(calibrationOf(cal, 7), { startup: null, match: false, saved: [2] }, 'past the outputs read: its saved slots only');
   eq(calibrationOf(null, 0).startup, null);
+});
+
+test('loading a calibration now: the right slot, checked to be that jack’s', async () => {
+  const menu = new MenuModel();
+  const { client } = setUp(menu);
+  await loadCalibration(client, { slot: 3, output: 2, wait: 0 });
+  eq([menu.loaded, menu.changes, menu.level], [[3], 0, 'overview']);
+  eq(menu.startup.slice(0, 4), [1, 2, 3, 4], 'power-on slots as they were');
+  for (const [slot, output, why] of [[5, 4, 'slot 5 is empty'], [2, 0, 'slot 2 is output 2’s, not output 1’s']]) {
+    let error = '';
+    try {
+      await loadCalibration(client, { slot, output, wait: 0 });
+    } catch (e) {
+      error = e.message;
+    }
+    eq(error, `${why}`);
+  }
+  eq([menu.loaded, menu.level], [[3], 'overview'], 'nothing else loaded, back on the overview');
+});
+
+test('setting a jack’s power-on calibration changes that one setting only', async () => {
+  const calibrations = Array.from({ length: 70 }, (_, k) => (k < 4 ? { output: k, name: '' } : k === 9 ? { output: 6, name: '' } : null));
+  const menu = new MenuModel({ calibrations });
+  const { client } = setUp(menu);
+  const before = [...menu.startup];
+  eq(await setStartupCalibration(client, { output: 6, slot: 10, wait: 0 }), { output: 6, slot: 10, match: true });
+  eq(menu.startup.map((s, o) => (o === 6 ? before[o] : s)), before, 'no other output changed');
+  eq([menu.startup[6], menu.loaded, menu.level], [10, [], 'overview']);
+  eq(menu.pressed.filter((p) => p === 'Basic'), [], 'never Basic');
+  // back to none, the other way round
+  eq(await setStartupCalibration(client, { output: 1, slot: 0, wait: 0 }), { output: 1, slot: 0, match: false });
+  eq(menu.startup.slice(0, 8), [1, 0, 3, 4, 0, 0, 10, 0]);
 });

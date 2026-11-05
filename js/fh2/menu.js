@@ -284,6 +284,94 @@ export async function readCalibrations(client, { outputs = 16, wait = 200, onSte
   return result;
 }
 
+// The first two changes Night Shift makes through the FH-2's menus (your call, 2026-11-05). Each
+// step is checked before the next: the item open must be the one expected and every value must
+// move by one; at the first surprise it backs out (left, then the overview) and says where.
+
+// Loads calibration slot `slot` (1–70) onto `output` (0-based) now, in RAM; what loads at power-on
+// stays as it is. Calibrations › Load calibration, turned to the slot, checked to be that
+// output's, then pressed (pressed again if it asks "Are you sure?").
+export async function loadCalibration(client, { slot, output, wait = 200 } = {}) {
+  const { step, line, expect, turnTo, home } = walker(client, wait);
+  const value = async () => Number((await client.itemValue()).text);
+  try {
+    await home();
+    if ((await client.screenText()).mode !== 0) throw new MenuError('the display didn’t go back to the overview');
+    await step('press');
+    await turnTo('Calibrations', 10);
+    await step('press');
+    if ((await line(0)) !== 'Calibrations') throw new MenuError('the Calibrations menu didn’t open');
+    await turnTo('Load calibration', 10);
+    await step('press');
+    await expect('Load calibration', 'on opening');
+    if ((await value()) !== 1) throw new MenuError(`Load calibration opened at slot ${await value()}, not 1`);
+    for (let k = 2; k <= slot; k++) {
+      await step('cw');
+      if ((await value()) !== k) throw new MenuError(`slot ${await value()} where ${k} was expected`);
+    }
+    const m = /^For output (\d+)/.exec(await line(2));
+    if (!m) throw new MenuError(`slot ${slot} is empty`);
+    if (Number(m[1]) - 1 !== output) throw new MenuError(`slot ${slot} is output ${m[1]}’s, not output ${output + 1}’s`);
+    await step('press'); // loads it
+    if ((await client.screenText()).lines.some((l) => /sure/i.test(l))) await step('press');
+  } finally {
+    await home();
+  }
+}
+
+// Makes `output` (0-based) load calibration `slot` (1–70, 0 none) at power-on: Settings ›
+// Calibration › Startup, the Output field turned to the output, then the Calibration field to
+// the slot. Resolves to { output, slot, match } as the page then shows it.
+export async function setStartupCalibration(client, { output, slot, wait = 200 } = {}) {
+  const { step, line, expect, turnTo, home } = walker(client, wait);
+  const value = async () => Number((await client.itemValue()).text);
+  let turned = false; // the setting itself was turned: an error after it says so
+  try {
+    await home();
+    if ((await client.screenText()).mode !== 0) throw new MenuError('the display didn’t go back to the overview');
+    await step('press');
+    await turnTo('Settings', 10);
+    await step('press');
+    if ((await line(0)) !== 'Settings') throw new MenuError('the Settings menu didn’t open');
+    await turnTo('Calibration', 12);
+    await step('press');
+    if ((await line(0)) !== 'Calibration') throw new MenuError('Settings › Calibration didn’t open');
+    await turnTo('Startup', 3); // never Basic
+    await step('press');
+    await expect('Output', 'on opening Startup');
+    await step('press'); // the Output field: turning it only shows another output
+    await expect('Output', 'on opening the output field');
+    for (let o = 1; o <= output; o++) {
+      await step('cw');
+      await expect('Output', 'picking the output');
+    }
+    if ((await value()) !== output + 1) throw new MenuError(`output ${await value()} where ${output + 1} was expected`);
+    await step('press'); // closes the Output field
+    await step('cw'); // the cursor onto the Calibration field (were the Output field still open, it would show the next output: caught here)
+    await expect('Calibration', 'moving to the calibration field');
+    await step('press'); // opens it: from here a turn changes the setting
+    await expect('Calibration', 'on opening the calibration field');
+    let v = await value();
+    while (v !== slot) {
+      const dir = slot > v ? 'cw' : 'ccw';
+      await step(dir);
+      turned = true;
+      const now = await value();
+      if (now !== v + (dir === 'cw' ? 1 : -1)) throw new MenuError(`the calibration went from ${v} to ${now}`);
+      v = now;
+    }
+    await step('press'); // closes it
+    const l = await line(1);
+    if (!new RegExp(`^Calibration\\s+${slot}(\\s|$)`).test(l)) throw new MenuError(`the page shows “${l}”, not calibration ${slot}`);
+    return { output, slot, match: /Match!/.test(l) };
+  } catch (e) {
+    if (turned) e.message += `: check output ${output + 1}’s startup calibration on the module`;
+    throw e;
+  } finally {
+    await home();
+  }
+}
+
 // One output's calibrations, from readCalibrations' result: the slot it loads at power-on (0
 // none, null not read), whether that slot is its own, and the slots saved for it.
 export function calibrationOf(cal, output) {

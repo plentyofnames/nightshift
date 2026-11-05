@@ -182,7 +182,7 @@ function parkedInspector(view, colors, onSelect) {
 // CV…) it is added, as to an LFO: an offset (your tests, 2026-11-03/04: every CV-type output but pitch).
 // With the FH-2's "Always load direct" on (`loadDirect`, as last read), a preset load puts it on
 // the others too, until what drives the jack sends something.
-function jackSettings(o, edit, ec4, { driver = null, loadDirect = false, calibrations = null } = {}) {
+function jackSettings(o, edit, ec4, { driver = null, loadDirect = false, calibrations = null, act = {} } = {}) {
   const r = o.rangeIndex;
   const where = `jack ${o.jack}`;
   const rangeSelect = h('select', { 'aria-label': `Range of ${where}`, 'data-key': `range ${where}`, onchange: (e) => edit(`Range of ${where}: ${RANGES[+e.target.value]}`, setRange(o.index, +e.target.value)) },
@@ -204,7 +204,21 @@ function jackSettings(o, edit, ec4, { driver = null, loadDirect = false, calibra
   ];
   if (o.lfoReset) rows.push(row('LFO restarts on', `${o.lfoReset.type}`));
   // its calibration on the FH-2, as last read (Settings tab)
-  if (calibrations) rows.push(row('Calibration', h('span', { class: 'dim', title: `Read ${new Date(calibrations.at).toLocaleString()}` }, calibrationText(calibrationOf(calibrations, o.index)))));
+  if (calibrations) {
+    const c = calibrationOf(calibrations, o.index);
+    rows.push(row('Calibration', h('span', { class: 'dim', title: `Read ${new Date(calibrations.at).toLocaleString()}` }, calibrationText(c))));
+    // the slots saved for this jack: which loads at power-on, and loading one now
+    if (c.startup != null && (c.saved.length || c.startup)) {
+      const options = [[0, 'none'], ...[...new Set([...c.saved, ...(c.startup ? [c.startup] : [])])].sort((a, b) => a - b).map((s) => [s, `slot ${s}`])];
+      rows.push(row('At power-on', h('select', { 'aria-label': `Power-on calibration of ${where}`, 'data-key': `poweron ${where}`,
+        onchange: (e) => act.setPowerOnCalibration?.(o.index, Number(e.target.value)) },
+      options.map(([v, t]) => h('option', { value: String(v), selected: v === c.startup }, t)))));
+    }
+    if (c.saved.length) {
+      rows.push(row('Load now', h('span', { class: 'actions' }, c.saved.map((s) => h('button', { type: 'button', class: 'btn small',
+        onclick: () => act.loadCalibration?.(o.index, s), title: 'Into the FH-2’s RAM; the power-on slot stays' }, `Slot ${s}`)))));
+    }
+  }
   return [
     section('Jack settings', rows),
     preset ? null : h('p', { class: 'note' }, 'No preset loaded: no stored level or smoothing.'),
@@ -252,7 +266,7 @@ function jackInspector(view, colors, o, onSelect, act) {
       : h('button', { type: 'button', class: 'btn per-scene', title: 'A sine at 1 Hz, full depth: change it below',
         onclick: () => act.edit(`LFO on jack ${o.jack}`, addLfo(o.index)) }, 'Add an LFO')));
   }
-  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: d ? { name: d.s.name, replaces } : null, loadDirect: act.loadDirect, calibrations: act.calibrations }));
+  if (!o.gate) parts.push(...jackSettings(o, act.edit, act.ec4, { driver: d ? { name: d.s.name, replaces } : null, loadDirect: act.loadDirect, calibrations: act.calibrations, act }));
   if (o.controls.length) parts.push(section('Controlled by MIDI', o.controls.map((m) => row(param(m.target.param), '', ccLabel(m)))));
   return parts;
 }

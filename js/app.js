@@ -17,7 +17,7 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, ec4Port, withEc4,
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, loadFh2Calibration, setFh2StartupCalibration, ec4Port, withEc4,
   openEc4, watchEc4, fh2Output, pullPresetFromFh2 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
@@ -815,6 +815,52 @@ async function readModuleCalibrations() {
   });
 }
 
+// A calibration slot onto its jack now (RAM): Calibrations › Load calibration, checked step by step.
+async function loadCalibrationNow(output, slot) {
+  const jack = state.view.outputs[output].jack;
+  const ok = await modal($('dialog'), {
+    title: `Load calibration ${slot} onto jack ${jack}?`,
+    body: h('p', { class: 'note' }, 'Now, in the FH-2’s RAM; what loads at power-on stays as it is. Don’t touch the module meanwhile.'),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Load', value: true, primary: true }],
+  });
+  if (!ok) return;
+  await withFh2(async (pair) => {
+    status(`Loading calibration ${slot}…`);
+    try {
+      await loadFh2Calibration(pair, slot, output);
+      status(`Calibration ${slot} loaded onto jack ${jack}`);
+    } catch (e) {
+      status(`Stopped: ${e.message}`, true);
+    }
+  });
+}
+
+// Which calibration a jack loads at power-on: the first FH-2 setting Night Shift changes (Settings ›
+// Calibration › Startup, checked step by step; whether it survives a power cycle is check 9).
+async function setPowerOnCalibration(output, slot) {
+  const jack = state.view.outputs[output].jack;
+  const ok = await modal($('dialog'), {
+    title: `Jack ${jack}: ${slot ? `calibration ${slot}` : 'no calibration'} at power-on?`,
+    body: h('p', { class: 'note' }, 'Night Shift changes this one FH-2 setting through its menus, checking each step, and reads it back. Don’t touch the module meanwhile.'),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Change it', value: true, primary: true }],
+  });
+  if (!ok) return render();
+  await withFh2(async (pair) => {
+    status('Changing the power-on calibration…');
+    try {
+      const r = await setFh2StartupCalibration(pair, output, slot);
+      const cal = state.fh2Calibrations;
+      cal.startup = [...cal.startup.filter((x) => x.output !== output), r].sort((a, b) => a.output - b.output);
+      try {
+        localStorage.setItem(FH2_CAL_KEY, JSON.stringify(cal));
+      } catch {}
+      status(`Jack ${jack}: ${slot ? `calibration ${slot}` : 'none'} at power-on`);
+    } catch (e) {
+      status(`Stopped: ${e.message}`, true);
+    }
+  });
+}
+
 async function saveFlash() {
   const configSlot = state.slots.config ?? 0;
   const presetSlot = state.slots.scenes[state.scene] ?? 0;
@@ -1381,7 +1427,7 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4, calibrations: state.fh2Calibrations,
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, values, rename, status, ec4, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration,
         loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }
