@@ -157,7 +157,7 @@ export class MenuModel {
         if (e === 4) return void Object.assign(this, { level: 'settings', i: this.settings.indexOf('Calibration') });
         if (e !== 1) return;
         this.pressed.push(['Basic', 'Startup'][this.i]);
-        if (this.i === 1) Object.assign(this, { level: 'startup', startupState: { field: 0, editing: false, output: this.startupState.output } });
+        if (this.i === 1) this.level = 'startup'; // its cursor, an open field and the output shown stay as they were left (your FH-2)
         else this.changes++; // Basic sets an output's voltage as the cursor moves
         return;
       }

@@ -265,8 +265,17 @@ function calibrationPages(client, wait) {
     }
   };
   const toCalibrations = () => open([['Calibrations', 10, 'Calibrations'], ['Load calibration', 10, null]]);
-  // never Basic: moving over its values sets the outputs
-  const toStartup = () => open([['Settings', 10, 'Settings'], ['Calibration', 12, 'Calibration'], ['Startup', 3, null]]);
+  // Startup remembers where its cursor was (your FH-2, 2026-11-05). On Output, nothing a turn does
+  // changes a setting; on Calibration it can't be told whether that field is open, where a turn
+  // would change it, so the walk stops there and you move it on the module.
+  const toStartup = async () => {
+    await open([['Settings', 10, 'Settings'], ['Calibration', 12, 'Calibration'], ['Startup', 3, null]]); // never Basic
+    const at = await client.itemName();
+    if (at === 'Calibration') {
+      throw new MenuError('Startup’s cursor is on Calibration: on the FH-2 (Settings › Calibration › Startup) press first if its number is being edited, then turn to Output, and try again');
+    }
+    if (at !== 'Output') throw new MenuError(`“${at}” where “Output” was expected (on opening Startup)`);
+  };
   return { ...w, slotShown, outputShown, calibrationShown, turnValue, toCalibrations, toStartup };
 }
 
@@ -297,7 +306,6 @@ export async function readCalibrations(client, { outputs = 16, wait = 200, onSte
     if (!(await p.nothingOpen())) throw new MenuError('Load calibration didn’t close');
 
     await p.toStartup();
-    await p.expect('Output', 'on opening Startup');
     await p.step('press'); // the Output field: turning it now only shows another output
     await p.expect('Output', 'on opening the output field');
     await p.turnValue(p.outputShown, 1, { what: 'output' });
@@ -309,7 +317,9 @@ export async function readCalibrations(client, { outputs = 16, wait = 200, onSte
       onStep?.(`startup calibration of output ${o}`);
     }
     await p.turnValue(p.outputShown, 1, { what: 'output' });
-    await p.step('left'); // closes the field and the page
+    await p.step('press'); // closes the Output field: the page remembers an open one
+    await p.expect('Output', 'closing the output field');
+    await p.step('left'); // leaves the page
   } finally {
     await p.home();
   }
@@ -347,23 +357,31 @@ export async function setStartupCalibration(client, { output, slot, wait = 200 }
   const p = calibrationPages(client, wait);
   let turned = false;
   let shown = null;
+  let at = null; // where the page stands, for leaving it as reading expects: 'output' (the Output field open), 'cursor' (on Calibration), 'calibration' (open)
   try {
     await p.toStartup();
-    await p.expect('Output', 'on opening Startup');
     await p.step('press'); // the Output field: turning it only shows another output
+    at = 'output';
     await p.expect('Output', 'on opening the output field');
     await p.turnValue(p.outputShown, output + 1, { what: 'output' });
     await p.step('press'); // closes the Output field
+    at = null;
     await p.step('cw'); // the cursor onto the Calibration field (were the Output field still open, it would show the next output: caught here)
+    at = 'cursor';
     await p.expect('Calibration', 'moving to the calibration field');
     if ((await p.outputShown()) !== output + 1) throw new MenuError('the output moved instead of the cursor');
     await p.step('press'); // opens it: from here a turn changes the setting
+    at = 'calibration';
     await p.expect('Calibration', 'on opening the calibration field');
     await p.turnValue(async () => (await p.calibrationShown())?.slot ?? null, slot, { what: 'calibration', onTurn: () => { turned = true; } });
     await p.step('press'); // closes it
+    at = 'cursor';
     const c = await p.calibrationShown();
     shown = c;
     if (c?.slot !== slot) throw new MenuError(`the page shows calibration ${c?.slot ?? '?'}, not ${slot}`);
+    await p.step('ccw'); // the cursor back onto Output, where the next walk expects it
+    await p.expect('Output', 'moving the cursor back to Output');
+    at = null;
     return { output, ...c };
   } catch (e) {
     if (turned) {
@@ -371,6 +389,18 @@ export async function setStartupCalibration(client, { output, slot, wait = 200 }
       e.shown = shown && { output, ...shown };
       e.message += `: check output ${output + 1}’s startup calibration on the module`;
     }
+    // leave the page as reading expects it: what Night Shift opened closed, the cursor on Output
+    try {
+      if (at === 'output') await p.step('press');
+      if (at === 'calibration') {
+        await p.step('press');
+        at = 'cursor';
+      }
+      if (at === 'cursor' && (await client.itemName()) === 'Calibration') {
+        await p.step('ccw');
+        if ((await client.itemName()) !== 'Output') e.message += ' (its cursor stayed on Calibration)';
+      }
+    } catch {}
     throw e;
   } finally {
     await p.home();

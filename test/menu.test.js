@@ -232,3 +232,26 @@ test('a surprise after the turn: it stops, says so, and hands back what the page
   eq(error.shown, { output: 2, slot: 1, match: false });
   eq(menu.level, 'overview');
 });
+
+test('Startup remembers its cursor: Night Shift leaves it on Output, and stops if it finds it on Calibration', async () => {
+  const menu = new MenuModel();
+  const { client } = setUp(menu);
+  // read, change, read, change: each leaves the page as the next expects
+  await readCalibrations(client, { outputs: 8, wait: 0 });
+  eq(await setStartupCalibration(client, { output: 1, slot: 0, wait: 0 }), { output: 1, slot: 0, match: false });
+  eq(menu.startupState.field === 0 && !menu.startupState.editing, true, 'cursor on Output, nothing open');
+  eq((await readCalibrations(client, { outputs: 8, wait: 0 })).startup.map((x) => x.slot), [1, 0, 3, 4, 0, 0, 0, 0]);
+  eq(await setStartupCalibration(client, { output: 1, slot: 2, wait: 0 }), { output: 1, slot: 2, match: true });
+  eq(menu.startup.slice(0, 4), [1, 2, 3, 4]);
+  // left on Calibration (by hand, or by an older Night Shift): no turn, a clear message
+  Object.assign(menu.startupState, { field: 1, editing: true });
+  const before = [...menu.startup];
+  let error = '';
+  try {
+    await setStartupCalibration(client, { output: 0, slot: 0, wait: 0 });
+  } catch (e) {
+    error = e.message;
+  }
+  assert(error.startsWith('Startup’s cursor is on Calibration'), error);
+  eq(menu.startup, before, 'nothing changed');
+});
