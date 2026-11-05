@@ -3,7 +3,9 @@
 // (pick them here; each also shows "← X" beside its name). Triggers and notes are players, wired
 // to a trigger kit or a voice in their "Played by"; scenes are program changes on the Scenes-by-PC
 // channel; aftertouch goes to the voices on its channel. An input in use takes no clock (X is the
-// FH-2's clock input; Y may run and stop the clock), and notes take the other input as the gate.
+// FH-2's clock input; Y may run and stop the clock), unless the FH-2's "Disable X clocks" / "Disable
+// Y clocks" (as last read, Settings tab) already turned that off: yours has both on. Notes take the
+// other input as the gate.
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon } from './look.js';
@@ -12,6 +14,7 @@ import { playerSends } from './players.js';
 import { noteName } from '../patch/tables.js';
 import { INPUT_USES, inputUse, useInput, setInput, modulateFrom } from '../patch/edit.js';
 import { objectsOf, settingKey } from '../ec4/pages.js';
+import { settingsByName } from '../fh2/menu.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const field = (label, ...control) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control));
@@ -19,13 +22,22 @@ const NOTES = Array.from({ length: 128 }, (_, n) => [n, `${noteName(n)} (${n})`]
 const WORDS = { off: 'Off', modulation: 'Modulation', triggers: 'Triggers', notes: 'Notes', scenes: 'Scenes', aftertouch: 'Aftertouch' };
 export const INPUT_SHORT = { modulation: 'mod', triggers: 'trig', notes: 'notes', scenes: 'scenes', aftertouch: 'AT', other: 'MIDI' };
 
-// Why `use` can't be picked for input `inp` now, or null.
-function blocked(view, inp, use) {
+// Whether the FH-2 has an input's clock duties on: true, false (its "Disable X clocks" on), or
+// null (its settings not read yet).
+function clocksOn(fh2, name) {
+  const v = fh2 ? settingsByName(fh2.pages)[`Disable ${name} clocks`] : undefined;
+  return v == null ? null : !/^(1|on|yes)$/i.test(String(v).trim());
+}
+
+// Why `use` can't be picked for input `inp` now, or null. Y is kept while the config has it run
+// and stop the clock, unless the FH-2 ignores Y's clock duties anyway.
+function blocked(view, inp, use, fh2) {
   const other = view.inputs[1 - inp.index];
+  const yBusy = (y) => y.index === 1 && y.clockUse && clocksOn(fh2, 'Y') !== false;
   if (use === 'off') return null;
   if (inp.gateFor) return `It is the gate of input ${other.name}’s notes`;
-  if (inp.index === 1 && inp.clockUse) return `Y is ${inp.clockUse} (Settings tab: external clock, start/stop)`;
-  if (use === 'notes' && (other.player || (other.index === 1 && other.clockUse))) return `Notes take input ${other.name} as their gate, and it’s in use`;
+  if (yBusy(inp)) return `Y is ${inp.clockUse} (Settings tab: external clock, start/stop)`;
+  if (use === 'notes' && (other.player || yBusy(other))) return `Notes take input ${other.name} as their gate, and it’s in use`;
   return null;
 }
 
@@ -43,10 +55,10 @@ export function inputInspector(view, colors, i, onSelect, act) {
   const pick = (u) => act.edit(u === 'off' ? `${name} off` : `${name}: ${WORDS[u].toLowerCase()}`, useInput(values, view, i, u));
   parts.push(section('Turns CV into',
     h('div', { class: 'actions input-uses' }, ['off', ...INPUT_USES].map((u) => {
-      const why = u === use ? null : blocked(view, inp, u);
+      const why = u === use ? null : blocked(view, inp, u, act.fh2);
       return h('button', { type: 'button', class: 'btn', 'aria-pressed': u === use ? 'true' : 'false', disabled: !!why, title: why ?? '', onclick: () => u !== use && pick(u) }, WORDS[u]);
     })),
-    p && inp.index === 0 ? h('p', { class: 'note' }, 'X is also the FH-2’s clock input: while it turns CV into MIDI, it takes no clock.') : null,
+    p && inp.index === 0 && clocksOn(act.fh2, 'X') ? h('p', { class: 'note' }, 'X is also the FH-2’s clock input: while it turns CV into MIDI, it takes no clock.') : null,
     inp.gateFor ? h('p', { class: 'note' }, `The gate of input ${view.inputs[1 - i].name}’s notes.`) : null));
   if (!p) return parts;
 

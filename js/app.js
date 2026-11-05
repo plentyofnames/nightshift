@@ -1483,7 +1483,7 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, removeMapping: removeMappingOf, values, rename, status, ec4, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration, calibrate: calibrateJack,
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, removeMapping: removeMappingOf, values, rename, status, ec4, fh2: state.fh2Settings, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration, calibrate: calibrateJack,
         loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }
