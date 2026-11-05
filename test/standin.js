@@ -50,7 +50,8 @@ export class Fh2StandIn {
         return rows ? this._reply(port, screenshotMessage(rows)) : undefined;
       }
       case CMD.REQUEST_ITEM_NAME: return this._reply(port, text(CMD.ITEM_NAME, this.menu.itemName()));
-      case CMD.REQUEST_ITEM_VALUE: return this._reply(port, message(CMD.ITEM_VALUE, [this.menu.level === 'name' ? 1 : 0, ...[...this.menu.itemValue()].map((c) => c.charCodeAt(0)), 0]));
+      case CMD.REQUEST_ITEM_VALUE: return this._reply(port, message(CMD.ITEM_VALUE, [this.menu.isName() ? 1 : 0, ...[...this.menu.itemValue()].map((c) => c.charCodeAt(0)), 0]));
+      case CMD.TEXT_ENTRY: return void this.menu.enterText(String.fromCharCode(...bytes.slice(6, -1)));
       default: return;
     }
   }
@@ -64,7 +65,12 @@ export class Fh2StandIn {
 // History Inclusion remember their cursor and editing state between visits (`forwarding`,
 // `historyIncl`), as the module does. Calibrations (walked 2026-11-05): Load calibration turns
 // through 70 slots and loads one on a press (`loaded`); Settings › Calibration › Startup shows
-// each output's startup slot, and a turn on its Calibration field changes it (a change).
+// each output's startup slot, and a turn on its Calibration field changes it (a change). Name
+// calibration is a name editor (47H sets it, `takesNames` false ignores it; a turn or press in it
+// is a change); Save calibration a list of outputs, then the slots, where a press saves the
+// output's calibration with that name (`savedCals`), overwriting a used slot as readily. After
+// saving it stays on the slot (`saveThen` 'outputs': goes back to the outputs); `saveAsks` asks
+// "Are you sure?" first; `saveKeepsPlace` reopens it where it was left.
 const PORTS = ['DIN', 'USB A', 'USB C', 'SEL'];
 const TYPES = ['Note On/Off', 'CC', 'Pitch Bend', 'Real Time', 'Aftertouch'];
 export const DEVICES = ['Generic', 'Launch Control', 'Launch Control XL', 'Launchpad Mini', 'Launchpad Pro', 'Launchpad Mini Mk3', 'Launchpad X', 'Launchpad Pro Mk3'];
@@ -108,6 +114,22 @@ export class MenuModel {
     this.run = null;
     this.slot = 0;
     this.startupState = { field: 0, editing: false, output: 0 };
+    this.calName = ''; // the name the next saved calibration gets
+    this.takesNames = true;
+    this.saveState = { step: 0, output: 0, slot: 68, asking: false }; // step 0 the outputs, 1 the slots; it opened at slot 69 on your FH-2
+    this.savedCals = [];
+    this.saveThen = 'slot';
+    this.saveAsks = false;
+    this.saveKeepsPlace = false;
+  }
+
+  isName() {
+    return this.level === 'name' || this.level === 'calname';
+  }
+
+  enterText(text) {
+    if (this.level === 'name') this.name = text;
+    else if (this.level === 'calname' && this.takesNames) this.calName = text;
   }
 
   list() {
@@ -157,7 +179,38 @@ export class MenuModel {
         this.pressed.push(CAL_ITEMS[this.i]);
         if (CAL_ITEMS[this.i] === 'Load calibration') this.level = 'loadcal'; // where it was left (your FH-2 may reopen there)
         else if (CAL_ITEMS[this.i] === 'Auto-calibrate') this.level = 'autocal';
-        else this.changes++; // anything else here could start, save or reset something
+        else if (CAL_ITEMS[this.i] === 'Name calibration') this.level = 'calname';
+        else if (CAL_ITEMS[this.i] === 'Save calibration') { // on the outputs, at the one last calibrated
+          if (!this.saveKeepsPlace) Object.assign(this.saveState, { step: 0, output: this.autoState.output });
+          this.saveState.asking = false;
+          this.level = 'savecal';
+        } else this.changes++; // anything else here could start or reset something
+        return;
+      }
+      case 'calname':
+        if (e === 4) Object.assign(this, { level: 'calibrations', i: CAL_ITEMS.indexOf('Name calibration') });
+        else if (turn || e === 1) this.changes++; // moves the cursor or edits a letter: never needed
+        return;
+      case 'savecal': {
+        const t = this.saveState;
+        if (t.asking) { // "Are you sure?"
+          if (e === 1) this.save();
+          if (e === 1 || e === 4) t.asking = false;
+          return;
+        }
+        if (e === 4) {
+          if (t.step === 1) t.step = 0;
+          else Object.assign(this, { level: 'calibrations', i: CAL_ITEMS.indexOf('Save calibration') });
+          return;
+        }
+        if (t.step === 0) {
+          if (turn) t.output = wrap(t.output + turn, 64);
+          else if (e === 1) t.step = 1;
+          return;
+        }
+        if (turn) t.slot = wrap(t.slot + turn, 70);
+        else if (e === 1 && this.saveAsks) t.asking = true;
+        else if (e === 1) this.save();
         return;
       }
       case 'loadcal':
@@ -247,6 +300,13 @@ export class MenuModel {
     }
   }
 
+  save() {
+    const t = this.saveState;
+    this.calibrations[t.slot] = { output: t.output, name: this.calName };
+    this.savedCals.push({ slot: t.slot + 1, output: t.output + 1, name: this.calName });
+    if (this.saveThen === 'outputs') t.step = 0;
+  }
+
   parentOf(level) {
     return { level, i: this.settings.indexOf('USB Device Settings'), parent: null };
   }
@@ -274,6 +334,14 @@ export class MenuModel {
         return { mode: 1, lines: ['', '', '', this.run.reads > this.runLength ? '           Accept?' : ''] };
       }
       case 'setcal': return { mode: 1, lines: ['Calibration', '', item(), ''] };
+      case 'calname': return { mode: 1, lines: ['Name calibration', this.calName, '', ''] };
+      case 'savecal': {
+        const t = this.saveState;
+        if (t.asking) return { mode: 1, lines: ['Save calibration', 'Are you sure?', '', ''] };
+        if (t.step === 0) return { mode: 1, lines: ['Save calibration', '', `Output ${t.output + 1}`, ''] };
+        const c = this.calibrations[t.slot]; // as your FH-2 shows them: "<Empty>" where the name goes
+        return { mode: 1, lines: [`Save calibration ${t.slot + 1}`, c ? c.name : '<Empty>', c ? `For output ${c.output + 1}` : '', ''] };
+      }
       case 'loadcal': {
         const c = this.calibrations[this.slot];
         return { mode: 1, lines: [`Load calibration ${this.slot + 1}`, c?.name ?? '', c ? `For output ${c.output + 1}` : '<Empty>', ''] };
@@ -321,6 +389,8 @@ export class MenuModel {
     if (this.level === 'historyIncl') return ['Include in history', TYPES[st.a]][st.field];
     if (this.level === 'name') return 'USB Device Name';
     if (this.level === 'loadcal') return 'Load calibration';
+    if (this.level === 'calname') return 'Name calibration';
+    if (this.level === 'savecal') return this.saveState.step ? 'Save calibration' : 'Sorry';
     if (this.level === 'autocal') return ['Output', 'GO!'][this.autoState.field];
     if (this.level === 'startup') return ['Output', 'Calibration'][this.startupState.field];
     return 'Sorry';
@@ -333,6 +403,8 @@ export class MenuModel {
     if (this.level === 'historyIncl') return TYPES[st.a];
     if (this.level === 'name') return `${this.name.padEnd(8)}\x01: cursor at 0 :  `;
     if (this.level === 'loadcal') return String(this.slot + 1);
+    if (this.level === 'calname') return `${this.calName}\x01: cursor at 0 :`;
+    if (this.level === 'savecal') return this.saveState.step ? String(this.saveState.slot + 1) : '';
     if (this.level === 'autocal') return this.autoState.field ? 'Press to begin auto-calibration' : String(this.autoState.output + 1);
     // a calibration of 0 comes back as text, not as a number (your FH-2, 2026-11-05)
     if (this.level === 'startup') return this.startupState.field ? (this.startup[this.startupState.output] ? String(this.startup[this.startupState.output]) : '(None)') : String(this.startupState.output + 1);

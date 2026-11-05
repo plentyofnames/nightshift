@@ -3,7 +3,7 @@
 // Installs (10H, 13H) and saves to flash (18H, 19H) have no reply: check an install by
 // pulling the dump again (verifyInstall).
 
-import { CMD, DUMPS, message, commandOf, parseDump, buildDump, textOf, screenTextOf, itemValueOf, remote, saveConfig, savePreset, displayMessage , screenshotOf } from './sysex.js';
+import { CMD, DUMPS, message, commandOf, parseDump, buildDump, textOf, screenTextOf, itemValueOf, remote, textEntry, saveConfig, savePreset, displayMessage , screenshotOf } from './sysex.js';
 import { diff } from './layout.js';
 
 export class TimeoutError extends Error {
@@ -96,6 +96,11 @@ export class Fh2 extends EventTarget {
   // Presses or turns like a person at the panel (sysex.js REMOTE_EVENTS). No reply.
   remote(event) {
     return this._request(remote(event));
+  }
+
+  // Sets the open menu item to `text`, if it is a name (47H). No reply.
+  enterText(text) {
+    return this._request(textEntry(text));
   }
 
   // Makes `dump` (from parseDump, possibly with edited values) the FH-2's current config or preset.

@@ -25,6 +25,7 @@ export const CMD = {
   REQUEST_ITEM_VALUE: 0x44, // and its value
   ITEM_NAME: 0x45,
   ITEM_VALUE: 0x46,
+  TEXT_ENTRY: 0x47, // sets the open item to a string, if it is a name
   REMOTE: 0x48, // simulates the panel: see REMOTE_EVENTS
   REQUEST_CONFIG_NAME: 0x49, // the reply uses the same number
   REQUEST_PRESET_NAME: 0x4A, // likewise
@@ -65,6 +66,8 @@ export function message(cmd, payload = []) {
 const ascii = (s) => [...s].map((c) => c.charCodeAt(0) & 0x7f);
 
 export const displayMessage = (text) => message(CMD.DISPLAY_MESSAGE, [...ascii(text), 0]);
+// 47H: the open item, if it is a name, set to `text` (as the manual gives it: no 0 at the end)
+export const textEntry = (text) => message(CMD.TEXT_ENTRY, ascii(text));
 export const saveConfig = (slot = 0) => message(CMD.SAVE_CONFIG, [slot]); // 0 = the slot last loaded or saved
 
 // 48H: an encoder press or turn, or a left-button press or long hold.

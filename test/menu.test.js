@@ -3,7 +3,7 @@
 
 import { test, assert, eq } from './harness.js';
 import { Fh2 } from '../js/fh2/client.js';
-import { readSettings, readCalibrations, calibrationOf, loadCalibration, setStartupCalibration, startAutoCalibration, watchAutoCalibration, finishAutoCalibration, settingsByName, MenuError } from '../js/fh2/menu.js';
+import { readSettings, readCalibrations, calibrationOf, loadCalibration, setStartupCalibration, startAutoCalibration, watchAutoCalibration, finishAutoCalibration, nameCalibration, saveCalibration, calibrationSlot, settingsByName, MenuError } from '../js/fh2/menu.js';
 import { screenTextOf, message, CMD } from '../js/fh2/sysex.js';
 import { Fh2StandIn, MenuModel } from './standin.js';
 
@@ -326,4 +326,70 @@ test('auto-calibration starts only where it can see the cursor, from an open Out
     error = e.message;
   }
   eq([error, menu.runs.length, menu.level], ['no screenshot from the FH-2: its cursor can’t be seen', 1, 'overview']);
+});
+
+const failure = async (work) => {
+  try {
+    await work();
+  } catch (e) {
+    return e.message;
+  }
+  return '';
+};
+
+test('saving a calibration: named first, the jack’s output, an empty slot, checked on the slot after', async () => {
+  const menu = new MenuModel();
+  menu.autoState.output = 2; // jack 3 was just calibrated: Save calibration opens on it
+  const { client } = setUp(menu);
+  const steps = [];
+  const r = await saveCalibration(client, { output: 5, slot: 7, name: 'Plaits', wait: 0, onStep: (s) => steps.push(s) });
+  eq(r, { slot: 7, output: 5, name: 'Plaits' });
+  eq(menu.savedCals, [{ slot: 7, output: 6, name: 'Plaits' }], 'output 6 into slot 7, turned there from 69');
+  eq([menu.calibrations[6], menu.changes, menu.level], [{ output: 5, name: 'Plaits' }, 0, 'overview'], 'no turn or press in the name editor');
+  eq(steps, ['naming it', 'picking the output', 'finding the slot', 'saving into slot 7']);
+  eq(await calibrationSlot(client, { slot: 7, wait: 0 }), { output: 5, name: 'Plaits' }, 'Load calibration shows it');
+  eq(menu.loaded, [], 'and nothing was loaded');
+});
+
+test('saving a calibration: never over a used slot; without a slot, the first empty one', async () => {
+  const menu = new MenuModel();
+  const { client } = setUp(menu);
+  eq(await failure(() => saveCalibration(client, { output: 0, slot: 3, name: 'x', wait: 0 })), 'slot 3 isn’t empty (output 3’s)');
+  eq([menu.savedCals, menu.calibrations[2], menu.level], [[], { output: 2, name: '' }, 'overview']);
+  // slots 1–4 used (yours), so slot 5, found from wherever the page opens
+  const r = await saveCalibration(client, { output: 0, wait: 0 });
+  eq([r.slot, menu.savedCals.map((c) => c.slot)], [5, [5]]);
+  menu.calibrations = menu.calibrations.map(() => ({ output: 9, name: '' }));
+  eq(await failure(() => saveCalibration(client, { output: 0, wait: 0 })), 'no empty slot');
+  eq(menu.savedCals.length, 1);
+});
+
+test('saving a calibration: a name the FH-2 doesn’t take stops it before anything is saved', async () => {
+  const menu = new MenuModel();
+  menu.takesNames = false;
+  const { client } = setUp(menu);
+  eq(await failure(() => saveCalibration(client, { output: 0, slot: 9, name: 'Mangrove', wait: 0 })), 'the FH-2 took the name as “”, not “Mangrove”');
+  eq([menu.savedCals, menu.level], [[], 'overview']);
+});
+
+test('saving a calibration: “Are you sure?” answered, and a page that moves on read back on Load calibration', async () => {
+  const menu = new MenuModel();
+  Object.assign(menu, { saveAsks: true, saveThen: 'outputs' });
+  menu.slot = 40; // Load calibration left at slot 41
+  const { client } = setUp(menu);
+  const r = await saveCalibration(client, { output: 1, slot: 12, name: 'DPO', wait: 0 });
+  eq([r, menu.savedCals.length, menu.loaded, menu.level], [{ slot: 12, output: 1, name: 'DPO' }, 1, [], 'overview']);
+  // saved nowhere (the FH-2 ignores the press): it says so
+  menu.save = () => {};
+  menu.saveAsks = false;
+  eq(await failure(() => saveCalibration(client, { output: 1, slot: 13, wait: 0 })), 'slot 13 doesn’t hold output 2’s calibration after saving: check it on the module');
+});
+
+test('Save calibration reopened on its slots: back to the outputs first', async () => {
+  const menu = new MenuModel();
+  menu.saveKeepsPlace = true;
+  Object.assign(menu.saveState, { step: 1, output: 9, slot: 20 }); // left on output 10's slots
+  const { client } = setUp(menu);
+  const r = await saveCalibration(client, { output: 3, slot: 6, wait: 0 });
+  eq([r.slot, menu.savedCals], [6, [{ slot: 6, output: 4, name: '' }]]);
 });

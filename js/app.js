@@ -33,7 +33,7 @@ import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
 import { getPath, setPath } from './fh2/layout.js';
-import { settingsByName, startAutoCalibration, watchAutoCalibration, finishAutoCalibration } from './fh2/menu.js';
+import { settingsByName, startAutoCalibration, watchAutoCalibration, finishAutoCalibration, saveCalibration, setStartupCalibration } from './fh2/menu.js';
 import { calibrationDialog } from './ui/calibrate.js';
 import { fromModule, anotherPatch, dueIn, MERGE_MAX } from './fh2/live.js';
 import { checksBusy } from './fh2/checks.js';
@@ -849,35 +849,56 @@ async function setPowerOnCalibration(output, slot) {
   await withFh2(async (pair) => {
     status('Changing the power-on calibration…');
     // what the page shows afterwards goes into the panel, also when it stopped after the turn
-    const keep = (r) => {
-      const cal = state.fh2Calibrations;
-      cal.startup = [...cal.startup.filter((x) => x.output !== output), r].sort((a, b) => a.output - b.output);
-      try {
-        localStorage.setItem(FH2_CAL_KEY, JSON.stringify(cal));
-      } catch {}
-    };
     try {
-      keep(await setFh2StartupCalibration(pair, output, slot));
+      noteCalibrations({ startup: await setFh2StartupCalibration(pair, output, slot) });
       status(`Jack ${jack}: ${slot ? `calibration ${slot}` : 'none'} at power-on`);
     } catch (e) {
-      if (e.shown) keep(e.shown);
+      if (e.shown) noteCalibrations({ startup: e.shown });
       status(`Stopped: ${e.message}`, true);
     }
   });
 }
 
+// A change Night Shift made into the calibrations as last read (none read yet: nothing to note):
+// a slot saved ({ slot, output, name }) or a jack's power-on slot ({ output, slot, match }).
+function noteCalibrations({ saved, startup }) {
+  const cal = state.fh2Calibrations;
+  if (!cal) return;
+  if (saved) cal.slots = [...cal.slots.filter((x) => x.slot !== saved.slot), saved].sort((a, b) => a.slot - b.slot);
+  if (startup) cal.startup = [...cal.startup.filter((x) => x.output !== startup.output), startup].sort((a, b) => a.output - b.output);
+  try {
+    localStorage.setItem(FH2_CAL_KEY, JSON.stringify(cal));
+  } catch {}
+}
+
 // The guided auto-calibration of a jack, its curve shown live (ui/calibrate.js): accepted, it is in
-// use on the jack until power-off; saving it to a slot is the next step.
+// use on the jack until power-off, and can be named and saved into an empty slot and loaded at
+// power-on, all in the same dialog.
 async function calibrateJack(output) {
   const jack = state.view.outputs[output].jack;
+  const free = state.fh2Calibrations?.slots.filter((x) => x.output == null).map((x) => x.slot) ?? null;
   await withFh2((pair) => withFh2Client(pair, async (client) => {
     const r = await calibrationDialog({
       jack,
+      free,
       start: () => startAutoCalibration(client, { output }),
       watch: () => watchAutoCalibration(client),
       finish: (accept) => finishAutoCalibration(client, { accept }),
+      save: async ({ name, slot, onStep }) => {
+        const saved = await saveCalibration(client, { output, slot, name, onStep });
+        noteCalibrations({ saved });
+        return saved;
+      },
+      powerOn: async (slot) => {
+        try {
+          noteCalibrations({ startup: await setStartupCalibration(client, { output, slot }) });
+        } catch (e) {
+          if (e.shown) noteCalibrations({ startup: e.shown });
+          throw e;
+        }
+      },
     });
-    if (r) status(r === 'accepted' ? `Jack ${jack} calibrated, until power-off` : `Calibration of jack ${jack} abandoned`);
+    if (r) status({ saved: `Jack ${jack} calibrated and saved`, accepted: `Jack ${jack} calibrated, until power-off`, abandoned: `Calibration of jack ${jack} abandoned` }[r]);
   }));
 }
 

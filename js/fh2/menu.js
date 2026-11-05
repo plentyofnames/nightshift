@@ -234,6 +234,8 @@ function calibrationPages(client, wait) {
   };
   const slotShown = num(/^Load calibration\s+(\d+)/, 0);
   const outputShown = num(/^Output\s+(\d+)/, 0);
+  const saveSlotShown = num(/^Save calibration\s+(\d+)/, 0); // Save calibration's slots
+  const listedOutput = num(/^Output\s+(\d+)/, 2); // and its list of outputs, on the cursor line
   const calibrationShown = async () => {
     const l = await w.line(1);
     const m = /^Calibration\s+(\d+)/.exec(l);
@@ -306,7 +308,15 @@ function calibrationPages(client, wait) {
       return null;
     }
   };
-  return { ...w, open, box, slotShown, outputShown, calibrationShown, turnValue, toCalibrations, toStartup, mustBe };
+  return { ...w, open, box, slotShown, outputShown, saveSlotShown, listedOutput, calibrationShown, turnValue, toCalibrations, toStartup, mustBe };
+}
+
+// A slot page (Load or Save calibration) as the screen shows it: { output (0-based) or null, name }.
+// An empty slot reads "<Empty>" where the name goes; a used one "For output n" below its name.
+function slotOnScreen(lines) {
+  const l = lines.map((x) => x.trim());
+  const m = /^For output (\d+)/.exec(l[2]);
+  return m ? { output: Number(m[1]) - 1, name: l[1] } : { output: null, name: '', empty: l.includes('<Empty>') };
 }
 
 // The FH-2's calibrations, changing nothing: what each of the 70 flash slots holds, by turning
@@ -497,6 +507,97 @@ export async function finishAutoCalibration(client, { accept, wait = 200 } = {})
   if (accept && !(await watchAutoCalibration(client)).asks) throw new MenuError('it doesn’t ask “Accept?” yet');
   try {
     await p.step(accept ? 'press' : 'left');
+  } finally {
+    await p.home();
+  }
+}
+
+// ---- saving a calibration (Save and Name calibration, walked 2026-11-05, fh2-notes.md). Name
+// calibration names "the calibration you are about to save" (manual): it opens a name editor
+// straight away, no slot or output, and 47H sets the name. Save calibration opens a list of the
+// outputs (1–64, 43H "Sorry"); a press picks one and shows the 70 slots like Load calibration
+// (43H "Save calibration"); a press there saves.
+
+export const CALIBRATION_NAME_LENGTH = 16; // as the configuration and preset names; the read-back tells
+
+// Sets the name the next saved calibration gets; resolves to the name as the FH-2 then gives it.
+export async function nameCalibration(client, { name, wait = 200 } = {}) {
+  const p = calibrationPages(client, wait);
+  try {
+    await p.open([['Calibrations', 10, 'Calibrations'], ['Name calibration', 10, 'Name calibration']]);
+    await p.expect('Name calibration', 'on opening');
+    if (!(await client.itemValue()).isName) throw new MenuError('Name calibration isn’t a name editor');
+    await client.enterText(name); // the whole name at once: no turn, no press
+    await sleep(wait);
+    const shown = (await client.itemValue()).text.split('\x01')[0].trim();
+    await p.step('left'); // leaves the editor
+    if (shown !== name.trim()) throw new MenuError(`the FH-2 took the name as “${shown}”, not “${name}”`);
+    return shown;
+  } finally {
+    await p.home();
+  }
+}
+
+// Saves the calibration in use on `output` (0-based) into flash slot `slot` (1–70), which must be
+// empty; without `slot`, into the first empty one from slot 1. With `name`, Name calibration
+// first (nothing is saved if the FH-2 doesn't take it). Resolves to { slot, output, name } as the
+// slot then shows it; read back on Load calibration if the Save page doesn't show it.
+export async function saveCalibration(client, { output, slot = null, name, wait = 200, onStep } = {}) {
+  if (name != null) {
+    onStep?.('naming it');
+    await nameCalibration(client, { name, wait });
+  }
+  const p = calibrationPages(client, wait);
+  let saved = null;
+  try {
+    onStep?.('picking the output');
+    await p.open([['Calibrations', 10, 'Calibrations'], ['Save calibration', 10, null]]);
+    if ((await client.itemName()) === 'Save calibration') await p.step('left'); // reopened on the slots: back to the outputs
+    if (!(await p.nothingOpen()) || (await p.listedOutput()) == null) throw new MenuError('Save calibration didn’t open on its list of outputs');
+    await p.turnValue(p.listedOutput, output + 1, { wrap: 64, what: 'output' });
+    await p.step('press'); // picks it: the slots follow
+    await p.expect('Save calibration', 'on picking the output');
+    onStep?.('finding the slot');
+    const shownHere = async () => slotOnScreen((await client.screenText()).lines);
+    if (slot) {
+      await p.turnValue(p.saveSlotShown, slot, { wrap: 70, what: 'slot' });
+    } else {
+      await p.turnValue(p.saveSlotShown, 1, { wrap: 70, what: 'slot' });
+      for (let k = 1; !(await shownHere()).empty; k++) {
+        if (k === 70) throw new MenuError('no empty slot');
+        await p.turnValue(p.saveSlotShown, k + 1, { what: 'slot' });
+      }
+      slot = await p.saveSlotShown();
+    }
+    const before = await shownHere();
+    if (!before.empty) throw new MenuError(`slot ${slot} isn’t empty${before.output != null ? ` (output ${before.output + 1}’s)` : ''}`);
+    onStep?.(`saving into slot ${slot}`);
+    await p.step('press'); // saves
+    if ((await client.screenText()).lines.some((l) => /sure/i.test(l))) await p.step('press');
+    const after = await shownHere();
+    if ((await p.saveSlotShown()) === slot && after.output === output) saved = { slot, ...after };
+  } finally {
+    await p.home();
+  }
+  if (!saved) { // the page moved on: look at the slot on Load calibration (turns, never a press)
+    onStep?.(`checking slot ${slot}`);
+    const s = await calibrationSlot(client, { slot, wait });
+    if (s.output !== output) throw new MenuError(`slot ${slot} doesn’t hold output ${output + 1}’s calibration after saving: check it on the module`);
+    saved = { slot, ...s };
+  }
+  return { slot, output, name: saved.name };
+}
+
+// What one flash slot holds, from Load calibration turned to it (never pressed): { output, name }.
+export async function calibrationSlot(client, { slot, wait = 200 } = {}) {
+  const p = calibrationPages(client, wait);
+  try {
+    await p.toCalibrations();
+    await p.expect('Load calibration', 'on opening');
+    await p.turnValue(p.slotShown, slot, { wrap: 70, what: 'slot' });
+    const s = slotOnScreen((await client.screenText()).lines);
+    await p.step('left'); // leaves without loading
+    return { output: s.output, name: s.name };
   } finally {
     await p.home();
   }
