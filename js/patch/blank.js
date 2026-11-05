@@ -37,7 +37,9 @@ export function blankPreset(name = 'Empty') {
     converter: n(16, () => ({ transpose: 64, envAttack: 64, envDecay: 64, envSustain: 64, envRelease: 64, envRange: 2, envDepth: 127,
       envVelocityDepth: 64, envAttackShape: 64, envDecayShape: 64, envReleaseShape: 64, randomDepth: 127,
       arpRange: 1, arpGate: 64, arpRate: 12 })),
-    noteSequencer: n(4, (i) => ({ rate: [24, 6, 12, 24][i] })),
+    noteSequencer: n(4, (i) => ({ rate: [24, 6, 12, 24][i], gateLength: [48, 112, 64, 64][i], reset: [16, 0, 0, 0][i] })),
+    // the drum lanes as Init has them: 16 steps at 1/16, reset every 4 beats (they had rate 0)
+    drumSequencer: [{ lane: n(8, () => ({ start: 0, end: 15, rate: 6, reset: 4 })) }],
     // the shift registers as the Init preset has them: stopped (direction 1), 8 steps, rate Ext
     srr: n(16, () => ({ direction: 1, length: 8, randomness: 13, rate: 0, attenuator: 16, scale: 8, key: 9, gateLength: 0 })),
   };

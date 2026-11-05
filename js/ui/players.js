@@ -4,7 +4,7 @@
 
 import { h, $, modal, replace } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, playerLine, KIND_NAMES } from './look.js';
-import { selectInput, perScene, ec4Label } from './controls.js';
+import { selectInput, numberInput, perScene, ec4Label } from './controls.js';
 import { clockSourceInput } from './editors.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
@@ -64,23 +64,42 @@ export function playerSends(view, colors, p, onSelect, act) {
 
 function playerRest(view, p, f, parts, act, onSelect) {
 
-  // its clock
+  // its clock, and what a note sequencer's EC4 page can control besides (gate, reset, position),
+  // so all of it shows where it is set (your note, 2026-11-05)
   if (f.rate && p.rate != null) {
+    const seq = p.kind === 'sequencer';
+    const L = (text, param) => (seq ? ec4Label(text, `noteSequencer:${p.index}:${param}`, act.ec4) : text);
+    const q = seq ? act.values().preset?.noteSequencer[p.index] : null;
+    const set = (what, key, v) => act.edit(`${what} of ${p.name}`, [{ dump: 'preset', path: ['noteSequencer', p.index, key], value: v }]);
     parts.push(section('Clock', h('div', { class: 'erows' },
-      perScene(field(p.kind === 'sequencer' ? ec4Label('Steps at', `noteSequencer:${p.index}:rate`, act.ec4) : 'Steps at', selectInput(`Rate of ${p.name}`, p.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => act.edit(`Rate of ${p.name}`, setPlayerRate(p.id, v))))),
+      perScene(field(L('Steps at', 'rate'), selectInput(`Rate of ${p.name}`, p.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => act.edit(`Rate of ${p.name}`, setPlayerRate(p.id, v))))),
       // the clock source only counts at rate Ext, so it only shows then
       p.rate === 0 ? field('Clock source', clockSourceInput(view, act, `Clock source of ${p.name}`, p.clock,
-        (v, made) => act.edit(made.length ? `${p.name} clocked by a new Euclid ${v}` : `Clock source of ${p.name}`, [...made, ...setPlayer(p.id, { clock: v })]))) : null),
+        (v, made) => act.edit(made.length ? `${p.name} clocked by a new Euclid ${v}` : `Clock source of ${p.name}`, [...made, ...setPlayer(p.id, { clock: v })]))) : null,
+      q ? perScene(field(L('Gate length', 'gateLength'), numberInput(`Gate length of ${p.name}`, q.gateLength, { min: 0, max: 127 }, (v) => set('Gate length', 'gateLength', v)),
+        q.gateLength ? ` · ${Math.round((q.gateLength / 128) * 100)} % of a step` : ' · 0: a trigger')) : null,
+      q ? perScene(field(L('Reset every', 'reset'), numberInput(`Reset of ${p.name}`, q.reset, { min: 0, max: 127 }, (v) => set('Reset', 'reset', v)),
+        q.reset ? ' beats' : ' · 0: never')) : null,
+      seq ? field(L('Position', 'position'), h('span', { class: 'note' }, 'a knob that moves the playhead')) : null),
     null));
   }
 
-  // the drum sequencer's lanes and which triggers they hit
+  // the drum sequencer's lanes, which triggers they hit, and their rates; its reset and position
+  // (what its EC4 page can control, your note, 2026-11-05)
   if (p.kind === 'drums') {
     const kit = view.sources.find((s) => s.kind === 'triggers' && s.channel === p.channel);
     const hit = (note) => kit?.ports.filter((x) => !x.accent && (x.note === note || x.note == null)).map((x) => x.jack).join(', ');
-    parts.push(section('Lanes', h('div', { class: 'erows' }, p.notes.map((n, lane) => field(`Lane ${lane + 1}`,
+    const d = act.values().preset?.drumSequencer[0];
+    const rates = (v) => (DIVISIONS.some(([n]) => n === v) ? DIVISIONS : [[v, String(v)], ...DIVISIONS]);
+    const rate = (lane) => d && perScene(h('span', { class: 'lane-rate' }, selectInput(`Rate of lane ${lane + 1}`, d.lane[lane].rate, rates(d.lane[lane].rate),
+      (v) => act.edit(`Rate of lane ${lane + 1}`, [{ dump: 'preset', path: ['drumSequencer', 0, 'lane', lane, 'rate'], value: v }]))));
+    parts.push(section('Lanes', h('div', { class: 'erows' }, p.notes.map((n, lane) => field(ec4Label(`Lane ${lane + 1}`, `drumLane:${lane}:rate`, act.ec4),
       selectInput(`Note of lane ${lane + 1}`, n, NOTES, (v) => act.edit(`Note of lane ${lane + 1}`, setLaneNote(lane, v))),
-      h('span', { class: 'lane-hit' }, hit(n) ? `→ ${hit(n)}` : '—'))))));
+      h('span', { class: 'lane-hit' }, hit(n) ? `→ ${hit(n)}` : '—'), rate(lane))))));
+    parts.push(section('Steps', h('div', { class: 'erows' },
+      d ? perScene(field(ec4Label('Reset every', 'drumSequencer:0:reset', act.ec4), numberInput('Reset of the drum sequencer', d.reset, { min: 0, max: 127 },
+        (v) => act.edit('Reset of the drum sequencer', [{ dump: 'preset', path: ['drumSequencer', 0, 'reset'], value: v }])), d.reset ? ' beats' : ' · 0: never')) : null,
+      field(ec4Label('Position', 'drumSequencer:0:position', act.ec4), h('span', { class: 'note' }, 'a knob that moves the playhead')))));
   }
 
   if (p.kind === 'input') parts.push(h('p', { class: 'note' }, 'Scaling: in the config tool for now.'));
@@ -202,7 +221,17 @@ export async function setUpPlayerDialog(view, values) {
   const f = { kind: first.kind, id: takes(first.kind).id, channel: suggestChannel(values.config), dests: { din: true }, pulses: 4, steps: 16, rate: 6 };
   const num = (key, min, max) => h('input', { type: 'number', class: 'num', min, max, value: f[key], 'aria-label': key,
     oninput: (e) => { f[key] = Math.max(min, Math.min(max, Number(e.target.value) || 0)); } });
+  // which note sequencer: their order is their place on the Launchpad (your note, 2026-11-05)
+  const sequencers = allPlayers(values).filter((p) => p.kind === 'sequencer');
+  const which = h('div', { class: 'field wide' });
+  const drawWhich = () => replace(which, h('span', {}, 'Which'), h('div', { class: 'checks' }, sequencers.map((q) => {
+    const isFree = free.some((x) => x.id === q.id);
+    return h('button', { type: 'button', class: 'btn small', 'aria-pressed': f.id === q.id ? 'true' : 'false', disabled: !isFree,
+      title: isFree ? '' : 'Sends already', onclick: () => { f.id = q.id; drawWhich(); draw(); } }, String(q.index + 1));
+  })));
+  drawWhich();
   const forPlayer = h('div', { class: 'fields' },
+    which,
     h('label', { class: 'field' }, h('span', {}, 'MIDI channel'), selectInput('MIDI channel', f.channel, CHANNELS, (v) => { f.channel = v; })),
     h('div', { class: 'field wide' }, h('span', {}, 'Sends to'), h('div', { class: 'checks' }, Object.entries(DEST_NAMES).map(([d, name]) =>
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!f.dests[d], onchange: (e) => { f.dests[d] = e.target.checked; } }), name)))),
@@ -215,13 +244,15 @@ export async function setUpPlayerDialog(view, values) {
   const show = () => { // style, not `hidden`: .fields sets its own display
     forPlayer.style.display = f.id === EUCLID ? 'none' : '';
     forEuclid.style.display = f.id === EUCLID ? '' : 'none';
+    which.style.display = f.kind === 'sequencer' ? '' : 'none';
   };
   const tiles = h('div', { class: 'tiles player-tiles' });
   const draw = () => replace(tiles, TYPES.map((t) => {
     const got = takes(t.kind);
+    const shown = f.kind === t.kind && t.kind === 'sequencer' ? free.find((x) => x.id === f.id) ?? got : got; // the one picked under Which
     return h('button', { type: 'button', class: 'tile', 'aria-pressed': f.kind === t.kind ? 'true' : 'false', disabled: !got,
-      onclick: () => { Object.assign(f, { kind: t.kind, id: got.id }); draw(); show(); } },
-    icon(t.icon), h('span', {}, h('b', {}, t.title), h('span', {}, got ? got.name : 'none free')));
+      onclick: () => { Object.assign(f, { kind: t.kind, id: got.id }); draw(); drawWhich(); show(); } },
+    icon(t.icon), h('span', {}, h('b', {}, t.title), h('span', {}, shown ? shown.name : 'none free')));
   }));
   draw();
   const body = h('div', { class: 'player-setup' }, tiles, forPlayer, forEuclid);
