@@ -26,7 +26,7 @@ import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
   addLivePage, removeLivePage, movePlace, toLivePage, isLive,
-  wholePage, strayMappings, removeMappings, dropMapping, settingKey, toAbsolute, SETUP } from './ec4/pages.js';
+  wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, toAbsolute, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, SYNC_FORMAT, SYNC_MAX } from './ec4/setup.js';
 import { fingerprint } from './hash.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
@@ -282,9 +282,14 @@ function remove(source, port) {
   try {
     const where = port ? ` ${source.kind === 'hid' ? 'on' : 'from'} jack ${port.jack}` : '';
     const links = !port && source.kind === 'euclid' && (source.clocks.length || source.restarts.length) ? ' · its clock links undone' : '';
-    // a jack's own level, knob or LFO goes with its whole layer, off the EC4's pages too
+    // a jack's own level, knob or LFO goes with its whole layer, off the EC4's pages too; a source
+    // removed altogether takes its knobs and pushes off the EC4, LIVE pages included, with the CCs
+    // Night Shift added (your call, 2026-11-06), except a shift register that plays on as notes
+    const model = ec4Model();
     const own = ['level', 'knobs', 'lfo'].includes(source.kind) ? (port ? [port] : source.ports).map((p) => p.output) : [];
-    const ec4Off = own.length ? switchOffAll(state.names, ec4Model(), own.flatMap((o) => jackKeys(o))) : [];
+    const stays = source.kind === 'random' && source.sendsNotes && source.ports.length;
+    const keys = [...own.flatMap((o) => jackKeys(o)), ...(!port && !stays ? objectKeys(model, source.id) : [])];
+    const ec4Off = keys.length ? switchOffAll(state.names, model, keys) : [];
     edit(own.length && port ? `Cleared jack ${port.jack}` : `${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
       [...(port ? removePort(values(), source, port) : removeSource(values(), source)), ...ec4Off]);
     if (!port) state.selected = null;
@@ -1009,7 +1014,8 @@ const ec4 = {
     const where = model.on.get(key) ?? [];
     const m = model.mapOf(key);
     const cc = m ? `ch ${m.channel + 1} · CC ${m.cc}` : '';
-    return { on: where.length > 0, title: where.length
+    const inputs = state.view.players.filter((p) => p.kind === 'input' && p.targets?.some((t) => settingKey(t.target) === key)).map((p) => 'XY'[p.index]);
+    return { on: where.length > 0, inputs, title: where.length
       ? `On the EC4: ${where.map((w) => `${w.name} ${w.push ? 'push' : 'knob'} ${w.index + 1}`).join(', ')} · ${cc}. Click to take it off`
       : `Click to put it on the EC4${cc ? ` (${cc})` : ''}` };
   },
@@ -1036,6 +1042,7 @@ function wholeEc4(pageId) {
 
 // One CC mapping removed, from "Controlled by MIDI" (undoable); a setting on the EC4 comes off it too.
 function removeMappingOf(m) {
+  if (m.input != null) return edit(`Input ${'XY'[m.input]} no longer moves it`, [{ dump: 'config', path: ['mapping', m.slot, 'status'], value: 0x7f }]); // its EC4 knob stays
   edit(`CC ${m.cc} on ch ${m.channel + 1} removed`, dropMapping(state.names, ec4Model(), m.slot, settingKey(m.target)));
 }
 
@@ -1327,7 +1334,7 @@ function select(sel) {
   // a shift register's notes are part of it: its own panel has them
   const srr = /^srrNotes:(\d+)$/.exec(sel?.player ?? '');
   if (srr) sel = { source: `srr:${srr[1]}` };
-  const same = sel && state.selected && sel.source === state.selected.source && sel.output === state.selected.output && sel.player === state.selected.player;
+  const same = sel && state.selected && sel.source === state.selected.source && sel.output === state.selected.output && sel.player === state.selected.player && sel.input === state.selected.input;
   state.selected = same ? null : sel;
   render();
   followOnEc4();

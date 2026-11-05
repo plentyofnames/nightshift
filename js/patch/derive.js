@@ -231,9 +231,17 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   for (const p of players) {
     p.plays = p.internal ? sources.filter((s) => s.channels?.includes(p.channel)).map((s) => s.id) : [];
   }
+  // an input turning CV into a CC inside the FH-2 moves every setting mapped to that CC (its
+  // "targets"); those mappings are the input's (`input`), not a controller's
+  for (const p of players) {
+    if (p.kind !== 'input' || p.typeIndex !== 0 || !p.internal) continue;
+    p.targets = mappings.filter((m) => m.channel === p.channel && m.cc === p.number);
+    for (const m of p.targets) m.input = p.index;
+  }
   return {
     hardware, outputs, sources, mappings, players, problems,
     channels: channelMap(sources, players, mappings),
+    inputs: inputsOf(config, players),
     resources: resourcesOf(config, preset, mappings, outputs, sources),
     globals: globalsOf(config, preset),
   };
@@ -417,7 +425,7 @@ export function playersOf(config, preset, { all = false, names = {} } = {}) {
     if (!c.enable) return;
     const what = CVMIDI_TYPES[c.type] ?? `type ${c.type}`;
     players.push({ id: `cvMidi:${i}`, kind: 'input', index: i, name: `Input ${'XY'[i]} → ${what}${c.type === 0 ? ` ${c.number}` : ''}`,
-      channel: c.channel, type: what, number: c.number, ...dests(c) });
+      channel: c.channel, type: what, typeIndex: c.type, number: c.number, level0v: c.level0v, level5v: c.level5v, ...dests(c), targets: [] });
   });
   // given names, and the gear named on each port the player sends to
   for (const p of players) {
@@ -454,6 +462,20 @@ function resourcesOf(config, preset, mappings, outputs, sources) {
     mappings: [mappings.length, 384],
     lfos: preset ? [count(outputs, (o) => o.lfo), 64] : null,
   };
+}
+
+// Inputs X and Y: the player each is (when it turns CV into MIDI), and what else needs it: X is the
+// FH-2's external clock input; Y can run and stop that clock, or start and stop the internal one
+// (config); and an input turning CV into notes takes the other as its gate (manual, CV/MIDI).
+function inputsOf(config, players) {
+  return ['X', 'Y'].map((name, i) => {
+    const p = players.find((x) => x.id === `cvMidi:${i}`) ?? null;
+    const other = players.find((x) => x.id === `cvMidi:${1 - i}`);
+    const clockUse = i === 0 ? 'the external clock'
+      : config.extClockRunControl === 1 ? 'running and stopping the external clock'
+      : config.startStopType === 5 || config.startStopType === 6 ? 'starting and stopping the clock' : null;
+    return { index: i, name, player: p?.id ?? null, clockUse, gateFor: other?.typeIndex === 2 ? other.id : null };
+  });
 }
 
 function globalsOf(config, preset) {

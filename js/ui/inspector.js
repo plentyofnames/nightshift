@@ -1,6 +1,7 @@
 // The inspector: an overview when nothing is selected, a source's details, or a jack's,
 // with the jack's settings and adding and removing sources.
 
+import { inputInspector } from './inputs.js';
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, KIND_NAMES } from './look.js';
 import { PARAM_NAMES, RANGES, RANGE_VOLTS, noteName, levelToVolts, voltsToLevel } from '../patch/tables.js';
@@ -15,7 +16,7 @@ import { calibrationText } from './settings.js';
 
 const section = (title, ...rows) => h('section', { class: 'section' }, h('h3', {}, title), rows);
 const row = (k, v, ctl) => h('div', { class: 'row' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v), ctl && h('span', { class: 'ctl' }, ctl));
-const ccLabel = (m) => `← ch ${m.channel + 1} · CC ${m.cc}${m.relative ? ' (relative)' : ''}`;
+const ccLabel = (m) => (m.input != null ? `← input ${'XY'[m.input]}` : `← ch ${m.channel + 1} · CC ${m.cc}${m.relative ? ' (relative)' : ''}`);
 // a CC mapping with an × to remove it (a setting on the EC4 comes off it too)
 const mappingRow = (m, act) => row(param(m.target.param), '', [ccLabel(m), ' ', act.removeMapping && h('button', { type: 'button', class: 'remove',
   'aria-label': `Remove CC ${m.cc} on ch ${m.channel + 1} for ${param(m.target.param)}`, title: 'Remove this CC mapping (off the EC4 too)', onclick: () => act.removeMapping(m) }, '×')]);
@@ -34,6 +35,8 @@ export function renderInspector(view, colors, selected, onSelect, act) {
   }
   if (selected?.output != null) return jackInspector(view, colors, view.outputs[selected.output], onSelect, act);
   if (selected?.parked) return parkedInspector(view, colors, onSelect);
+  if (selected?.input != null) return inputInspector(view, colors, selected.input, onSelect, act);
+  if (selected?.player?.startsWith('cvMidi:')) return inputInspector(view, colors, Number(selected.player.split(':')[1]), onSelect, act);
   if (selected?.player) return playerInspector(view, colors, selected.player, onSelect, act);
   return overview(view);
 }

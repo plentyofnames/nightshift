@@ -3,7 +3,8 @@
 import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
-  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, addRandomNotes, setSrrJack, turnOffInput } from '../js/patch/edit.js';
+  moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, addRandomNotes, setSrrJack, turnOffInput,
+  useInput, setInput, modulateFrom, inputUse } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -696,4 +697,47 @@ test('an input turned off leaves the stage; stopped, it would stay', () => {
   eq(listed(), true, 'sending nowhere, still on');
   apply(p, turnOffInput(0));
   eq([listed(), p.config.values.cvMidi[0].enable], [false, 0]);
+});
+
+test('inputs: what each does, the settings a modulation input moves, and what else needs it', () => {
+  const { config, preset } = examplePatch();
+  const v = derive(config.values, preset.values);
+  const x = v.players.find((p) => p.id === 'cvMidi:0');
+  eq([inputUse(x), x.channel, x.number, x.targets.map((m) => m.target.param)], ['modulation', 13, 20, ['lfoTempoMultiplier']], 'the example’s X: CC 20 on ch 14 moves an LFO’s multiplier');
+  eq(x.targets.every((m) => m.input === 0), true, 'its mappings are marked as the input’s');
+  eq(v.inputs.map((i) => [i.name, i.player, i.clockUse, i.gateFor]), [['X', 'cvMidi:0', 'the external clock', null], ['Y', null, null, null]]);
+  config.values.extClockRunControl = 1;
+  eq(derive(config.values, preset.values).inputs[1].clockUse, 'running and stopping the external clock');
+});
+
+test('inputs: Y as modulation on a quiet channel, moving two settings; off takes its mappings too', () => {
+  const { config, preset } = examplePatch();
+  const p = { config, preset, names: {} };
+  const view = () => derive(p.config.values, p.preset.values);
+  const values = () => ({ config: p.config.values, preset: p.preset.values });
+  apply(p, useInput(values(), view(), 1, 'modulation'));
+  let y = view().players.find((q) => q.id === 'cvMidi:1');
+  eq([inputUse(y), y.internal, y.usbA || y.usbC || y.din, y.number >= 64, p.config.values.cvMidi[1].level5v], ['modulation', true, false, true, 127]);
+  const channel = y.channel;
+  eq(view().channels[channel].senders.map((s) => s.player), ['cvMidi:1'], 'alone on its channel');
+  apply(p, modulateFrom(values(), y, { kind: 'euclid', index: 0, param: 'pulses' }));
+  apply(p, modulateFrom(values(), view().players.find((q) => q.id === 'cvMidi:1'), { kind: 'converter', index: 0, param: 'envAttack' }));
+  y = view().players.find((q) => q.id === 'cvMidi:1');
+  eq(y.targets.map((m) => m.target.param), ['pulses', 'envAttack']);
+  apply(p, setInput(1, { level0v: 127, level5v: 0 }));
+  eq([p.config.values.cvMidi[1].level0v, p.config.values.cvMidi[1].level5v], [127, 0], 'turned round');
+  const slots = y.targets.map((m) => m.slot);
+  apply(p, useInput(values(), view(), 1, 'off'));
+  eq([view().players.some((q) => q.id === 'cvMidi:1'), slots.map((n) => p.config.values.mapping[n].status)], [false, [0x7f, 0x7f]]);
+});
+
+test('inputs: X from modulation to notes drops its mappings; its notes take Y as their gate', () => {
+  const { config, preset } = examplePatch();
+  const p = { config, preset, names: {} };
+  const view = () => derive(p.config.values, p.preset.values);
+  const slot = view().players.find((q) => q.id === 'cvMidi:0').targets[0].slot;
+  apply(p, useInput({ config: p.config.values, preset: p.preset.values }, view(), 0, 'notes'));
+  const v = view();
+  eq([inputUse(v.players.find((q) => q.id === 'cvMidi:0')), p.config.values.mapping[slot].status, v.inputs[1].gateFor], ['notes', 0x7f, 'cvMidi:0']);
+  eq(useInput({ config: p.config.values, preset: p.preset.values }, v, 0, 'notes'), [], 'already notes: nothing to change');
 });

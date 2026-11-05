@@ -312,11 +312,12 @@ export function pagesChannels(view) {
   return free.includes(1) ? [1, ...free.filter((c) => c !== 1)] : free;
 }
 
-// The config's mapping for each setting (the first, if there are several).
+// The config's mapping for each setting (the first, if there are several), leaving out an input's:
+// its CC is the input's, not a knob's (derive marks them).
 function mappingsByKey(view) {
   const byKey = new Map();
   for (const m of view.mappings) {
-    if (m.target.kind === 'unknown') continue;
+    if (m.target.kind === 'unknown' || m.input != null) continue;
     const key = settingKey(m.target);
     if (!byKey.has(key)) byKey.set(key, m);
   }
@@ -555,6 +556,10 @@ export function switchOffAll(names, model, keys) {
   if (gone.length) changes.push(madeChange(made));
   return changes;
 }
+
+// Every setting of an object's own page (`id`: a source's id, e.g. 'euclid:0'): its knobs and
+// its pushes' commands, for taking a removed source off the EC4.
+export const objectKeys = (model, id) => model.objects.filter((o) => o.id === id).flatMap((o) => [...o.knobs, ...o.commands].map((c) => c.key));
 
 // The settings of a jack's own layer: its level, smoothing and LFO.
 export const jackKeys = (output, only = () => true) => LFO_PARAMS.filter(only).map((param) => settingKey({ kind: 'output', index: output, param }));

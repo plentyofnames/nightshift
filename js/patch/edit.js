@@ -9,8 +9,8 @@
 
 import { getPath, setPath, diff } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
-import { freeClock, freeEuclid, freeMapping, freeConverter, freeTrigger, freeSrr } from './alloc.js';
-import { isUsed, targetOf } from './mappings.js';
+import { freeClock, freeEuclid, freeMapping, freeConverter, freeTrigger, freeSrr, freeCcs } from './alloc.js';
+import { isUsed, targetOf, encodeTarget } from './mappings.js';
 import { hzToLfo, LFO_RESET_EUCLID, SRR_STOP, SRR_FORWARDS } from './tables.js';
 
 const fieldIndex = new Map(); // layout → Map(path key → field)
@@ -462,6 +462,57 @@ export const wirePlayer = (id, channel) => setPlayer(id, { channel, dests: { int
 export const unwirePlayer = (id) => setPlayer(id, { dests: { internal: false } });
 // An input's CV → MIDI off: it stays a player while it is on, wherever it sends.
 export const turnOffInput = (i) => [config(['cvMidi', i, 'enable'], 0)];
+
+// ---- inputs X and Y (CV/MIDI in the manual): each turns its CV into MIDI that the FH-2 uses as if
+// it came from outside. Night Shift's names for the five conversions: modulation (CC, mapped to
+// settings), triggers, notes (the other input is the gate), scenes (program change) and
+// aftertouch.
+export const INPUT_USES = ['modulation', 'triggers', 'notes', 'scenes', 'aftertouch']; // by the FH-2's type number
+export const inputUse = (p) => (p ? INPUT_USES[p.typeIndex] ?? 'other' : 'off');
+
+// A channel nothing sends on, listens to or maps, from 16 down (the EC4's pages take theirs from 2 up).
+const quietChannel = (view) => [...Array(16).keys()].reverse().find((ch) => !view.channels[ch].senders.length && !view.channels[ch].listeners.length) ?? 15;
+
+// The changes that make input `i` (0 X, 1 Y) do `use` ('off' or one of INPUT_USES), sending inside
+// the FH-2. Modulation gets a quiet channel and a CC there from 64 up (below 32 the FH-2 would wait
+// for a fine half on the 14-bit settings); the settings it moves lose that mapping when it stops.
+// `view` from derive.
+export function useInput(values, view, i, use) {
+  const p = view.players.find((x) => x.id === `cvMidi:${i}`);
+  const drop = (p?.targets ?? []).map((m) => config(['mapping', m.slot, 'status'], 0x7f));
+  if (use === 'off') return [config(['cvMidi', i, 'enable'], 0), ...drop];
+  const type = INPUT_USES.indexOf(use);
+  if (type < 0) throw new Error(`no such use: ${use}`);
+  if (p?.typeIndex === type) return [];
+  const obj = { enable: 1, type, toInternal: 1 };
+  if (!p) Object.assign(obj, { toUsbA: 0, toUsbC: 0, toDin: 0, toSelect: 0 });
+  const quiet = quietChannel(view);
+  if (use === 'modulation') {
+    obj.channel = quiet;
+    obj.number = freeCcs(values.config, quiet).find((c) => c.cc >= 64)?.cc ?? 65;
+    Object.assign(obj, { level0v: 0, level5v: 127 });
+  } else if (use === 'notes') Object.assign(obj, { channel: p?.channel ?? quiet, number: 48, level0v: 0, level5v: 4096 }); // C3 at 0 V; the manual's input codes for 0 and 5 V
+  else if (use === 'triggers') Object.assign(obj, { channel: p?.channel ?? quiet, number: 36 });
+  else if (use === 'scenes') {
+    const pc = values.config.presetProgramChannel;
+    Object.assign(obj, { channel: pc ? pc - 1 : p?.channel ?? quiet, level0v: 0, level5v: 7 }); // programs 0–7: the first eight preset slots
+  } else obj.channel = p?.channel ?? quiet;
+  return [...fields('config', ['cvMidi', i], obj), ...drop];
+}
+
+// The input's numbers: its note or CC, and what 0 V and 5 V give (a CC value, a program, or for
+// notes the input codes that stand for 0 V and 5 V).
+export const setInput = (i, obj) => fields('config', ['cvMidi', i], obj);
+
+// A modulation input (derive's player) moving one more setting: a mapping of its CC to `target`
+// ({ kind, index, param }), absolute.
+export function modulateFrom(values, p, target) {
+  const slot = freeMapping(values.config);
+  if (slot < 0) throw noRoom('384 CC mappings');
+  const code = encodeTarget(target);
+  if (!code) throw new Error('no CC can control that');
+  return fields('config', ['mapping', slot], { status: 0x30 | p.channel, cc: p.number, target: code.target, index: code.index });
+}
 
 export const setLaneNote = (lane, note) => [config(['drumSequencer', 0, 'laneNote', lane, 'value'], note)];
 

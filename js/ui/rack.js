@@ -3,6 +3,8 @@
 // from each player to what it plays. Everything sits at computed positions, so the cables
 // can be drawn without measuring the page.
 
+import { INPUT_SHORT } from './inputs.js';
+import { inputUse } from '../patch/edit.js';
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { rack } from '../patch/hardware.js';
 import { icon, subline, shortLabel, sourceList, playerLine } from './look.js';
@@ -84,7 +86,7 @@ export function renderStage(view, colors, selected, onSelect) {
       style: `top:${y}px;left:${GX}px;--src:${colors.get(p.id) ?? 'var(--faint)'}`, onclick: () => onSelect({ player: p.id }),
     },
     h('span', { class: 'icon' }, icon(p.kind === 'random' ? 'random' : p.kind)),
-    h('span', { class: 'txt' }, h('span', { class: 'name' }, p.name), h('span', { class: 'sub' }, playerLine(p))),
+    h('span', { class: 'txt' }, h('span', { class: 'name' }, p.name), h('span', { class: 'sub' }, p.kind === 'input' && p.typeIndex === 0 ? `moves ${p.targets.length} · ch ${p.channel + 1} CC ${p.number}` : playerLine(p))),
     h('span', { class: 'count' }, p.plays.length ? `plays ${p.plays.length}` : '')));
     y += CARD_STEP;
   }
@@ -135,7 +137,7 @@ export function renderStage(view, colors, selected, onSelect) {
       const p = m.kind === 'fh2' ? FH2_OUT(j) : EXP_OUT(j);
       jackPos.set(out, { x: x + p.x, y: RY + p.y, num: String(j + 1) });
     });
-    if (m.kind === 'fh2') nodes.push(...fh2Inputs(x, view, colors, selected));
+    if (m.kind === 'fh2') nodes.push(...fh2Inputs(x, view, colors, selected, onSelect));
     x += w + 4;
   }
 
@@ -282,17 +284,21 @@ function modulePanel(m, x, w, view) {
   return h('div', { class: 'module', style: `left:${x}px;top:${RY}px;width:${w}px` }, parts);
 }
 
-// Inputs X and Y: what they are used for, if they turn CV into MIDI.
-function fh2Inputs(x, view, colors) {
+// Inputs X and Y: what they turn their CV into, if anything; a click opens the input's panel.
+function fh2Inputs(x, view, colors, selected, onSelect) {
   const out = [];
   ['X', 'Y'].forEach((name, i) => {
     const p = view.players.find((pl) => pl.id === `cvMidi:${i}`);
+    const use = inputUse(p);
+    const on = selected?.input === i || selected?.player === `cvMidi:${i}`;
     const cx = x + 162;
     const cy = RY + 220 + 65 * i;
     out.push(h('span', { class: 'jack-num', style: `left:${cx - 36}px;top:${cy - 7}px` }, name));
-    out.push(h('span', { class: 'jack', role: 'img', 'aria-label': `Input ${name}: ${p ? p.name : 'not used for CV to MIDI'}`, style: `left:${cx - 15}px;top:${cy - 15}px;cursor:default` }));
-    out.push(h('span', { class: 'jack-label' + (p ? ' used' : ''), style: `left:${cx - 52}px;top:${cy + 18}px;--src:${p ? '#9cc9ff' : '#8a91a0'}` },
-      p ? `in → ${p.type}${p.type === 'CC' ? ' ' + p.number : ''}` : 'in'));
+    out.push(h('button', { type: 'button', class: 'jack' + (on ? ' selected' : ''), 'aria-pressed': on ? 'true' : 'false',
+      'aria-label': `Input ${name}: ${p ? `${use}${use === 'modulation' ? `, moves ${p.targets.length}` : ''}` : 'not turning CV into MIDI'}`, title: `Input ${name}`,
+      style: `left:${cx - 15}px;top:${cy - 15}px;--src:${p ? colors.get(p.id) ?? '#9cc9ff' : '#8a91a0'}`, onclick: () => onSelect({ input: i }) }));
+    out.push(h('span', { class: 'jack-label' + (p ? ' used' : ''), style: `left:${cx - 52}px;top:${cy + 18}px;--src:${p ? colors.get(p.id) ?? '#9cc9ff' : '#8a91a0'}` },
+      p ? `in → ${INPUT_SHORT[use] ?? use}` : view.inputs[i].gateFor ? `gate of ${'XY'[1 - i]}` : 'in'));
   });
   return out;
 }

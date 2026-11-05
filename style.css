@@ -415,3 +415,5 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .check-card .ask p { margin: 0 0 8px; }
 .checks-page .checks-head { grid-column: 1 / -1; margin: 8px 0 0; font-size: 15px; }
 .check-card .log { margin: 10px 0 0; max-height: 220px; overflow: auto; font: 12px var(--mono); color: var(--dim); white-space: pre-wrap; }
+.mod-tag { font: 500 10px/14px var(--mono); color: var(--dim); border: 1px solid var(--line2); border-radius: 4px; padding: 0 3px; }
+.input-uses { flex-wrap: wrap; }

@@ -36,8 +36,10 @@ export function perScene(row) {
 export function ec4Label(text, key, ec4) {
   const st = ec4?.state(key);
   if (!st) return text;
+  // the inputs that move it, after its name
+  const mods = (st.inputs ?? []).map((n) => h('span', { class: 'mod-tag', title: `Input ${n} moves it` }, `← ${n}`));
   return h('button', { type: 'button', class: 'ec4-able' + (st.on ? ' on' : ''), 'aria-pressed': st.on ? 'true' : 'false', title: st.title, 'data-ec4': key,
-    onclick: () => ec4.toggle(key) }, h('span', { class: 'ec4-dot', 'aria-hidden': 'true' }), text);
+    onclick: () => ec4.toggle(key) }, h('span', { class: 'ec4-dot', 'aria-hidden': 'true' }), text, mods);
 }
 
 // `options` is [[value, text]]; values may be numbers, which come back as numbers.

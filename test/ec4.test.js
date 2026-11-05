@@ -8,7 +8,7 @@ import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage, addLivePage, removeLivePage, movePlace, toLivePage, liveIds,
-  strayMappings, removeMappings, dropMapping, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
+  strayMappings, removeMappings, dropMapping, objectKeys, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
 import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncEntry, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES, SYNC_EXTRA, SYNC_FORMAT } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
@@ -114,7 +114,7 @@ test('a whole page takes its template: 14-bit for levels, LFO rate and depth, co
   const lfo = m.pages.find((pg) => pg.id === 'lfo:4');
   eq(lfo.cells.filter(Boolean).map((c) => c.short), ['SYNC', 'MULT', 'DPTH', 'OFFS', 'SINE', 'TRI', 'SAW', 'SQR', 'PW', 'RAND', 'NOIS', 'SMTH', 'PHAS', 'FADE', 'RATE']);
   for (const c of lfo.cells.filter(Boolean)) if (HIRES.has(c.setting.param)) eq(c.map.bits, 14, `${c.short} is 14-bit`);
-  eq(lfo.cells[1].map.channel, 13, 'the multiplier keeps the config’s own mapping on ch 14');
+  eq(lfo.cells[1].map.channel, 1, 'the multiplier gets a knob CC of its own: ch 14 CC 20 is input X’s, which moves it');
   const voice = m.pages.find((pg) => pg.id === 'converter:0');
   const arpAt = voice.cells.findIndex((c) => c?.setting.param === 'arpMode');
   eq(voice.pushes.slice(arpAt, arpAt + 6).map((c) => c.setting.param), ['arpAdd', 'arpRemove', 'arpRest', 'arpTranspose', 'arpTransposeInKey', 'arpSetRoot']);
@@ -478,4 +478,22 @@ test('pages past the 16th can be opened: their CCs are known, but they need none
   const last = m.extra[0];
   const c = last.cells.find(Boolean);
   eq([last.group, !!c.map, m.unmapped.includes(c.key)], [undefined, true, false]);
+});
+
+test('a source removed takes its whole page off the EC4, LIVE included, and the CCs Night Shift added', () => {
+  const p = fresh();
+  whole(p, 'converter:0');
+  const attack = key('converter', 0, 'envAttack');
+  apply(p, toggleLive(p.names, attack));
+  const slots = () => p.config.values.mapping.filter((m) => m.status !== 0x7f).length;
+  const [before, stray] = [slots(), strayMappings(viewOf(p), modelOf(p))];
+  const m = modelOf(p);
+  const keys = objectKeys(m, 'converter:0');
+  assert(keys.includes(attack) && keys.includes(key('converter', 0, 'arpAdd')), 'its knobs and its pushes');
+  apply(p, switchOffAll(p.names, m, keys));
+  const after = modelOf(p);
+  eq([after.pages.some((pg) => pg.id === 'converter:0'), after.on.has(attack), liveKeys(p.names).some(Boolean)], [false, false, false]);
+  assert(slots() < before, 'the CCs it added are gone');
+  eq(strayMappings(viewOf(p), after), stray, 'none left behind');
+  eq(Object.keys(p.names).filter((k) => k.includes('converter:0')), [], 'nothing of its page left in the names');
 });
