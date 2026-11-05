@@ -847,15 +847,19 @@ async function setPowerOnCalibration(output, slot) {
   if (!ok) return render();
   await withFh2(async (pair) => {
     status('Changing the power-on calibration…');
-    try {
-      const r = await setFh2StartupCalibration(pair, output, slot);
+    // what the page shows afterwards goes into the panel, also when it stopped after the turn
+    const keep = (r) => {
       const cal = state.fh2Calibrations;
       cal.startup = [...cal.startup.filter((x) => x.output !== output), r].sort((a, b) => a.output - b.output);
       try {
         localStorage.setItem(FH2_CAL_KEY, JSON.stringify(cal));
       } catch {}
+    };
+    try {
+      keep(await setFh2StartupCalibration(pair, output, slot));
       status(`Jack ${jack}: ${slot ? `calibration ${slot}` : 'none'} at power-on`);
     } catch (e) {
+      if (e.shown) keep(e.shown);
       status(`Stopped: ${e.message}`, true);
     }
   });

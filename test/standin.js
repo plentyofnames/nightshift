@@ -143,7 +143,7 @@ export class MenuModel {
         if (e === 4) return void Object.assign(this, { level: 'main', i: this.main.indexOf('Calibrations') });
         if (e !== 1) return;
         this.pressed.push(CAL_ITEMS[this.i]);
-        if (CAL_ITEMS[this.i] === 'Load calibration') Object.assign(this, { level: 'loadcal', slot: 0 });
+        if (CAL_ITEMS[this.i] === 'Load calibration') this.level = 'loadcal'; // where it was left (your FH-2 may reopen there)
         else this.changes++; // anything else here could start, save or reset something
         return;
       }
@@ -157,7 +157,7 @@ export class MenuModel {
         if (e === 4) return void Object.assign(this, { level: 'settings', i: this.settings.indexOf('Calibration') });
         if (e !== 1) return;
         this.pressed.push(['Basic', 'Startup'][this.i]);
-        if (this.i === 1) Object.assign(this, { level: 'startup', startupState: { field: 0, editing: false, output: 0 } });
+        if (this.i === 1) Object.assign(this, { level: 'startup', startupState: { field: 0, editing: false, output: this.startupState.output } });
         else this.changes++; // Basic sets an output's voltage as the cursor moves
         return;
       }
@@ -268,7 +268,8 @@ export class MenuModel {
     if (this.level === 'historyIncl') return TYPES[st.a];
     if (this.level === 'name') return `${this.name.padEnd(8)}\x01: cursor at 0 :  `;
     if (this.level === 'loadcal') return String(this.slot + 1);
-    if (this.level === 'startup') return String(this.startupState.field ? this.startup[this.startupState.output] : this.startupState.output + 1);
+    // a calibration of 0 comes back as text, not as a number (your FH-2, 2026-11-05)
+    if (this.level === 'startup') return this.startupState.field ? (this.startup[this.startupState.output] ? String(this.startup[this.startupState.output]) : '(None)') : String(this.startupState.output + 1);
     return '';
   }
 }

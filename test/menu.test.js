@@ -194,3 +194,41 @@ test('setting a jack’s power-on calibration changes that one setting only', as
   eq(await setStartupCalibration(client, { output: 1, slot: 0, wait: 0 }), { output: 1, slot: 0, match: false });
   eq(menu.startup.slice(0, 8), [1, 0, 3, 4, 0, 0, 10, 0]);
 });
+
+test('your case: jack 1 to none, from pages left where you looked on the module', async () => {
+  const menu = new MenuModel();
+  Object.assign(menu, { slot: 36 }); // Load calibration left at slot 37
+  menu.startupState.output = 8; // Startup left on output 9
+  const { client } = setUp(menu);
+  eq(await setStartupCalibration(client, { output: 0, slot: 0, wait: 0 }), { output: 0, slot: 0, match: false }, 'a calibration of 0 shows as “(None)” in 44H: read off the line');
+  eq([menu.startup.slice(0, 4), menu.loaded, menu.level], [[0, 2, 3, 4], [], 'overview']);
+  const r = await readCalibrations(client, { outputs: 8, wait: 0 });
+  eq(r.slots.filter((s) => s.output != null).map((s) => s.slot), [1, 2, 3, 4], 'every slot, starting from 37');
+  eq(r.startup.map((x) => x.slot), [0, 2, 3, 4, 0, 0, 0, 0]);
+  eq(menu.slot, 36, 'Load calibration left where it was found');
+  await loadCalibration(client, { slot: 2, output: 1, wait: 0 }); // from 37: the shorter way, over 70
+  eq(menu.loaded, [2]);
+});
+
+test('a surprise after the turn: it stops, says so, and hands back what the page shows', async () => {
+  const menu = new MenuModel();
+  const { client } = setUp(menu);
+  const turn = menu.event.bind(menu);
+  let jumped = false;
+  menu.event = (e) => { // the setting jumps by two on its first turn
+    turn(e);
+    if (!jumped && menu.level === 'startup' && menu.startupState.field === 1 && menu.startupState.editing && (e === 2 || e === 3)) {
+      jumped = true;
+      turn(e);
+    }
+  };
+  let error = null;
+  try {
+    await setStartupCalibration(client, { output: 2, slot: 0, wait: 0 });
+  } catch (e) {
+    error = e;
+  }
+  eq(error.message, 'the calibration went from 3 to 1, not 2: check output 3’s startup calibration on the module');
+  eq(error.shown, { output: 2, slot: 1, match: false });
+  eq(menu.level, 'overview');
+});
