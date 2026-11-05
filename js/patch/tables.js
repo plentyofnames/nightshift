@@ -82,10 +82,9 @@ const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A'
 export const noteName = (n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`; // 60 = C4
 
 // ---- shift register random generators (preset srr_*). Ranges from Expert Sleepers' preset
-// tool: direction 0–2, length 1–32 bits, scale 0–18, key 0–24. The direction's names are the
-// likely reading: the manual says it defaults to stop and lists "forwards, backwards, or stop",
-// and the shift registers nobody touched in your patch hold 0 (code review, 2026-11-05: an
-// earlier reading took 1 as stop, from one you had edited). The key counts semitones from C,
+// tool: direction 0–2, length 1–32 bits, scale 0–18, key 0–24. The direction: 0 stop, 1 forwards,
+// 2 backwards (confirmed by you, 2026-11-05; an earlier reading took 1 as stop, from a shift
+// register you had edited). The key counts semitones from C,
 // with 12 as no transposition for the MIDI scales (untouched ones hold 12). Hardware check 19
 // reads the FH-2's own names off its screen.
 export const SRR_DIRECTIONS = ['Stop', 'Forwards', 'Backwards'];
