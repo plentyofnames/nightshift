@@ -497,26 +497,34 @@ async function playRun(rig, start, specs, seconds) {
   rig.log('Installing four test sequences into the FH-2’s RAM…');
   await rig.client.install(start.preset, values);
   await rig.wait(SETTLE_MS);
-  // read back, once more after a pause should it not answer at once (your first S5 run: no reply)
-  let now;
-  try {
-    now = await rig.client.pullPreset();
-  } catch {
-    rig.log('No answer yet; asking again…');
-    await rig.wait(3000);
-    now = await rig.client.pullPreset();
+  // read back, once more after a pause should it not answer at once; your FH-2 didn't answer at all
+  // with the test sequences in (2026-11-06; it did again once your preset was back), so then the run
+  // goes on without it: the notes are what count
+  let now = null;
+  for (const pause of [0, 3000]) {
+    try {
+      await rig.wait(pause);
+      now = await rig.client.pullPreset();
+      break;
+    } catch {
+      rig.log(pause ? 'Still no answer: going on without reading them back.' : 'No answer yet; asking again…');
+    }
   }
-  const off = diff(DUMPS[CMD.INSTALL_PRESET].layout, values, now.values);
-  if (off.length) rig.log(`the FH-2 keeps something else for ${off.map((x) => x.path.join('.')).join(', ')}`);
-  const held = now.values.noteSequencer;
-  rig.notes();
+  if (now) {
+    const off = diff(DUMPS[CMD.INSTALL_PRESET].layout, values, now.values);
+    if (off.length) rig.log(`the FH-2 keeps something else for ${off.map((x) => x.path.join('.')).join(', ')}`);
+  }
+  const held = (now ?? { values }).values.noteSequencer;
+  // notes already on their way: the clock was running before it was asked for
+  const early = rig.notes().length;
   rig.offs?.();
   await rig.ask(`Start the clock and let it run for about ${seconds} s, then stop it.`, ['Done']);
   const ons = rig.notes();
   const offs = rig.offs?.() ?? [];
   rig.log(`${ons.length} notes`);
   const by = (list) => PLAY_CHANNELS.map((ch) => list.filter((m) => (m[0] & 15) === ch).map((m) => ({ note: m[1], t: m[3] ?? 0 })));
-  return { heard: by(ons), offs: by(offs), held };
+  const about = `${now ? 'read back after the install' : 'not read back: the FH-2 didn’t answer'}; ${early} notes before the clock was asked for`;
+  return { heard: by(ons), offs: by(offs), held, about };
 }
 
 // S5: the root (sequencers 1–3 at roots 2, 7 and 11, within the octave the Launchpad's keys set:
@@ -528,7 +536,7 @@ export function checkPlay(rig) {
     const roots = PLAY_ROOTS;
     const specs = [...roots.map((r, j) => ({ seq: { rootNote: r, direction: j + 1 }, step: scale8 })),
       { seq: { rate: 2 }, step: (k) => (k < 8 ? { degree: k, gatesLow: 1, mute: k } : {}) }];
-    const { heard, held } = await playRun(rig, start, specs, 30);
+    const { heard, held, about } = await playRun(rig, start, specs, 30);
     const orders = roots.map((r, j) => orderOf(heard[j].map((x) => x.note)));
     const lines = roots.map((r, j) => {
       const o = orders[j];
@@ -540,7 +548,7 @@ export function checkPlay(rig) {
     const passes = m.steps.filter((s) => s === 0).length;
     const muted = [1, 2, 3, 4, 5, 6, 7].map((k) => (passes ? Math.round(100 * (1 - m.steps.filter((s) => s === k).length / passes)) : null));
     lines.push(passes ? `mute 1–7 over ${passes} passes, % of passes muted: ${muted.join(' ')}` : 'mutes: no notes');
-    lines.push(`notes per sequencer: ${heard.map((x) => x.length).join(', ')}`);
+    lines.push(`notes per sequencer: ${heard.map((x) => x.length).join(', ')}`, `test sequences ${about}`);
     const summary = `Directions 1–3: ${orders.map((o) => o.order ?? '?').join(', ')} · roots ${roots.join(', ')} (kept as ${held.slice(0, 3).map((q) => q.rootNote).join(', ')}) → +${orders.map((o) => (o.lowest == null ? '?' : o.lowest - 48)).join(', +')}`
       + (passes ? ` · mutes 1–7: ${muted.join(' ')} %` : '');
     return { summary: heard.some((x) => x.length) ? summary : 'No notes came: did the clock run?', lines };
@@ -573,13 +581,13 @@ export function checkOrders(rig) {
   return run(rig, async (start) => {
     const specs = [1, 2, 3].map((p) => ({ seq: { permutation: p }, step: scale8 }));
     specs.push({ seq: { end: RHYTHM.length - 1, gateLength: 16 }, step: (k) => RHYTHM[k] ?? {} });
-    const { heard, offs } = await playRun(rig, start, specs, 15);
+    const { heard, offs, about } = await playRun(rig, start, specs, 15);
     const lines = [1, 2, 3].map((p, j) => {
       const o = orderOf(heard[j].map((x) => x.note));
       return heard[j].length ? `permutation ${p}: ${o.order ?? `unclear (${o.steps.slice(0, 20).join(' ')})`}` : `permutation ${p}: no notes`;
     });
     const pass = heard[3].length ? rhythmPass(heard[3], offs[3]) : null;
-    lines.push(pass ? `rhythm (A 4 sub-steps, B 4 with ratchet, C 2 with ratchet, D on then tie, E one; ms from A, / a note-off): ${pass}` : 'rhythm: no notes');
+    lines.push(pass ? `rhythm (A 4 sub-steps, B 4 with ratchet, C 2 with ratchet, D on then tie, E one; ms from A, / a note-off): ${pass}` : 'rhythm: no notes', `test sequences ${about}`);
     return { summary: heard.some((x) => x.length) ? `Permutations 1–3: ${lines.slice(0, 3).map((l) => l.split(': ')[1]).join(', ')}` : 'No notes came: did the clock run?', lines };
   });
 }

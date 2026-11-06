@@ -54,10 +54,10 @@ const CHECKS = [
     before: ['The drum sequencer gets a test pattern; you save it into two slots on the Launchpad when it asks.', 'Your active bank, config and preset come back afterwards.'],
     run: checkDrumBank },
   { id: 'S5', steps: true, title: 'Root, directions, mutes', question: 'What does the root do, which direction is each of values 1–3, and how often does each mute level mute?',
-    before: ['All four note sequencers play test sequences to the Mac (USB C) only, on ch 13–16; you run the clock about 30 s.'],
+    before: ['Stop the clock before Run.', 'All four note sequencers play test sequences to the Mac (USB C) only, on ch 13–16; you run the clock about 30 s.'],
     run: checkPlay },
   { id: 'S6', steps: true, title: 'Orders, length and ratchet', question: 'Which order is each permutation 1–3, and how do a step’s length, ratchet and tie play (with a short gate, note-offs too)?',
-    before: ['As S5; you run the clock about 15 s.'],
+    before: ['Stop the clock before Run.', 'As S5; you run the clock about 15 s.'],
     run: checkOrders },
   // the BCR32 on its first day (build plan, M4): nothing is written to it
   { id: 'B1', bcr: true, title: 'Firmware and ports', question: 'Which firmware does it run, and which MIDI ports does it show?',

@@ -272,6 +272,20 @@ test('S5 says what the FH-2 keeps when a value is out of its range, and goes on'
   assert(r.lines[1].includes('(the FH-2 keeps root 6, direction 2)'), r.lines[1]);
 });
 
+test('S5 goes on without the read-back when the FH-2 doesn’t answer with the test sequences in', async () => {
+  const { rig } = playRig();
+  const pull = rig.client.pullPreset;
+  let calls = 0;
+  rig.client.pullPreset = async () => {
+    calls++;
+    if (calls === 2 || calls === 3) throw new Error('no reply to FH-2 command 23H'); // both read-backs, as on your FH-2
+    return pull();
+  };
+  const r = await checkPlay(rig);
+  assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2'), r.summary);
+  eq(r.lines.at(-1), 'test sequences not read back: the FH-2 didn’t answer; 0 notes before the clock was asked for');
+});
+
 test('S5 asks the FH-2 again when it doesn’t answer at once after the install', async () => {
   const { rig } = playRig();
   const pull = rig.client.pullPreset;
