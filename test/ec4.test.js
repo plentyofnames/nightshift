@@ -5,10 +5,10 @@
 import { test, assert, eq } from './harness.js';
 import { derive } from '../js/patch/derive.js';
 import { examplePatch } from '../js/patch/example.js';
-import { apply } from '../js/patch/edit.js';
+import { apply, setPlayer } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage, addLivePage, removeLivePage, movePlace, toLivePage, liveIds,
-  strayMappings, removeMappings, dropMapping, objectKeys, movePage, hidePage, sharePage, splitPage, halfFree, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
+  strayMappings, removeMappings, dropMapping, objectKeys, movePage, hidePage, sharePage, splitPage, halfFree, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll, leftBehind } from '../js/ec4/pages.js';
 import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncEntry, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES, SYNC_EXTRA, SYNC_FORMAT } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
@@ -552,4 +552,37 @@ test('two half pages in one group: the second below the first, its new settings 
   m = modelOf(p);
   eq([m.pages.find((pg) => pg.id === 'euclid:0').cells.slice(8).every((c) => !c), m.pages.find((pg) => pg.id === 'srr:0')?.cells.filter(Boolean).length], [true, 8]);
   eq(sharePage(p.names, m, 'euclid:0', 'converter:0').error ?? sharePage(p.names, m, 'euclid:0', 'nope').error, 'No such page');
+});
+
+test('a player that stops sending takes its knobs off the EC4, as removing does; one that plays on keeps them', () => {
+  const p = fresh();
+  const NO_DESTS = { internal: false, usbC: false, usbA: false, din: false, select: false };
+  apply(p, setPlayer('noteSequencer:1', { channel: 9, dests: { internal: true } }));
+  whole(p, 'sequencers');
+  whole(p, 'drumSequencer');
+  const reset = key('drumSequencer', 0, 'reset');
+  apply(p, toggleLive(p.names, reset));
+  const slots = () => p.config.values.mapping.filter((m) => m.status !== 0x7f).length;
+  // as app.js's edit does: the edit, then what it leaves behind
+  const stop = (changes) => {
+    const before = modelOf(p);
+    apply(p, changes);
+    const left = leftBehind(before, modelOf(p), p.names);
+    apply(p, left);
+    return left;
+  };
+  const cc = slots();
+  assert(stop(setPlayer('drumSequencer', { dests: NO_DESTS })).length > 0, 'the drum sequencer’s knobs go');
+  const m = modelOf(p);
+  eq([m.on.has(reset), liveKeys(p.names).some(Boolean), Object.keys(p.names).some((k) => k.includes('drumSequencer'))], [false, false, false]);
+  assert(slots() < cc, 'the CCs Night Shift added go too');
+  const rate2 = key('noteSequencer', 1, 'rate');
+  const rate1 = key('noteSequencer', 0, 'rate');
+  eq([m.on.has(rate1), m.on.has(rate2)], [true, true]);
+  stop(setPlayer('noteSequencer:1', { dests: NO_DESTS }));
+  eq([modelOf(p).on.has(rate1), modelOf(p).on.has(rate2)], [true, false], 'only the stopped sequencer’s knobs');
+  // a shift register on jacks that stops sending notes stays a source, with its page
+  apply(p, setPlayer('srrNotes:0', { channel: 10, dests: { internal: true } }));
+  whole(p, 'srr:0');
+  eq(stop(setPlayer('srrNotes:0', { dests: NO_DESTS })), [], 'Random 1 keeps its knobs');
 });

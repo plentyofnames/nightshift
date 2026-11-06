@@ -7,7 +7,7 @@ import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
 import { parseDump, buildDump, splitSysex, commandOf, DUMPS, CMD } from './fh2/sysex.js';
 import { diff } from './fh2/layout.js';
 import { derive } from './patch/derive.js';
-import { History, removePort, removeSource, setName, changesTowards, removeLfoWithCcs } from './patch/edit.js';
+import { History, apply, removePort, removeSource, setName, changesTowards, removeLfoWithCcs } from './patch/edit.js';
 import { examplePatch } from './patch/example.js';
 import { projectToJson, projectFromJson, PROJECT_EXTENSION } from './patch/project.js';
 import { DEFAULT_HARDWARE, validHardware, blockName } from './patch/hardware.js';
@@ -26,7 +26,7 @@ import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
   addLivePage, removeLivePage, movePlace, toLivePage, isLive,
-  wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, toAbsolute, movePage, hidePage, sharePage, splitPage, SETUP } from './ec4/pages.js';
+  wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, leftBehind, toAbsolute, movePage, hidePage, sharePage, splitPage, SETUP } from './ec4/pages.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, pageRecords, SYNC_FORMAT, SYNC_MAX, HAS_013 } from './ec4/setup.js';
 import { fingerprint } from './hash.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
@@ -260,7 +260,8 @@ function edit(label, changes, { force = false, fold = null } = {}) {
     return render();
   }
   try {
-    if (state.history.do(patch(), label, changes, { scene: state.scene, fold })) {
+    const all = fold ? changes : [...changes, ...leftOnEc4(changes)];
+    if (state.history.do(patch(), label, all, { scene: state.scene, fold })) {
       state.status = label;
       state.warn = false;
     }
@@ -269,6 +270,23 @@ function edit(label, changes, { force = false, fold = null } = {}) {
     state.warn = true;
   }
   update();
+}
+
+// An edit of the setup that takes something out of the patch (a player stopped, a shift register's
+// last jack cleared) takes its knobs off the EC4 too, in the same step (pages.js leftBehind). The
+// scene's values don't count: a Euclid without a jack at 0 pulses is gone from this scene only. Not
+// for the FH-2's own changes coming in (edit's `fold`).
+function leftOnEc4(changes) {
+  const before = state.ec4Model;
+  const setup = changes.filter((c) => c.dump !== 'preset');
+  if (!before || !setup.some((c) => c.dump === 'config')) return [];
+  const p = patch();
+  const undo = apply(p, setup);
+  try {
+    return leftBehind(before, pagesOf(derive(p.config.values, p.preset?.values ?? null, state.hardware, p.names), p.names), p.names);
+  } finally {
+    apply(p, undo);
+  }
 }
 
 // The "+ add" dialog for an empty jack.

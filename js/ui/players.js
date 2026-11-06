@@ -55,7 +55,7 @@ export function playerSends(view, colors, p, onSelect, act) {
     gear.length ? h('div', { class: 'erows' }, gear) : null));
 
   // what it plays inside the FH-2
-  const plays = p.plays.map((sid) => view.sources.find((s) => s.id === sid)).filter(Boolean);
+  const plays = (p.plays ?? []).map((sid) => view.sources.find((s) => s.id === sid)).filter(Boolean);
   parts.push(section('Plays inside the FH-2', plays.length
     ? plays.map((s) => h('div', { class: 'row' }, h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), chip(`ch ${p.channel + 1}`, colors.get(s.id))))
     : h('p', { class: 'note' }, p.internal ? `Nothing listens on ch ${p.channel + 1}.` : 'Doesn’t send to the FH-2.')));

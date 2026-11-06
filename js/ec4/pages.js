@@ -597,6 +597,18 @@ export function switchOffAll(names, model, keys) {
 // its pushes' commands, for taking a removed source off the EC4.
 export const objectKeys = (model, id) => model.objects.filter((o) => o.id === id).flatMap((o) => [...o.knobs, ...o.commands].map((c) => c.key));
 
+// What an edit leaves on the EC4 when it takes an object out of the patch (a sequencer that stops
+// sending, a shift register off its last jack that sends no notes): its knobs and pushes, LIVE pages
+// included, with the CCs Night Shift added, as removing a source does (your call, 2026-11-06).
+// `before` and `after` are pagesOf the patch before and after the edit, `names` the names after it.
+// A setting another object still has stays.
+export function leftBehind(before, after, names) {
+  const ids = new Set(after.objects.map((o) => o.id));
+  const keys = [...new Set(before.objects.filter((o) => !ids.has(o.id)).flatMap((o) => [...o.knobs, ...o.commands].map((c) => c.key)))]
+    .filter((k) => !after.known.has(k));
+  return keys.length ? switchOffAll(names, after, keys) : [];
+}
+
 // The settings of a jack's own layer: its level, smoothing and LFO.
 export const jackKeys = (output, only = () => true) => LFO_PARAMS.filter(only).map((param) => settingKey({ kind: 'output', index: output, param }));
 
