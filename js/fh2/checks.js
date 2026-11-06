@@ -608,16 +608,32 @@ export const TUNING_CASES = [
   { enable: 2, scl: 31, kbm: 31 }, { enable: 3, scl: 31, kbm: 31 },
 ];
 
+// The test voice of T1 and T2: CV only, on an output outside your rack, a channel nothing listens to.
+async function tuningVoice(rig, start) {
+  const o = hiddenOutput(rig.hardware);
+  if (o == null) throw new Error('every CV output is in your rack: no jack to test on without hearing it');
+  const channel = suggestChannel(start.config.values, 15);
+  const config = structuredClone(start.config.values);
+  const voice = addVoice({ config, preset: start.preset.values }, { output: o, channel, outs: { cvOut: 1 } });
+  for (const c of voice) setPath(config, c.path, c.value);
+  const i = voice[0].path[1];
+  await install(rig, start.config, config, `a test config (voice ${i + 1} on output ${o + 1}, outside your rack, ch ${channel + 1})`);
+  return { i, channel };
+}
+// A note played to the test voice and what the screen shows meanwhile (after a longer wait: T1's
+// first reads came back empty).
+async function noteOnScreen(rig, channel, note) {
+  rig.send([0x90 | channel, note, 100]);
+  await rig.wait(500);
+  const lines = (await rig.client.screenText()).lines.map((l) => l.trim()).filter(Boolean);
+  rig.send([0x80 | channel, note, 0]);
+  await rig.wait(100);
+  return lines;
+}
+
 export function checkTuning(rig) {
   return run(rig, async (start) => {
-    const o = hiddenOutput(rig.hardware);
-    if (o == null) throw new Error('every CV output is in your rack: no jack to test on without hearing it');
-    const channel = suggestChannel(start.config.values, 15);
-    const config = structuredClone(start.config.values);
-    const voice = addVoice({ config, preset: start.preset.values }, { output: o, channel, outs: { cvOut: 1 } });
-    for (const c of voice) setPath(config, c.path, c.value);
-    const i = voice[0].path[1];
-    await install(rig, start.config, config, `a test config (voice ${i + 1} on output ${o + 1}, outside your rack, ch ${channel + 1})`);
+    const { i, channel } = await tuningVoice(rig, start);
     rig.log('Installing the test scale into .scl and .kbm slot 32…');
     await rig.client.installScl(32, TEST_SCL);
     await rig.wait(SETTLE_MS);
@@ -641,5 +657,41 @@ export function checkTuning(rig) {
     }
     lines.push('.scl and .kbm slot 32 now hold the test scale');
     return { summary: 'See what the screen showed for each choice', lines };
+  });
+}
+
+// ---- check T2: which slot each .scl / .kbm number reaches, with ordinary files: 12-tone equal
+// temperament and the usual 12-key map (A4 = 440 Hz) in slots 1 and 32, T1's 5-step scale with its
+// linear map in slot 2 (to see whether that kind of map was T1's Scala Error). Note 61 shows 277.18
+// Hz in 12-TET, 300.53 Hz in the 5-step scale.
+
+export const SCL_12TET = `! 12tet.scl\n!\n12-tone equal temperament\n 12\n!\n${Array.from({ length: 11 }, (_, k) => ` ${(k + 1) * 100}.0`).join('\n')}\n 2/1\n`;
+export const KBM_12 = `! 12 keys, A4 = 440 Hz\n12\n0\n127\n60\n69\n440.0\n12\n${Array.from({ length: 12 }, (_, k) => k).join('\n')}\n`;
+export const SLOT_CASES = [0, 1, 2, 31, 32];
+
+export function checkTuningSlots(rig) {
+  return run(rig, async (start) => {
+    const { i, channel } = await tuningVoice(rig, start);
+    rig.log('Installing 12-TET into slots 1 and 32, the 5-step scale into slot 2…');
+    for (const [slot, scl, kbm] of [[1, SCL_12TET, KBM_12], [2, TEST_SCL, TEST_KBM], [32, SCL_12TET, KBM_12]]) {
+      await rig.client.installScl(slot, scl);
+      await rig.wait(SETTLE_MS);
+      await rig.client.installKbm(slot, kbm);
+      await rig.wait(SETTLE_MS);
+    }
+    const lines = [];
+    const shown = [];
+    for (const v of SLOT_CASES) {
+      const preset = structuredClone(start.preset.values);
+      Object.assign(preset.converter[i], { scalaEnable: 1, scalaScl: v, scalaKbm: v });
+      await install(rig, start.preset, preset, `Scala, .scl and .kbm ${v}`);
+      const screen = await noteOnScreen(rig, channel, 61);
+      const at61 = screen.join(' | ').match(/61:\s*([^|]+)/)?.[1].trim() ?? '?';
+      rig.log(`${v} → ${at61}`);
+      shown.push(`${v} → ${at61}`);
+      lines.push(`.scl and .kbm ${v}, note 61: ${screen.join(' | ')}`);
+    }
+    lines.push('.scl and .kbm slots 1 and 32 now hold 12-TET with the 12-key map, slot 2 the 5-step test scale');
+    return { summary: `Note 61 (12-TET 277.18 Hz, 5-step 300.53 Hz): ${shown.join(' · ')}`, lines };
   });
 }

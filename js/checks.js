@@ -9,7 +9,7 @@ import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';
 import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcrPreset } from './bcr32/checks.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
-import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, checkNoteBank, checkDrumBank, checkPlay, checkOrders, checkTuning, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
+import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, checkNoteBank, checkDrumBank, checkPlay, checkOrders, checkTuning, checkTuningSlots, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
 import { DEFAULT_HARDWARE, validHardware } from './patch/hardware.js';
 import { projectFromJson } from './patch/project.js';
 
@@ -63,6 +63,9 @@ const CHECKS = [
   { id: 'T1', tuning: true, title: 'Tuning choices', question: 'What does each of a voice’s tuning values do, and do its .scl and .kbm numbers count from 0 or from 1?',
     before: ['Replaces .scl and .kbm slot 32 with a test scale: the FH-2 can’t say what’s there now.', 'A voice outside your rack plays a note per choice; leave the FH-2 on its overview.'],
     run: checkTuning },
+  { id: 'T2', tuning: true, title: 'Scala slots', question: 'With ordinary scale files, which slot does each .scl / .kbm number reach, and did T1’s kind of map cause its Scala Error?',
+    before: ['Replaces .scl and .kbm slots 1, 2 and 32: the FH-2 can’t say what’s there now.', 'A voice outside your rack plays a note per number; leave the FH-2 on its overview.'],
+    run: checkTuningSlots },
   // the BCR32 on its first day (build plan, M4): nothing is written to it
   { id: 'B1', bcr: true, title: 'Firmware and ports', question: 'Which firmware does it run, and which MIDI ports does it show?',
     before: ['BCR32 on the Mac over USB.'], run: bcrIdentify },

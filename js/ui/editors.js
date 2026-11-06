@@ -364,7 +364,7 @@ function tuningRows(s, act) {
       onclick: () => v !== t.enable && act.edit(v ? `${s.name} tuned by ${name}` : `${s.name}: no tuning`, setTuning(s.index, { enable: v })) }, name)), known ? null : h('span', { class: 'dim' }, ` value ${t.enable}`))),
     t.enable === 1 && sfield('Scale', selectInput(`.scl of ${s.name}`, t.scl, slots('scl'), (v) => tset('Scale', { scl: v })),
       selectInput(`.kbm of ${s.name}`, t.kbm, slots('kbm'), (v) => tset('Keyboard mapping', { kbm: v })), h('span', { class: 'dim', title: 'Slots of the .scl and .kbm files (Settings tab)' }, ' .scl · .kbm')),
-    t.enable === 2 && field('', h('span', { class: 'dim' }, 'The FH-2’s MTS tuning, from MIDI (MTS-ESP, say)')),
+    (t.enable === 2 || t.enable === 3) && field('', h('span', { class: 'dim' }, t.enable === 3 ? 'The FH-2’s MTS tuning, from MTS SysEx (MTSMIDIClient, say)' : 'The FH-2’s MTS tuning, from MIDI (MTS-ESP)')),
   ].filter(Boolean);
 }
 

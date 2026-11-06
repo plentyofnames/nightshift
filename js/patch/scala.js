@@ -5,12 +5,14 @@
 // what it installed in the project's names: `scala:scl:<slot>` and `scala:kbm:<slot>`, each
 // { name, text } as JSON.
 //
-// Not measured yet (check T1): what scalaEnable's values mean (taken as 0 off, 1 Scala, 2 MTS), and
-// whether scalaScl / scalaKbm count the slots from 0 (taken so: 0 is slot 1).
+// scalaEnable as your FH-2 showed it (check T1, 2026-11-06): 0 off (the screen shows no note), 1 Scala
+// (the note, or "Scala Error"), 2 and 3 MTS (the retuned pitch, "61.00"). 3 is taken to be the "MTS
+// SYSEX" option the manual names for MTSMIDIClient. Whether scalaScl / scalaKbm count the slots from
+// 0 isn't known yet (T1's test files gave Scala Error throughout; check T2): taken so, 0 is slot 1.
 
 export const SLOTS = 32;
-export const TUNINGS = [[0, 'Off'], [1, 'Scala'], [2, 'MTS']];
-export const SLOT_FROM_PRESET = (v) => v + 1; // until T1 says otherwise
+export const TUNINGS = [[0, 'Off'], [1, 'Scala'], [2, 'MTS'], [3, 'MTS SysEx']];
+export const SLOT_FROM_PRESET = (v) => v + 1; // until T2 says otherwise
 export const PRESET_FROM_SLOT = (slot) => slot - 1;
 
 const key = (kind, slot) => `scala:${kind}:${slot}`;

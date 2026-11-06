@@ -6,8 +6,9 @@ import { examplePatch } from '../js/patch/example.js';
 import { DUMPS, CMD } from '../js/fh2/sysex.js';
 import { diff, getPath, setPath } from '../js/fh2/layout.js';
 import { mappingsOf } from '../js/patch/mappings.js';
+import { parseScl, parseKbm } from '../js/patch/scala.js';
 import { EXAMPLE_HARDWARE, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
-import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY, stepNotes, checkSteps, STEP_SEQ, ORDERS, orderOf, changedRuns, bankTestSequence, bankTestDrums, checkNoteBank, checkPlay, checkOrders, checkTuning, TUNING_CASES, TEST_SCL } from '../js/fh2/checks.js';
+import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY, stepNotes, checkSteps, STEP_SEQ, ORDERS, orderOf, changedRuns, bankTestSequence, bankTestDrums, checkNoteBank, checkPlay, checkOrders, checkTuning, TUNING_CASES, TEST_SCL, checkTuningSlots, SCL_12TET, KBM_12, SLOT_CASES } from '../js/fh2/checks.js';
 
 test('which rule a CC scaling follows', () => {
   const round = [0, 1, 2, 4, 64, 127].map((c) => [c, Math.round((c * 32) / 127)]);
@@ -316,4 +317,23 @@ test('T1: a test voice outside the rack plays a note per tuning choice, the scre
   eq(sent.filter((b) => (b[0] & 0xf0) === 0x90).length, 2 * TUNING_CASES.length, 'notes 60 and 61 per choice');
   eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length + diff(DUMPS[CMD.INSTALL_CONFIG].layout, original.config, fh2.config).length, 0, 'config and preset back');
   assert(TEST_SCL.includes(' 5\n'), 'five notes');
+});
+
+test('T2: ordinary files in slots 1 and 32, the 5-step one in 2, and what each number reaches', async () => {
+  eq([parseScl(SCL_12TET).ok, parseScl(SCL_12TET).count, parseKbm(KBM_12).ok, parseKbm(KBM_12).size], [true, 12, true, 12]);
+  const { rig, fh2 } = standIn();
+  const slots = { scl: {}, kbm: {} };
+  rig.client.installScl = async (slot, text) => { slots.scl[slot] = text; };
+  rig.client.installKbm = async (slot, text) => { slots.kbm[slot] = text; };
+  rig.send = () => {};
+  // as if the numbers counted from 0: number n is slot n + 1
+  rig.client.screenText = async () => {
+    const c = fh2.preset.converter.find((x) => x.scalaEnable);
+    const scl = c && slots.scl[c.scalaScl + 1];
+    return { mode: 0, lines: ['', '', `D 61: ${scl === SCL_12TET ? '277.18 Hz' : scl === TEST_SCL ? '300.53 Hz' : 'Scala Error'}`, ''] };
+  };
+  const r = await checkTuningSlots(rig);
+  eq(r.summary, 'Note 61 (12-TET 277.18 Hz, 5-step 300.53 Hz): 0 → 277.18 Hz · 1 → 300.53 Hz · 2 → Scala Error · 31 → 277.18 Hz · 32 → Scala Error');
+  eq(Object.keys(slots.scl), ['1', '2', '32']);
+  eq(r.lines.length, SLOT_CASES.length + 1);
 });
