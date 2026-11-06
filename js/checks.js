@@ -76,7 +76,7 @@ const CHECKS = [
     before: ['Give a knob the channel and CC of a knob on an EC4 page: the FH-2 maps that one.'], manual: ['Reacts', 'Nothing'] },
 ];
 
-const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, port: '', error: '', asking: null };
+const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, failed: {}, port: '', error: '', asking: null }; // failed: a check's last stop, with its log, until it runs again
 
 function load(key) {
   try {
@@ -191,10 +191,12 @@ async function runCheck(c) {
       heard: () => heard.splice(0), notes: () => notes.splice(0), offs: () => offs.splice(0) };
     const r = await c.run(rig);
     state.results[c.id] = { at: new Date().toISOString(), ...r };
+    delete state.failed[c.id];
     save();
   } catch (e) {
     state.error = e.message;
     log(`Stopped: ${e.message}`);
+    state.failed[c.id] = { at: new Date().toISOString(), message: e.message, log: state.log.slice(-8) };
   } finally {
     client?.close();
     clearInterval(busy);
@@ -211,10 +213,12 @@ async function runBcrCheck(c) {
     rig = await bcrRig();
     const r = await c.run(rig);
     state.results[c.id] = { at: new Date().toISOString(), ...r };
+    delete state.failed[c.id];
     save();
   } catch (e) {
     state.error = e.message;
     log(`Stopped: ${e.message}`);
+    state.failed[c.id] = { at: new Date().toISOString(), message: e.message, log: state.log.slice(-8) };
   } finally {
     rig?.close();
     state.running = null;
@@ -256,6 +260,7 @@ async function copy() {
 
 function card(c) {
   const r = state.results[c.id];
+  const f = state.failed[c.id];
   const running = state.running === c.id;
   return h('section', { class: 'check-card' + (running ? ' running' : '') },
     h('h2', {}, h('span', { class: 'n' }, String(c.id)), c.title),
@@ -264,7 +269,10 @@ function card(c) {
     h('div', { class: 'actions' }, c.manual
       ? c.manual.map((a) => h('button', { type: 'button', class: 'btn', onclick: () => answer(c, a) }, a))
       : h('button', { type: 'button', class: 'btn primary', disabled: !!state.running, onclick: () => runCheck(c) }, running ? 'Running…' : r ? 'Run again' : 'Run')),
-    r && h('div', { class: 'result' }, h('b', {}, r.summary), r.lines.length ? h('ul', {}, r.lines.map((l) => h('li', {}, l))) : null,
+    // a stop stays in the card, with the last of its log, until the check runs through
+    !running && f && h('div', { class: 'result problem' }, h('b', {}, `Stopped: ${f.message}`), h('pre', { class: 'log' }, f.log.join('\n')),
+      h('span', { class: 'note' }, new Date(f.at).toLocaleString())),
+    r && h('div', { class: 'result' }, f ? h('span', { class: 'note' }, 'Last result:') : null, h('b', {}, r.summary), r.lines.length ? h('ul', {}, r.lines.map((l) => h('li', {}, l))) : null,
       h('span', { class: 'note' }, new Date(r.at).toLocaleString())),
     running && state.asking && h('div', { class: 'ask' }, h('p', {}, h('b', {}, state.asking.text)),
       h('div', { class: 'actions' }, state.asking.answers.map((a) => h('button', { type: 'button', class: 'btn', onclick: () => reply(a) }, a)))),
