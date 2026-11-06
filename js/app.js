@@ -77,6 +77,7 @@ const state = {
   // the EC4, the live link (ec4/link.js) while the EC4 is connected, and Night Shift's thru (EC4 → FH-2)
   ec4Model: null, // the EC4 pages (ec4/pages.js pagesOf), recomputed with the view
   steps: { seq: 0, step: null, lane: 0 }, // the Steps tab: the sequencer in view, its step or lane
+  banks: { notes: null, drums: null }, // the banks shown there: { name, msg } each
   status: '',
   warn: false,
 };
@@ -912,43 +913,56 @@ async function calibrateJack(output) {
   }));
 }
 
-// ---- sequencer banks, as whole .syx files (their layout isn't known yet: check S2)
+// ---- sequencer banks (their layout from checks S3 and S4: patch/steps.js)
 
 const BANKS = { notes: { what: 'note sequencer bank', file: 'seqbank', install: CMD.INSTALL_SEQ_BANK },
   drums: { what: 'drum sequencer bank', file: 'drumbank', install: CMD.INSTALL_DRUM_BANK } };
 
-// Bank `index` (0 the active one, 1–8 in flash) from the FH-2, saved as a file.
-function exportBank(kind, index) {
+// Bank `index` (0 the active one, 1–8 in flash) from the FH-2, shown with its slots.
+function readBank(kind, index) {
   const b = BANKS[kind];
   return withFh2((pair) => withFh2Client(pair, async (client) => {
     status(`Reading the ${b.what}…`);
-    const m = kind === 'notes' ? await client.sequencerBank(index) : await client.drumBank(index);
-    download(m, `${b.file}-${index ? index : 'active'}.syx`);
-    status(`${index ? `Bank ${index}` : 'The active bank'} saved as a file (${m.length} bytes)`);
+    const msg = kind === 'notes' ? await client.sequencerBank(index) : await client.drumBank(index);
+    state.banks[kind] = { name: index ? `Bank ${index}` : 'Active bank', msg };
+    status(`${index ? `Bank ${index}` : 'The active bank'} read`);
   }));
 }
 
-// A bank file made the FH-2's active bank (RAM), after a question.
-function importBank(kind) {
+// A bank from a .syx file, shown with its slots.
+function openBank(kind) {
   const b = BANKS[kind];
   const input = h('input', { type: 'file', accept: '.syx,application/octet-stream' });
   input.onchange = async () => {
     const file = input.files[0];
     if (!file) return;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (commandOf(bytes) !== b.install) return status(`${file.name} isn’t a ${b.what}`, true);
-    const ok = await modal($('dialog'), {
-      title: `Make ${file.name} the active ${b.what}?`,
-      body: h('p', { class: 'note' }, 'It replaces the 28 sequences in use, in the FH-2’s RAM; the banks in flash stay. Save it there on the FH-2 to keep it.'),
-      buttons: [{ label: 'Cancel', value: false }, { label: 'Install', value: true, primary: true }],
-    });
-    if (!ok) return;
-    await withFh2((pair) => withFh2Client(pair, async (client) => {
-      await client.installBank(bytes);
-      status(`${file.name} is the active ${b.what}`);
-    }));
+    const msg = new Uint8Array(await file.arrayBuffer());
+    if (commandOf(msg) !== b.install || msg.length !== 8199) return status(`${file.name} isn’t a ${b.what}`, true);
+    state.banks[kind] = { name: file.name, msg };
+    render();
   };
   input.click();
+}
+
+function saveBank(kind) {
+  const shown = state.banks[kind];
+  download(shown.msg, `${BANKS[kind].file}-${shown.name.replace(/\.syx$/i, '').replace(/[^\w.-]+/g, '_').toLowerCase()}.syx`);
+}
+
+// The bank shown made the FH-2's active bank (RAM), after a question.
+async function installBank(kind) {
+  const b = BANKS[kind];
+  const shown = state.banks[kind];
+  const ok = await modal($('dialog'), {
+    title: `Make ${shown.name} the active ${b.what}?`,
+    body: h('p', { class: 'note' }, 'It replaces the 28 sequences in use, in the FH-2’s RAM. Save it on the FH-2 to keep it: Sequencer Banks › Save.'),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Install', value: true, primary: true }],
+  });
+  if (!ok) return;
+  await withFh2((pair) => withFh2Client(pair, async (client) => {
+    await client.installBank(shown.msg);
+    status(`${shown.name} is the active ${b.what}`);
+  }));
 }
 
 async function saveFlash() {
@@ -1516,7 +1530,7 @@ function render() {
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
   else if (state.tab === 'steps') content = renderSteps(v, values(), state.steps, { edit, busy: state.busy,
     select: (sel) => { state.steps = { seq: state.steps.seq, lane: state.steps.lane, ...sel }; render(); },
-    banks: { export: exportBank, import: importBank } });
+    banks: { shown: state.banks, read: readBank, open: openBank, save: saveBank, install: installBank } });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4, removeMapping: removeMappingOf });
   else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,

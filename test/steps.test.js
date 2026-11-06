@@ -5,7 +5,10 @@ import { test, assert, eq } from './harness.js';
 import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { parseDump } from '../js/fh2/sysex.js';
-import { noteSequence, setStep, setSequence, gatesOf, drumSequence, setDrumStep, setLane, nextGate, nextDrum, stepPitch, stepNote, degreeName } from '../js/patch/steps.js';
+import { noteSequence, setStep, setSequence, gatesOf, drumSequence, setDrumStep, setLane, nextGate, nextDrum, stepPitch, stepNote, degreeName,
+  bankBytes, bankMessage, noteSlot, drumSlot, loadNoteSlot, loadDrumSlot, slotSummary } from '../js/patch/steps.js';
+import { bankTestSequence, bankTestDrums } from '../js/fh2/checks.js';
+import { NOTE_SLOT_SAVED, DRUM_SLOT_SAVED, bankWith } from './fixtures-banks.js';
 
 const local = () => parseDump(Deno.readFileSync(new URL('./local/preset.syx', import.meta.url))).values;
 
@@ -55,4 +58,34 @@ test('drum steps: hits and accents in their 4-bit halves', () => {
   lane = drumSequence(p.preset.values, p.config.values).lanes[3];
   eq([lane.end, lane.mute], [11, true]);
   eq([nextDrum(0), nextDrum(1), nextDrum(2)], [1, 2, 0], 'off, on, accent, off');
+});
+
+test('a note bank slot as your FH-2 saved the test sequence: every field read back, and loaded into a sequencer', () => {
+  const msg = bankWith(NOTE_SLOT_SAVED, 'notes');
+  const bytes = bankBytes(msg);
+  eq([...bankMessage(bytes, 'notes')], [...msg], 'bytes and message, both ways');
+  const slot = noteSlot(bytes, 0);
+  const { config, preset } = examplePatch();
+  const want = noteSequence(bankTestSequence(preset.values, 0), 0);
+  const fields = (q) => ({ steps: q.steps, start: q.start, end: q.end, rate: q.rate, gateLength: q.gateLength, reset: q.reset, rootNote: q.rootNote, direction: q.direction, permutation: q.permutation });
+  eq(fields(slot), fields(want), 'all 32 steps and the settings');
+  eq(slotSummary(slot), `steps 3–30 · ${want.steps.slice(2, 30).reduce((n, s) => n + s.gates.slice(0, s.length).filter(Boolean).length, 0)} notes`);
+  eq(slotSummary(noteSlot(bytes, 1)), null, 'the next slot is empty here');
+  const p = { config, preset, names: {} };
+  apply(p, loadNoteSlot(slot, 2));
+  eq(fields(noteSequence(p.preset.values, 2)), fields(want), 'loaded into note sequencer 3');
+});
+
+test('a drum bank slot as your FH-2 saved the test pattern, and loaded into the drum sequencer', () => {
+  const bytes = bankBytes(bankWith(DRUM_SLOT_SAVED, 'drums'));
+  const slot = drumSlot(bytes, 0);
+  const { config, preset } = examplePatch();
+  const want = drumSequence(bankTestDrums(preset.values), config.values);
+  const lanes = (d) => d.lanes.map(({ steps, start, end, rate, reset, mute }) => ({ steps, start, end, rate, reset, mute }));
+  eq(lanes(slot), lanes(want));
+  eq(slot.reset, 9);
+  const p = { config, preset, names: {} };
+  apply(p, loadDrumSlot(slot));
+  const d = drumSequence(p.preset.values, p.config.values);
+  eq([lanes(d), d.reset], [lanes(want), 9]);
 });

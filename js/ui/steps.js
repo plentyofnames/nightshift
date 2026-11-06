@@ -10,7 +10,7 @@ import { numberInput, selectInput, perScene } from './controls.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playerLine } from './look.js';
 import { noteSequence, setStep, setSequence, setSequenceOn, nextGate, stepPitch, stepNote, pitchLines, degreeName, drumSequence, setDrumStep, nextDrum, setLane, setDrums,
-  DIRECTIONS, PERMUTATIONS, SEQUENCERS, STEPS, GATES } from '../patch/steps.js';
+  DIRECTIONS, PERMUTATIONS, SEQUENCERS, STEPS, GATES, BANK_SLOTS, bankBytes, noteSlot, drumSlot, loadNoteSlot, loadDrumSlot, slotSummary } from '../patch/steps.js';
 
 const field = (label, ...control) => h('label', { class: 'steps-field' }, h('span', {}, label), control);
 const toggle = (label, on, onclick, title = '') => h('button', { type: 'button', class: 'btn small', 'aria-pressed': on ? 'true' : 'false', title, onclick }, label);
@@ -20,8 +20,9 @@ const RATES = (v) => {
 };
 const range = (n) => Array.from({ length: n }, (_, i) => i);
 
-// `sel`: { seq: 0–3, 'drums' or 'banks', step, lane }. `act`: { edit, select(sel), banks: {
-// export(kind, index), import(kind) }, busy }.
+// `sel`: { seq: 0–3, 'drums' or 'banks', step, lane }. `act`: { edit, select(sel), busy, banks: {
+// shown: { notes, drums } (each { name, msg } or null), read(kind, index), open(kind), save(kind),
+// install(kind) } }.
 export function renderSteps(view, values, sel, act) {
   if (!values.preset) return h('div', { class: 'steps-page' }, h('p', { class: 'note' }, 'No preset loaded: the steps are in the preset.'));
   const at = sel?.seq ?? 0;
@@ -131,14 +132,42 @@ function drums(values, sel, act) {
   return [settings, perScene(grid), perScene(laneEditor)];
 }
 
-// ---- the banks: 8 note and 8 drum sequencer banks in flash (28 sequences each), and the active ones
+// ---- the banks: 8 note and 8 drum sequencer banks in flash (28 sequences each), and the active ones.
+// A bank read from the FH-2 or a file shows its 28 slots; a slot loads into the scene's sequencer as
+// the Launchpad's load does (undoable), and the bank can be saved as a file or made the active one.
 
 function banks(act) {
-  const list = (kind, title) => h('section', { class: 'step-editor' }, h('h3', {}, title),
-    h('div', { class: 'steps-buttons' },
-      h('button', { type: 'button', class: 'btn small', disabled: act.busy, onclick: () => act.banks.export(kind, 0), title: 'The one in use, as a .syx file' }, 'Export active'),
-      range(8).map((i) => h('button', { type: 'button', class: 'btn small', disabled: act.busy, onclick: () => act.banks.export(kind, i + 1), title: `Bank ${i + 1} in flash, as a .syx file` }, `Bank ${i + 1}`))),
-    h('div', { class: 'steps-buttons' }, h('button', { type: 'button', class: 'btn small', disabled: act.busy, onclick: () => act.banks.import(kind), title: 'A .syx file of such a bank becomes the active one (RAM)' }, 'Import into active…')));
-  return [list('notes', 'Note sequencer banks'), list('drums', 'Drum sequencer banks'),
-    h('p', { class: 'note' }, '28 sequences per bank, as one file. To keep an import: Sequencer Banks › Save on the FH-2.')];
+  const b = act.banks;
+  const part = (kind, title) => {
+    const shown = b.shown[kind];
+    const bytes = shown && bankBytes(shown.msg);
+    const slots = bytes ? Array.from({ length: BANK_SLOTS }, (_, n) => (kind === 'notes' ? noteSlot(bytes, n) : drumSlot(bytes, n))) : [];
+    return h('section', { class: 'step-editor' }, h('h3', {}, title),
+      h('div', { class: 'steps-buttons' },
+        h('button', { type: 'button', class: 'btn small', disabled: act.busy, onclick: () => b.read(kind, 0), title: 'The one in use' }, 'Active'),
+        range(8).map((i) => h('button', { type: 'button', class: 'btn small', disabled: act.busy, onclick: () => b.read(kind, i + 1), title: `Bank ${i + 1} in flash` }, `Bank ${i + 1}`)),
+        h('button', { type: 'button', class: 'btn small', onclick: () => b.open(kind) }, 'Open file…')),
+      shown && h('div', { class: 'steps-buttons bank-head' }, h('b', {}, shown.name),
+        h('button', { type: 'button', class: 'btn small', onclick: () => b.save(kind) }, 'Save as file'),
+        h('button', { type: 'button', class: 'btn small', disabled: act.busy, onclick: () => b.install(kind), title: 'Into the FH-2’s RAM; save it there to keep it (Sequencer Banks › Save)' }, 'Make it the active bank…')),
+      shown && h('div', { class: 'bank-slots' }, slots.map((slot) => slotRow(kind, slot, act))));
+  };
+  return [part('notes', 'Note sequencer banks'), part('drums', 'Drum sequencer banks')];
+}
+
+// One slot: its number, a strip of its 32 steps, what it holds, and where it loads.
+function slotRow(kind, slot, act) {
+  const what = slotSummary(slot);
+  const strip = kind === 'notes'
+    ? slot.steps.map((s, k) => h('i', { class: (s.gates.slice(0, s.length).some(Boolean) ? 'on' : '') + (k < slot.start || k > slot.end ? ' out' : '') }))
+    : range(STEPS).map((k) => h('i', { class: slot.lanes.some((l) => l.steps[k]) ? 'on' : '' }));
+  const load = kind === 'notes'
+    ? range(SEQUENCERS).map((j) => h('button', { type: 'button', class: 'btn small', onclick: () => act.edit(`Slot ${slot.slot + 1} into note sequencer ${j + 1}`, loadNoteSlot(slot, j)),
+      title: `Into note sequencer ${j + 1} of this scene` }, `To ${j + 1}`))
+    : h('button', { type: 'button', class: 'btn small', onclick: () => act.edit(`Slot ${slot.slot + 1} into the drum sequencer`, loadDrumSlot(slot)), title: 'Into the drum sequencer of this scene' }, 'Load');
+  return h('div', { class: 'bank-slot' + (what ? '' : ' unused') },
+    h('span', { class: 'n' }, String(slot.slot + 1)),
+    h('span', { class: 'strip' }, strip),
+    h('span', { class: 'note' }, what ?? 'empty'),
+    what ? h('span', { class: 'steps-buttons' }, load) : null);
 }

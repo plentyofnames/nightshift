@@ -248,7 +248,7 @@ function playRig(muteChance = (k) => k / 10) {
 test('S5 against a stand-in: roots add, directions 1–3, mute chances', async () => {
   const { rig, fh2, original } = playRig();
   const r = await checkPlay(rig);
-  assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2 · roots 7, 19, 60 → +7, +19, +60'), r.summary);
+  assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2 · roots 7, 19, 60 (kept as 7, 19, 60) → +7, +19, +60'), r.summary);
   assert(/mute 1–7 over 20 passes/.test(r.lines[3]), r.lines[3]);
   eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'your preset back');
 });
@@ -257,5 +257,17 @@ test('S6 against a stand-in: permutations 1–3, and the rhythm timed', async ()
   const { rig } = playRig();
   const r = await checkOrders(rig);
   eq(r.summary, 'Permutations 1–3: Odd/Even, Halves, Inwards');
-  assert(r.lines[3].includes('A A+125 A+125 A+125 B+31 B+31 B+31 B+31 C+125 D+250'), r.lines[3]);
+  assert(r.lines[3].endsWith('A 0 A 125 A 250 A 375 B 406 B 438 B 469 B 500 C 563 C 625 D 750 E 1000'), r.lines[3]);
+});
+
+test('S5 says what the FH-2 keeps when a value is out of its range, and goes on', async () => {
+  const { rig, fh2 } = playRig();
+  const install = rig.client.install;
+  rig.client.install = async (dump, values) => {
+    await install(dump, values);
+    if (dump.kind === 'preset') fh2.preset.noteSequencer.forEach((q) => { q.rootNote = Math.min(q.rootNote, 11); }); // as if it took 0–11 only
+  };
+  const r = await checkPlay(rig);
+  assert(r.summary.includes('(kept as 7, 11, 11)'), r.summary);
+  assert(r.lines[1].includes('(the FH-2 keeps root 11, direction 2)'), r.lines[1]);
 });

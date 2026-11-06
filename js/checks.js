@@ -56,7 +56,7 @@ const CHECKS = [
   { id: 'S5', steps: true, title: 'Root, directions, mutes', question: 'What does the root do, which direction is each of values 1–3, and how often does each mute level mute?',
     before: ['All four note sequencers play test sequences to the Mac (USB C) only, on ch 13–16; you run the clock about 30 s.'],
     run: checkPlay },
-  { id: 'S6', steps: true, title: 'Orders, length and ratchet', question: 'Which order is each permutation 1–3, and how do a step’s length, ratchet and tie play?',
+  { id: 'S6', steps: true, title: 'Orders, length and ratchet', question: 'Which order is each permutation 1–3, and how do a step’s length, ratchet and tie play (with a short gate, note-offs too)?',
     before: ['As S5; you run the clock about 15 s.'],
     run: checkOrders },
   // the BCR32 on its first day (build plan, M4): nothing is written to it
@@ -178,15 +178,17 @@ async function runCheck(c) {
     const transport = midiTransport(pair.in, pair.out);
     client = new Fh2(transport);
     const heard = []; // CCs the FH-2 sends to USB C, for checks 3 and 25
-    const notes = []; // and its note-ons, for check S1
+    const notes = []; // and its note-ons, for checks S1, S5, S6
+    const offs = []; // its note-offs, for S6
     const toClient = transport.onmessage;
     transport.onmessage = (bytes) => {
       if (bytes.length === 3 && (bytes[0] & 0xf0) === 0xb0) heard.push([...bytes]);
       if (bytes.length === 3 && (bytes[0] & 0xf0) === 0x90 && bytes[2] > 0) notes.push([...bytes, performance.now()]);
+      else if (bytes.length === 3 && ((bytes[0] & 0xf0) === 0x80 || (bytes[0] & 0xf0) === 0x90)) offs.push([...bytes, performance.now()]);
       toClient(bytes);
     };
     const rig = { client, send: (bytes) => transport.send(Uint8Array.from(bytes)), log, wait: (ms) => new Promise((r) => setTimeout(r, ms)), hardware: hardware(), ask,
-      heard: () => heard.splice(0), notes: () => notes.splice(0) };
+      heard: () => heard.splice(0), notes: () => notes.splice(0), offs: () => offs.splice(0) };
     const r = await c.run(rig);
     state.results[c.id] = { at: new Date().toISOString(), ...r };
     save();
