@@ -417,3 +417,40 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .check-card .log { margin: 10px 0 0; max-height: 220px; overflow: auto; font: 12px var(--mono); color: var(--dim); white-space: pre-wrap; }
 .mod-tag { font: 500 10px/14px var(--mono); color: var(--dim); border: 1px solid var(--line2); border-radius: 4px; padding: 0 3px; }
 .input-uses { flex-wrap: wrap; }
+/* the Steps tab */
+.steps-page { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.steps-nav { display: flex; gap: 6px; flex-wrap: wrap; }
+.steps-nav small { color: var(--dim); font-weight: 400; }
+.steps-settings { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.steps-field { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--dim); }
+.steps-field input.num { width: 64px; }
+.steps-grid { display: grid; grid-template-columns: 64px repeat(var(--steps), minmax(18px, 1fr)); gap: 4px 2px; align-items: end; overflow-x: auto; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.lane-label { font-size: 11px; color: var(--dim); align-self: center; text-align: left; }
+.steps-col { display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; }
+.steps-col.out { opacity: 0.4; }
+.steps-col.sel { background: var(--panel2); border-radius: 4px; }
+.step-num { font: 500 10.5px/16px var(--mono); background: none; border: 0; color: var(--text); cursor: pointer; padding: 0; border-radius: 4px; text-align: center; }
+.step-num.plain { cursor: default; color: var(--dim); }
+.step-num[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
+.step-note { position: relative; height: 60px; display: flex; flex-direction: column; justify-content: flex-end; background: none; border: 0; padding: 0; cursor: pointer; }
+.step-note .bar { background: #7F77DD; border-radius: 3px 3px 0 0; }
+.step-note .txt { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-direction: column; font: 10px/11px var(--mono); color: var(--dim); text-align: center; white-space: nowrap; overflow: hidden; }
+.step-gates { display: flex; flex-direction: column; gap: 1px; }
+.gate { height: 10px; border: 1px solid var(--line2); border-radius: 2px; background: var(--bg); padding: 0; cursor: pointer; }
+.ratchet .gate { height: 6px; }
+.gate.g1 { background: #378ADD; border-color: #185FA5; }
+.ratchet .gate.g1 { background: #EF9F27; border-color: #854F0B; }
+.gate.g2 { background: #1D9E75; border-color: #0F6E56; }
+.step-flags { font: 10px/14px var(--mono); color: var(--dim); text-align: center; min-height: 14px; }
+.steps-grid.drums { align-items: center; }
+.drum { height: 20px; border: 1px solid var(--line2); border-radius: 3px; background: var(--bg); padding: 0; cursor: pointer; }
+.drum.d1 { background: #378ADD; border-color: #185FA5; }
+.drum.d2 { background: #D85A30; border-color: #993C1D; }
+.drum.out { opacity: 0.4; }
+.lane-label.linkish { font-size: 11px; color: var(--dim); }
+.lane-label.on { color: var(--text); font-weight: 500; }
+.lane-label.muted { text-decoration: line-through; }
+.step-editor { padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.step-editor h3 { margin: 0 0 6px; }
+.steps-buttons { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
+.steps-page .btn[aria-pressed='true'], .input-uses .btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

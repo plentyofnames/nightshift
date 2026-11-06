@@ -75,6 +75,21 @@ export class Fh2 extends EventTarget {
     return textOf(await this._request(message(CMD.REQUEST_PRESET_NAME), CMD.REQUEST_PRESET_NAME));
   }
 
+  // A note or drum sequencer bank as the whole SysEx message (15H or 17H, ready to install again):
+  // `index` 0 is the active bank, 1–8 a bank in flash. Its layout isn't documented.
+  sequencerBank(index = 0) {
+    return this._request(message(CMD.REQUEST_SEQ_BANK, [index]), CMD.INSTALL_SEQ_BANK);
+  }
+
+  drumBank(index = 0) {
+    return this._request(message(CMD.REQUEST_DRUM_BANK, [index]), CMD.INSTALL_DRUM_BANK);
+  }
+
+  // Makes a bank message (from the calls above, or a .syx file) the FH-2's active bank, in RAM.
+  installBank(bytes) {
+    return this._request(Uint8Array.from(bytes));
+  }
+
   async screenText() {
     return screenTextOf(await this._request(message(CMD.REQUEST_SCREEN_TEXT), CMD.SCREEN_TEXT));
   }

@@ -4,7 +4,7 @@
 // .syx dumps) and the example are in the File menu.
 
 import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
-import { parseDump, buildDump, splitSysex, commandOf, DUMPS } from './fh2/sysex.js';
+import { parseDump, buildDump, splitSysex, commandOf, DUMPS, CMD } from './fh2/sysex.js';
 import { diff } from './fh2/layout.js';
 import { derive } from './patch/derive.js';
 import { History, removePort, removeSource, setName, changesTowards, removeLfoWithCcs } from './patch/edit.js';
@@ -35,6 +35,7 @@ import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
 import { getPath, setPath } from './fh2/layout.js';
 import { settingsByName, startAutoCalibration, watchAutoCalibration, finishAutoCalibration, saveCalibration, setStartupCalibration } from './fh2/menu.js';
 import { calibrationDialog } from './ui/calibrate.js';
+import { renderSteps } from './ui/steps.js';
 import { fromModule, anotherPatch, dueIn, MERGE_MAX } from './fh2/live.js';
 import { checksBusy } from './fh2/checks.js';
 
@@ -75,6 +76,7 @@ const state = {
   ec4: { sel: null, note: '', link: null, thru: loadThru() }, // the EC4 tab's knob in view ({ page, knob }), a line on
   // the EC4, the live link (ec4/link.js) while the EC4 is connected, and Night Shift's thru (EC4 → FH-2)
   ec4Model: null, // the EC4 pages (ec4/pages.js pagesOf), recomputed with the view
+  steps: { seq: 0, step: null, lane: 0 }, // the Steps tab: the sequencer in view, its step or lane
   status: '',
   warn: false,
 };
@@ -910,6 +912,45 @@ async function calibrateJack(output) {
   }));
 }
 
+// ---- sequencer banks, as whole .syx files (their layout isn't known yet: check S2)
+
+const BANKS = { notes: { what: 'note sequencer bank', file: 'seqbank', install: CMD.INSTALL_SEQ_BANK },
+  drums: { what: 'drum sequencer bank', file: 'drumbank', install: CMD.INSTALL_DRUM_BANK } };
+
+// Bank `index` (0 the active one, 1–8 in flash) from the FH-2, saved as a file.
+function exportBank(kind, index) {
+  const b = BANKS[kind];
+  return withFh2((pair) => withFh2Client(pair, async (client) => {
+    status(`Reading the ${b.what}…`);
+    const m = kind === 'notes' ? await client.sequencerBank(index) : await client.drumBank(index);
+    download(m, `${b.file}-${index ? index : 'active'}.syx`);
+    status(`${index ? `Bank ${index}` : 'The active bank'} saved as a file (${m.length} bytes)`);
+  }));
+}
+
+// A bank file made the FH-2's active bank (RAM), after a question.
+function importBank(kind) {
+  const b = BANKS[kind];
+  const input = h('input', { type: 'file', accept: '.syx,application/octet-stream' });
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (commandOf(bytes) !== b.install) return status(`${file.name} isn’t a ${b.what}`, true);
+    const ok = await modal($('dialog'), {
+      title: `Make ${file.name} the active ${b.what}?`,
+      body: h('p', { class: 'note' }, 'It replaces the 28 sequences in use, in the FH-2’s RAM; the banks in flash stay. Save it there on the FH-2 to keep it.'),
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Install', value: true, primary: true }],
+    });
+    if (!ok) return;
+    await withFh2((pair) => withFh2Client(pair, async (client) => {
+      await client.installBank(bytes);
+      status(`${file.name} is the active ${b.what}`);
+    }));
+  };
+  input.click();
+}
+
 async function saveFlash() {
   const configSlot = state.slots.config ?? 0;
   const presetSlot = state.slots.scenes[state.scene] ?? 0;
@@ -1373,7 +1414,7 @@ function bar() {
     v && h('div', { class: 'patch-name', title: `Config ${v.globals.name || 'untitled'}` }, h('span', { class: 'lbl' }, 'Config '), h('b', {}, v.globals.name || 'untitled')),
     scenes,
     sync,
-    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), tab('ec4', 'EC4'), tab('gig', 'Gig')),
+    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('steps', 'Steps'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), tab('ec4', 'EC4'), tab('gig', 'Gig')),
     v && h('div', { class: 'undo' },
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)', 'aria-label': 'Undo' }, '↶'),
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)', 'aria-label': 'Redo' }, '↷')),
@@ -1473,6 +1514,9 @@ function render() {
     link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru,
     relative: toAbsolute(state.config.values, state.ec4Model, state.names), makeAbsolute: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} absolute`, r.changes),
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
+  else if (state.tab === 'steps') content = renderSteps(v, values(), state.steps, { edit, busy: state.busy,
+    select: (sel) => { state.steps = { seq: state.steps.seq, lane: state.steps.lane, ...sel }; render(); },
+    banks: { export: exportBank, import: importBank } });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4, removeMapping: removeMappingOf });
   else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,

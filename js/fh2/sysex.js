@@ -17,6 +17,10 @@ export const CMD = {
   REQUEST_CONFIG: 0x21,
   REQUEST_VERSION: 0x22,
   REQUEST_PRESET: 0x23,
+  REQUEST_SEQ_BANK: 0x14, // 0: the active bank, 1–8: a bank in flash; the reply is an INSTALL_SEQ_BANK
+  INSTALL_SEQ_BANK: 0x15,
+  REQUEST_DRUM_BANK: 0x16, // likewise for the drum sequencer
+  INSTALL_DRUM_BANK: 0x17,
   MESSAGE: 0x32, // the reply to REQUEST_VERSION
   SCREENSHOT_REPLY: 0x33,
   REQUEST_SCREEN_TEXT: 0x41,

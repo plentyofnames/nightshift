@@ -9,7 +9,7 @@ import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';
 import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcrPreset } from './bcr32/checks.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
-import { check17, check18, check19, check23, sceneReload, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
+import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
 import { DEFAULT_HARDWARE, validHardware } from './patch/hardware.js';
 import { projectFromJson } from './patch/project.js';
 
@@ -41,6 +41,12 @@ const CHECKS = [
   { id: 28, gig: true, title: 'Func + Group while playing', question: 'With the music running, press Func + Group a few times: do the knobs update, and does the music go on evenly?',
     before: ['controlfrog 0.12.'],
     manual: ['Fine', 'Stutters', 'No update'] },
+  // for the step editor (build plan, M4)
+  { id: 'S1', steps: true, title: 'Steps into notes', question: 'Which note does each of a step’s 16 degrees and 8 octaves play?',
+    before: ['Note sequencer 4 plays a test sequence to the Mac (USB C) only; the others don’t send there meanwhile.', 'You start and stop the clock when it asks.'],
+    run: checkSteps },
+  { id: 'S2', steps: true, title: 'Sequencer banks', question: 'How long is a note and a drum sequencer bank dump?',
+    before: ['Reads the active banks and bank 1; changes nothing.'], run: checkBanks },
   // the BCR32 on its first day (build plan, M4): nothing is written to it
   { id: 'B1', bcr: true, title: 'Firmware and ports', question: 'Which firmware does it run, and which MIDI ports does it show?',
     before: ['BCR32 on the Mac over USB.'], run: bcrIdentify },
@@ -160,13 +166,15 @@ async function runCheck(c) {
     const transport = midiTransport(pair.in, pair.out);
     client = new Fh2(transport);
     const heard = []; // CCs the FH-2 sends to USB C, for checks 3 and 25
+    const notes = []; // and its note-ons, for check S1
     const toClient = transport.onmessage;
     transport.onmessage = (bytes) => {
       if (bytes.length === 3 && (bytes[0] & 0xf0) === 0xb0) heard.push([...bytes]);
+      if (bytes.length === 3 && (bytes[0] & 0xf0) === 0x90 && bytes[2] > 0) notes.push([...bytes]);
       toClient(bytes);
     };
     const rig = { client, send: (bytes) => transport.send(Uint8Array.from(bytes)), log, wait: (ms) => new Promise((r) => setTimeout(r, ms)), hardware: hardware(), ask,
-      heard: () => heard.splice(0) };
+      heard: () => heard.splice(0), notes: () => notes.splice(0) };
     const r = await c.run(rig);
     state.results[c.id] = { at: new Date().toISOString(), ...r };
     save();
@@ -258,7 +266,8 @@ function render() {
       state.error && h('span', { class: 'status' }, state.error),
       h('button', { type: 'button', class: 'btn', onclick: copy }, 'Copy results'),
       h('a', { class: 'btn', href: 'index.html' }, 'Night Shift')),
-    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig && !c.bcr).map(card),
+    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig && !c.bcr && !c.steps).map(card),
+      h('h2', { class: 'checks-head' }, 'For the step editor'), CHECKS.filter((c) => c.steps).map(card),
       h('h2', { class: 'checks-head' }, 'Before a gig'), CHECKS.filter((c) => c.gig).map(card),
       h('h2', { class: 'checks-head' }, 'BCR32, day one'), CHECKS.filter((c) => c.bcr).map(card),
       h('section', { class: 'check-card' }, h('h2', {}, 'Results'), h('pre', { class: 'log' }, resultsText()))));

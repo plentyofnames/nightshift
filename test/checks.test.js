@@ -7,7 +7,7 @@ import { DUMPS, CMD } from '../js/fh2/sysex.js';
 import { diff, getPath, setPath } from '../js/fh2/layout.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { EXAMPLE_HARDWARE, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
-import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY } from '../js/fh2/checks.js';
+import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY, stepNotes, checkSteps, STEP_SEQ } from '../js/fh2/checks.js';
 
 test('which rule a CC scaling follows', () => {
   const round = [0, 1, 2, 4, 64, 127].map((c) => [c, Math.round((c * 32) / 127)]);
@@ -128,4 +128,32 @@ test('a scene reload: your turn goes, your answer, the scene stays as saved', as
     error = e.message;
   }
   assert(error.includes('none of your saved scenes'), error);
+});
+
+test('steps into notes: one pass of the test sequence found in what was heard, from anywhere in it', () => {
+  const pass = (base, deg, oct) => [...deg.map((d) => base + d), ...oct.map((o) => base + o), ...Array(8).fill(base)];
+  const deg = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  const oct = [-36, -24, -12, 0, 12, 24, 36, 48];
+  const heard = [...pass(48, deg, oct).slice(10), ...pass(48, deg, oct), ...pass(48, deg, oct).slice(0, 5)];
+  eq(stepNotes(heard), { base: 48, degree: deg, octave: oct });
+  eq(stepNotes(pass(48, deg, oct).slice(3)), null, 'no whole pass');
+});
+
+test('the steps check plays the test sequence to USB C only, reads it, and puts everything back', async () => {
+  const { fh2, original, rig } = standIn();
+  const semis = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24, 26]; // a made-up mapping
+  let played = [];
+  rig.notes = () => played.splice(0);
+  rig.ask = async (q, answers) => {
+    const q4 = fh2.preset.noteSequencer[STEP_SEQ];
+    const ch = fh2.config.noteSequencer[STEP_SEQ].channel;
+    eq([fh2.config.noteSequencer[STEP_SEQ].toUsbC, fh2.config.noteSequencer[STEP_SEQ].toInternal, fh2.config.noteSequencer.filter((x) => x.toUsbC).length], [1, 0, 1], 'only it sends to the Mac');
+    const notes = q4.step.map((s) => 12 + 12 * s.octave + semis[s.degree]);
+    played = [...notes.slice(20), ...notes, ...notes].map((n) => [0x90 | ch, n, 100]);
+    return answers[0];
+  };
+  const r = await checkSteps(rig);
+  eq(r.lines[1], `degrees 0–15 (semitones from degree 0): ${semis.join(' ')}`);
+  eq(r.lines[0], 'degree 0, octave 3, root 0: note 48');
+  eq(diff(DUMPS[CMD.INSTALL_CONFIG].layout, original.config, fh2.config).length + diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'all back');
 });

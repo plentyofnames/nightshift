@@ -282,3 +282,78 @@ export function check17(rig, scenes = []) {
     return { summary, lines };
   });
 }
+
+// ---- steps, day one (build plan, the step editor): how a note sequencer's step becomes a note,
+// and what a sequencer bank dump holds.
+
+// The test sequence, on note sequencer 4: steps 1–16 go through the 16 degrees at octave 3, steps
+// 17–24 through the 8 octaves at degree 0, steps 25–32 stay at degree 0, octave 3 (to find the
+// start); root 0, 1/16, one gate per step.
+export const STEP_SEQ = 3;
+export function stepTestPreset(preset) {
+  const values = structuredClone(preset);
+  const q = values.noteSequencer[STEP_SEQ];
+  q.step.forEach((s, k) => Object.assign(s, { degree: k < 16 ? k : 0, octave: k < 16 ? 3 : k < 24 ? k - 16 : 3,
+    length: 0, ratchet: 0, reset: 0, gatesLow: 1, gatesHigh: 0, skip: 0, mute: 0 }));
+  Object.assign(q, { start: 0, end: 31, rate: 6, gateLength: 64, reset: 0, rootNote: 0, direction: 0, permutation: 0 });
+  values[`noteSequencerActive${STEP_SEQ}`] = 1;
+  values[`noteSequencerMute${STEP_SEQ}`] = 0;
+  return values;
+}
+// The test config: that sequencer alone sends to USB C (the Mac), on `channel`, and nowhere else.
+export function stepTestConfig(config, channel) {
+  const values = structuredClone(config);
+  const off = (x) => Object.assign(x, { toUsbC: 0 });
+  values.noteSequencer.forEach(off);
+  values.drumSequencer.forEach(off);
+  values.srr.forEach(off);
+  values.cvMidi.forEach(off);
+  Object.assign(values.noteSequencer[STEP_SEQ], { channel, toInternal: 0, toUsbA: 0, toUsbC: 1, toDin: 0, toSelect: 0 });
+  return values;
+}
+
+// From the notes heard (note numbers in order), one pass of the test sequence: the 32 in a row whose
+// last 8 are the same note as their 1st and 20th (degree 0, octave 3). { base (that note), degree:
+// 16 offsets from it, octave: 8 offsets } or null.
+export function stepNotes(notes) {
+  for (let i = 0; i + 32 <= notes.length; i++) {
+    const w = notes.slice(i, i + 32);
+    const base = w[24];
+    if (w.slice(24).every((n) => n === base) && w[0] === base && w[19] === base && w.slice(16, 24).some((n) => n !== base)) {
+      return { base, degree: w.slice(0, 16).map((n) => n - base), octave: w.slice(16, 24).map((n) => n - base) };
+    }
+  }
+  return null;
+}
+
+export function checkSteps(rig) {
+  return run(rig, async (start) => {
+    const channel = testChannel(start.config.values);
+    await install(rig, start.config, stepTestConfig(start.config.values, channel), `a test config (note sequencer ${STEP_SEQ + 1} to USB C, ch ${channel + 1})`);
+    await install(rig, start.preset, stepTestPreset(start.preset.values), 'a test sequence');
+    rig.notes();
+    await rig.ask('Start the clock (Logic, or the FH-2’s own) and let it run for about 4 bars, then stop it.', ['Done']);
+    const heard = rig.notes().filter((m) => (m[0] & 15) === channel).map((m) => m[1]);
+    rig.log(`${heard.length} notes on ch ${channel + 1}`);
+    const r = stepNotes(heard);
+    if (!r) return { summary: heard.length ? 'No whole pass of the test sequence: let it run longer' : 'No notes came: did the clock run?', lines: [`heard: ${heard.slice(0, 40).join(' ')}`] };
+    const lines = [`degree 0, octave 3, root 0: note ${r.base}`,
+      `degrees 0–15 (semitones from degree 0): ${r.degree.join(' ')}`,
+      `octaves 0–7 (semitones from octave 3): ${r.octave.join(' ')}`];
+    return { summary: `Degrees: ${r.degree.join(' ')} · octave 3 = note ${r.base}`, lines };
+  });
+}
+
+// The banks: how long each dump is, the active one and bank 1 (read only).
+export async function checkBanks(rig) {
+  const lines = [];
+  for (const [what, get] of [['note sequencer bank', (i) => rig.client.sequencerBank(i)], ['drum sequencer bank', (i) => rig.client.drumBank(i)]]) {
+    for (const i of [0, 1]) {
+      const m = await get(i);
+      const head = [...m.slice(0, 10)].map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      rig.log(`${what} ${i || 'active'}: ${m.length} bytes`);
+      lines.push(`${what} ${i ? i : '(active)'}: ${m.length} bytes, starting ${head}`);
+    }
+  }
+  return { summary: lines.map((l) => l.split(',')[0]).join(' · '), lines };
+}
