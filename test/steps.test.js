@@ -5,7 +5,7 @@ import { test, assert, eq } from './harness.js';
 import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { parseDump } from '../js/fh2/sysex.js';
-import { noteSequence, setStep, setSequence, gatesOf, drumSequence, setDrumStep, setLane, nextGate, nextDrum, stepPitch } from '../js/patch/steps.js';
+import { noteSequence, setStep, setSequence, gatesOf, drumSequence, setDrumStep, setLane, nextGate, nextDrum, stepPitch, stepNote, degreeName } from '../js/patch/steps.js';
 
 const local = () => parseDump(Deno.readFileSync(new URL('./local/preset.syx', import.meta.url))).values;
 
@@ -14,7 +14,9 @@ test('your note sequences as the editor reads them', () => {
   eq([q.start, q.end, q.rate, q.gateLength, q.reset, q.rootNote, q.active], [0, 7, 24, 48, 16, 0, true]);
   eq(q.steps[0], { degree: 5, octave: 1, length: 1, ratchet: false, reset: false, skip: false, mute: 0, gates: [1, 0, 0, 0, 0, 0, 0, 0] });
   eq(noteSequence(local(), 1).steps[0].gates[0], 2, 'sequence 2 starts on a tie');
-  eq(stepPitch(q.steps[0]), '5 · o1', 'numbers until the degrees are measured');
+  eq(stepPitch(q.steps[0]), 'A1', 'degree 5 (A) at octave 1: note 33');
+  eq([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((d) => stepNote({ degree: d, octave: 3 })), [48, 50, 52, 53, 55, 57, 59, 60, 49, 51, 53, 54, 56, 58, 60, 61], 'as your FH-2 played them (check S1)');
+  eq([degreeName(0), degreeName(7), degreeName(8), degreeName(10), degreeName(15), degreeName(0, 2)], ['C', 'C↑', 'C♯', 'F', 'C♯↑', 'D']);
 });
 
 test('editing a note step: gates over both fields, length, flags; nothing else moves', () => {

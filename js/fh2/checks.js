@@ -314,7 +314,9 @@ export function stepTestConfig(config, channel) {
 
 // From the notes heard (note numbers in order), one pass of the test sequence: the 32 in a row whose
 // last 8 are the same note as their 1st and 20th (degree 0, octave 3). { base (that note), degree:
-// 16 offsets from it, octave: 8 offsets } or null.
+// 16 offsets from it, octave: 8 offsets } or null. Failing that, a pass from step 1 cut short (the
+// clock stopped early, as in your first run): at least 17 notes, the ones after the 16th whole
+// octaves from the first; then `partial`, and only the octaves heard.
 export function stepNotes(notes) {
   for (let i = 0; i + 32 <= notes.length; i++) {
     const w = notes.slice(i, i + 32);
@@ -322,6 +324,11 @@ export function stepNotes(notes) {
     if (w.slice(24).every((n) => n === base) && w[0] === base && w[19] === base && w.slice(16, 24).some((n) => n !== base)) {
       return { base, degree: w.slice(0, 16).map((n) => n - base), octave: w.slice(16, 24).map((n) => n - base) };
     }
+  }
+  const base = notes[0];
+  const octaves = notes.slice(16, 24);
+  if (notes.length >= 17 && octaves.every((n) => (n - base) % 12 === 0) && (notes.length < 20 || notes[19] === base)) {
+    return { base, degree: notes.slice(0, 16).map((n) => n - base), octave: octaves.map((n) => n - base), partial: true };
   }
   return null;
 }
@@ -339,7 +346,8 @@ export function checkSteps(rig) {
     if (!r) return { summary: heard.length ? 'No whole pass of the test sequence: let it run longer' : 'No notes came: did the clock run?', lines: [`heard: ${heard.slice(0, 40).join(' ')}`] };
     const lines = [`degree 0, octave 3, root 0: note ${r.base}`,
       `degrees 0–15 (semitones from degree 0): ${r.degree.join(' ')}`,
-      `octaves 0–7 (semitones from octave 3): ${r.octave.join(' ')}`];
+      `octaves ${r.partial ? `0–${r.octave.length - 1}` : '0–7'} (semitones from octave 3): ${r.octave.join(' ')}`];
+    if (r.partial) lines.push('from one pass cut short, taken to start at step 1');
     return { summary: `Degrees: ${r.degree.join(' ')} · octave 3 = note ${r.base}`, lines };
   });
 }

@@ -64,6 +64,8 @@ The design mockups live on a private design canvas.
 - Config is structure plus CC mappings.
 - Preset holds the values: tempo, swing, direct levels, LFOs, smoothing, arp, portamento, transpose, Scala, envelopes, Euclid and SRR parameters, and the current sequences.
 - Sequencer banks are separate from both.
+- **A note step's pitch** (measured on your FH-2, check S1, 2026-11-06): degrees 0–7 are a major scale up from the root (C D E F G A B C), degrees 8–15 a semitone above each of them (C♯ D♯ F F♯ G♯ A♯ C C♯: the Launchpad's in-between pads). The step plays 12 × (octave + 1) + root + those semitones: degree 0 at octave 3, root 0, is note 48 (C3); octaves 0, 1, 2 gave 12, 24, 36. The root was 0: that it adds semitones is assumed.
+- **Bank dumps** (check S2, 2026-11-06): a note and a drum sequencer bank are both 8199 bytes (the active one and bank 1 alike), `F0 00 21 27 2F 15 00 01 00 00 …` and `F0 00 21 27 2F 17 00 02 00 00 …`. Each holds 28 sequences, so the layout is not the preset's; finding it needs dumps before and after saving a known sequence into a slot.
 - A program change on a set channel loads presets (or configs).
 
 **SysEx**

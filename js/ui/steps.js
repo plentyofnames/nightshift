@@ -9,7 +9,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, selectInput, perScene } from './controls.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playerLine } from './look.js';
-import { noteSequence, setStep, setSequence, setSequenceOn, nextGate, stepPitch, pitchLines, drumSequence, setDrumStep, nextDrum, setLane, setDrums,
+import { noteSequence, setStep, setSequence, setSequenceOn, nextGate, stepPitch, stepNote, pitchLines, degreeName, drumSequence, setDrumStep, nextDrum, setLane, setDrums,
   DIRECTIONS, PERMUTATIONS, SEQUENCERS, STEPS, GATES } from '../patch/steps.js';
 
 const field = (label, ...control) => h('label', { class: 'steps-field' }, h('span', {}, label), control);
@@ -57,7 +57,7 @@ function notes(values, j, sel, act) {
     toggle('On', q.active, () => act.edit(`${name} ${q.active ? 'off' : 'on'}`, setSequenceOn(j, { active: !q.active })), 'Runs in this scene'),
     toggle('Mute', q.muted, () => act.edit(`${name} ${q.muted ? 'unmuted' : 'muted'}`, setSequenceOn(j, { muted: !q.muted })))));
 
-  const pitchOf = (s) => s.octave * 16 + s.degree;
+  const pitchOf = (s) => stepNote(s, q.rootNote);
   const low = Math.min(...q.steps.map(pitchOf));
   const high = Math.max(...q.steps.map(pitchOf), low + 1);
   const col = (i, ...children) => h('div', { class: 'steps-col' + (inRange(i) ? '' : ' out') + (i === k ? ' sel' : '') }, children);
@@ -65,8 +65,8 @@ function notes(values, j, sel, act) {
     h('span', { class: 'lane-label' }, 'Step'),
     q.steps.map((s, i) => col(i, h('button', { type: 'button', class: 'step-num', 'aria-pressed': i === k ? 'true' : 'false', 'aria-label': `Step ${i + 1}`, onclick: () => pick(i) }, String(i + 1)))),
     h('span', { class: 'lane-label' }, 'Note'),
-    q.steps.map((s, i) => col(i, h('button', { type: 'button', class: 'step-note', 'aria-label': `Step ${i + 1}: ${stepPitch(s, q.rootNote, noteName)}`, onclick: () => pick(i) },
-      h('span', { class: 'bar', style: `height:${6 + Math.round((30 * (pitchOf(s) - low)) / (high - low))}px` }), h('span', { class: 'txt' }, pitchLines(s, q.rootNote, noteName).map((t) => h('span', {}, t)))))),
+    q.steps.map((s, i) => col(i, h('button', { type: 'button', class: 'step-note', 'aria-label': `Step ${i + 1}: ${stepPitch(s, q.rootNote)}`, onclick: () => pick(i) },
+      h('span', { class: 'bar', style: `height:${6 + Math.round((30 * (pitchOf(s) - low)) / (high - low))}px` }), h('span', { class: 'txt' }, pitchLines(s, q.rootNote).map((t) => h('span', {}, t)))))),
     h('span', { class: 'lane-label' }, 'Rhythm'),
     q.steps.map((s, i) => col(i, h('div', { class: 'step-gates' + (s.ratchet ? ' ratchet' : '') },
       s.gates.slice(0, s.length).map((g, n) => h('button', { type: 'button', class: `gate g${g}`, 'aria-label': `Step ${i + 1}, ${s.ratchet ? 'ratchet' : 'sub-step'} ${n + 1}: ${GATES[g]}`,
@@ -82,9 +82,11 @@ function stepEditor(q, k, step, set) {
   const buttons = (n, from, now, label, change) => h('span', { class: 'steps-buttons' }, range(n).map((i) => h('button', { type: 'button', class: 'btn small',
     'aria-pressed': i + from === now ? 'true' : 'false', onclick: () => i + from !== now && change(i + from) }, label(i + from))));
   return h('section', { class: 'step-editor', 'aria-label': `Step ${k + 1}` },
-    h('h3', {}, `Step ${k + 1} · ${stepPitch(s, q.rootNote, noteName)}`),
+    h('h3', {}, `Step ${k + 1} · ${stepPitch(s, q.rootNote)}`),
     h('div', { class: 'erows' },
-      row('Degree', buttons(16, 0, s.degree, String, (v) => step(k, `degree ${v}`, { degree: v }))),
+      // as on the Launchpad: the scale's eight, and the eight between them
+      row('Note', buttons(8, 0, s.degree, (d) => degreeName(d, q.rootNote), (v) => step(k, degreeName(v, q.rootNote), { degree: v })),
+        buttons(8, 8, s.degree, (d) => degreeName(d, q.rootNote), (v) => step(k, degreeName(v, q.rootNote), { degree: v }))),
       row('Octave', buttons(8, 0, s.octave, String, (v) => step(k, `octave ${v}`, { octave: v }))),
       row('Length', buttons(8, 1, s.length, String, (v) => step(k, `${v} sub-steps`, { length: v })),
         toggle('Ratchet', s.ratchet, () => step(k, s.ratchet ? 'no ratchet' : 'ratchet', { ratchet: !s.ratchet }), 'The sub-steps share one step')),

@@ -136,7 +136,11 @@ test('steps into notes: one pass of the test sequence found in what was heard, f
   const oct = [-36, -24, -12, 0, 12, 24, 36, 48];
   const heard = [...pass(48, deg, oct).slice(10), ...pass(48, deg, oct), ...pass(48, deg, oct).slice(0, 5)];
   eq(stepNotes(heard), { base: 48, degree: deg, octave: oct });
-  eq(stepNotes(pass(48, deg, oct).slice(3)), null, 'no whole pass');
+  eq(stepNotes(pass(48, deg, oct).slice(3)), null, 'no whole pass, and not from step 1');
+  // your first run: steps 1–19, then the clock stopped
+  const yours = [48, 50, 52, 53, 55, 57, 59, 60, 49, 51, 53, 54, 56, 58, 60, 61, 12, 24, 36];
+  eq(stepNotes(yours), { base: 48, degree: [0, 2, 4, 5, 7, 9, 11, 12, 1, 3, 5, 6, 8, 10, 12, 13], octave: [-36, -24, -12], partial: true });
+  eq(stepNotes(yours.slice(0, 12)), null, 'too short');
 });
 
 test('the steps check plays the test sequence to USB C only, reads it, and puts everything back', async () => {

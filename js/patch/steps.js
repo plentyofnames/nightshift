@@ -11,6 +11,8 @@
 // A drum lane: 32 steps, each off, on or accented, with its own first and last step, rate, reset
 // and mute; one reset for all eight.
 
+import { noteName, NOTE_NAMES } from './tables.js';
+
 export const GATES = ['off', 'on', 'tie'];
 export const DIRECTIONS = ['Forwards', 'Reverse', 'Alt', 'Alt2', 'Random', 'Random2', 'Random3']; // the manual's order
 export const PERMUTATIONS = ['Straight', 'Odd/Even', 'Halves', 'Inwards'];
@@ -18,9 +20,15 @@ export const SEQUENCERS = 4;
 export const STEPS = 32;
 export const LANES = 8;
 
-// The semitones of the 16 degrees above degree 0, once measured on your FH-2 (checks page, S1);
-// null until then, and steps show their degree and octave as numbers.
-export const DEGREE_SEMITONES = null;
+// The semitones of each degree above degree 0, as your FH-2 plays them (check S1, 2026-11-06):
+// degrees 0–7 are a major scale up from the root (C D E F G A B C), 8–15 a semitone above each of
+// them, the Launchpad's in-between pads (C♯ D♯ F F♯ G♯ A♯ C C♯). A step plays 12 × (octave + 1) +
+// root + that: degree 0 at octave 3 with root 0 is note 48, C3. (The root was 0 in the check: that
+// it adds semitones is assumed.)
+export const DEGREE_SEMITONES = [0, 2, 4, 5, 7, 9, 11, 12, 1, 3, 5, 6, 8, 10, 12, 13];
+export const stepNote = (s, rootNote = 0) => 12 * (s.octave + 1) + rootNote + DEGREE_SEMITONES[s.degree];
+// A degree's note name within the octave, "↑" when it lands in the next one (degrees 7, 14, 15).
+export const degreeName = (d, rootNote = 0) => `${NOTE_NAMES[(rootNote + DEGREE_SEMITONES[d]) % 12]}${rootNote % 12 + DEGREE_SEMITONES[d] >= 12 ? '↑' : ''}`;
 
 const preset = (path, value) => ({ dump: 'preset', path, value });
 
@@ -72,21 +80,14 @@ export const setSequenceOn = (j, { active, muted }) => [
 // The next gate of a sub-step when clicked: off → on → tie → off.
 export const nextGate = (g) => (g + 1) % 3;
 
-// A step's pitch in two short lines for its column: the note's name and octave once the degrees are
-// measured, else the degree and "o" + the octave.
-export function pitchLines(s, rootNote = 0, noteName = null) {
-  if (DEGREE_SEMITONES && noteName) {
-    const n = noteName(12 * (s.octave + 1) + rootNote + DEGREE_SEMITONES[s.degree]);
-    return [n.replace(/-?\d+$/, ''), n.match(/-?\d+$/)[0]];
-  }
-  return [String(s.degree), `o${s.octave}`];
+// A step's note in two short lines for its column: the name, and the octave number.
+export function pitchLines(s, rootNote = 0) {
+  const n = noteName(stepNote(s, rootNote));
+  return [n.replace(/-?\d+$/, ''), n.match(/-?\d+$/)[0]];
 }
 
-// A step's pitch as words: a note name once the degrees are measured, else "5 · o3".
-export function stepPitch(s, rootNote = 0, noteName = null) {
-  if (DEGREE_SEMITONES && noteName) return noteName(12 * (s.octave + 1) + rootNote + DEGREE_SEMITONES[s.degree]);
-  return `${s.degree} · o${s.octave}`;
-}
+// A step's note by name, "E3".
+export const stepPitch = (s, rootNote = 0) => noteName(stepNote(s, rootNote));
 
 // ---- the drum sequencer: hits and accents in 4-bit fields, steps m·8 + 0…3 low, + 4…7 high
 

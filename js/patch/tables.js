@@ -78,7 +78,7 @@ export const PARAM_NAMES = {
   nudgeFaster: 'nudge faster', nudgeSlower: 'nudge slower', tempoUp: 'tempo +0.1', tempoDown: 'tempo −0.1',
 };
 
-const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+export const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 export const noteName = (n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`; // 60 = C4
 
 // ---- shift register random generators (preset srr_*). Ranges from Expert Sleepers' preset
