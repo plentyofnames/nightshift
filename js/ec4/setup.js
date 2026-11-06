@@ -18,6 +18,7 @@
 import * as M from '../../vendor/lilypad/js/model.js';
 import { SETUP, GROUPS, KNOBS, SWITCHES, DEAD_CC, HIRES } from './pages.js';
 import { pathOf, bandsOf, displayCode } from './values.js';
+import { MODE_NAMES } from './feel.js';
 import { frame, pack, checksum } from '../../vendor/lilypad/js/proto.js';
 import { DUMPS, CMD } from '../fh2/sysex.js';
 import { fingerprint } from '../hash.js';
@@ -53,11 +54,13 @@ export function encoderOf(cell, view, channel) {
   const { map } = cell;
   const name = M.sanitizeName(cell.short);
   if (map.relative) return { type: M.T.CCR1, channel: map.channel, number: map.cc, mode: MODE.acc1, scale: SCALE.n127, lower: 0, upper: 127, name };
+  // its mode: how it turns (feel.js, from pagesOf), else as before
+  const feel = cell.feel ? MODE_NAMES.indexOf(cell.feel) : -1;
   if (map.bits === 14) {
     const bipolar = cell.setting.param === 'directLevel' && view.outputs[cell.setting.index]?.rangeIndex === 1; // ±5 V
-    return { type: M.T.CCAH, channel: map.channel, number: map.cc, mode: MODE.acc2, scale: bipolar ? SCALE.pm500 : SCALE.n1000, lower: 0, upper: M.HIRES_MAX, name };
+    return { type: M.T.CCAH, channel: map.channel, number: map.cc, mode: feel >= 0 ? feel : MODE.acc2, scale: bipolar ? SCALE.pm500 : SCALE.n1000, lower: 0, upper: M.HIRES_MAX, name };
   }
-  return { type: M.T.CCAB, channel: map.channel, number: map.cc, mode: MODE.acc1, scale: SWITCHES.has(cell.setting.param) ? SCALE.onoff : SCALE.n127, lower: 0, upper: 127, name };
+  return { type: M.T.CCAB, channel: map.channel, number: map.cc, mode: feel >= 0 ? feel : MODE.acc1, scale: SWITCHES.has(cell.setting.param) ? SCALE.onoff : SCALE.n127, lower: 0, upper: 127, name };
 }
 
 // What a push sends: a command's CC, 127 while held and 0 on release (key mode), with the

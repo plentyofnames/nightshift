@@ -4,6 +4,7 @@
 // page's object (on LIVE, of any object).
 
 import { halfFree } from '../ec4/pages.js';
+import { MODE_NAMES, SPEEDS, sweepOf } from '../ec4/feel.js';
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { SETUP, KNOBS, GROUPS } from '../ec4/pages.js';
 
@@ -45,6 +46,9 @@ export function renderEc4(view, model, colors, sel, act) {
     h('span', { class: 'note' }, `Setup ${SETUP + 1} · ${pages.length} page${pages.length === 1 ? "" : "s"} · CCs on ch ${channel + 1}`),
     h('span', { class: 'note', title: act.note || '' }, !act.link ? 'EC4 not linked'
       : act.link.ours ? `Linked · EC4 on page ${act.link.group + 1}` : `EC4 on setup ${act.link.setup + 1}`),
+    // how fast every knob turns, unless you picked otherwise for one (feel.js)
+    h('span', { class: 'ec4-speed', title: 'How far you turn for a whole setting, the same for all' }, 'Knob speed ',
+      SPEEDS.map(([v, label]) => h('button', { type: 'button', class: 'btn small', 'aria-pressed': act.speed === v ? 'true' : 'false', onclick: () => act.speed !== v && act.setSpeed(v) }, label))),
     h('button', { type: 'button', class: 'btn small', 'aria-pressed': act.thru ? 'true' : 'false', onclick: act.toggleThru,
       title: 'Passes the EC4’s knobs on to the FH-2. Off while Logic does that.' }, act.thru ? 'Thru on' : 'Thru off'),
     act.stray.length > 0 && h('span', { class: 'note' }, `${act.stray.length} CCs on no page`,
@@ -164,6 +168,9 @@ export function renderEc4(view, model, colors, sel, act) {
       row('Controls', c.gone ? 'gone from the patch' : `${sourceName(c.source) ?? 'Global'} · ${c.label.toLowerCase()}`),
       row('Sends', address(c)),
       row('Resolution', !c.map ? '—' : c.map.relative ? 'relative (up/down)' : c.map.bits === 14 ? '14-bit' : '7-bit'),
+      c.feel && row('Feel', h('select', { 'aria-label': `Feel of knob ${knob + 1}`, onchange: (e) => act.setFeel(c.key, e.target.value || null) },
+        h('option', { value: '', selected: c.feel === c.feelDefault && !c.feelMine }, `Default: ${c.feelDefault}`),
+        MODE_NAMES.map((m) => h('option', { value: m, selected: c.feelMine && c.feel === m }, `${m}${sweepOf(m) && c.map.bits === 7 ? ` · ${sweepOf(m)} steps` : ''}`)))),
       pushRow,
       placeRow),
     // on a LIVE page of your own: each LIVE page is a button (on it, or off it; from a LIVE page, moved there)

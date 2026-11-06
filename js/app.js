@@ -30,6 +30,7 @@ import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, place
 import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, pageRecords, SYNC_FORMAT, SYNC_MAX, HAS_013 } from './ec4/setup.js';
 import { fingerprint } from './hash.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
+import { speedOf, speedChange, feelChange } from './ec4/feel.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
 import { getPath, setPath } from './fh2/layout.js';
@@ -1590,6 +1591,8 @@ function render() {
     pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
     addLive: addLiveEc4, removeLive: removeLiveEc4, move: moveEc4, toLive: toLiveEc4,
     movePage: (id, d) => edit('Page moved', movePage(state.names, ec4Model(), id, d)),
+    speed: speedOf(state.names), setSpeed: (v) => edit(`Knob speed ${v}`, [speedChange(v)]),
+    setFeel: (key, mode) => edit(mode ? `Knob feel ${mode}` : 'Knob feel back to its default', [feelChange(key, mode)]),
     hide: (id, on) => edit(on ? 'Page hidden' : 'Page back on the EC4', hidePage(state.names, id, on)),
     share: (a, b) => ec4Edit('Two pages in one group', sharePage(state.names, ec4Model(), a, b)),
     split: (a) => edit('Page split again', splitPage(state.names, ec4Model(), a)),

@@ -21,6 +21,7 @@ import { encodeTarget, isUsed } from '../patch/mappings.js';
 import { replacesLevel } from '../patch/derive.js';
 import { PARAM_NAMES, COMMANDS, DRUM_LANES } from '../patch/tables.js';
 import { sanitizeName } from '../../vendor/lilypad/js/model.js';
+import { feelOf, defaultFeel, speedOf, feelIsMine } from './feel.js';
 
 export const SETUP = 14; // the EC4 setup Night Shift owns: setup 15 (16 is the MDMM's)
 export const GROUPS = 16;
@@ -404,6 +405,10 @@ export function pagesOf(view, names = {}) {
     for (const c of [...pg.cells, ...pg.pushes]) {
       if (!c) continue;
       c.map = mapOf(c.key);
+      // how the knob turns (feel.js): yours, or the default for its values and the knob speed
+      c.feel = c.map && !c.map.relative ? feelOf(names, c.key, c.map.bits) : null;
+      c.feelDefault = c.map && !c.map.relative ? defaultFeel(c.key, c.map.bits, speedOf(names)) : null;
+      c.feelMine = feelIsMine(names, c.key);
       c.lives = lives.filter((pg) => pg.cells.some((x) => x?.key === c.key)).map((pg) => pg.id);
       c.onLive = c.lives.length > 0;
       if (!c.map && !c.gone && pg.group != null) unmapped.add(c.key);
