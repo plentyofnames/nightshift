@@ -7,12 +7,14 @@
 //
 // scalaEnable as your FH-2 showed it (check T1, 2026-11-06): 0 off (the screen shows no note), 1 Scala
 // (the note, or "Scala Error"), 2 and 3 MTS (the retuned pitch, "61.00"). 3 is taken to be the "MTS
-// SYSEX" option the manual names for MTSMIDIClient. Whether scalaScl / scalaKbm count the slots from
-// 0 isn't known yet (T1's test files gave Scala Error throughout; check T2): taken so, 0 is slot 1.
+// SYSEX" option the manual names for MTSMIDIClient. scalaScl / scalaKbm count the slots from 0: number
+// n is slot n + 1 (check T2: 0 and 31 reached the 12-TET in slots 1 and 32). A 5-step scale with a
+// linear map (size 0) gave Scala Error in every slot, an ordinary 12-key map didn't: scalaMismatch
+// warns of such pairs.
 
 export const SLOTS = 32;
 export const TUNINGS = [[0, 'Off'], [1, 'Scala'], [2, 'MTS'], [3, 'MTS SysEx']];
-export const SLOT_FROM_PRESET = (v) => v + 1; // until T2 says otherwise
+export const SLOT_FROM_PRESET = (v) => v + 1;
 export const PRESET_FROM_SLOT = (slot) => slot - 1;
 
 const key = (kind, slot) => `scala:${kind}:${slot}`;
@@ -63,11 +65,25 @@ export function parseKbm(text) {
   if (lines.length < 7) return { ok: false, error: 'fewer than its 7 numbers' };
   const n = lines.slice(0, 7).map((l) => Number(l.split(/\s+/)[0]));
   if (n.some((x) => !Number.isFinite(x))) return { ok: false, error: 'its first 7 lines aren’t all numbers' };
-  const [size, first, last, middle, reference, frequency] = n;
-  const map = lines.slice(7, 7 + size);
-  if (map.length < size || map.some((m) => !/^(x|\d+)$/.test(m.split(/\s+/)[0]))) return { ok: false, error: `a map of ${size} keys expected` };
+  const [size, first, last, middle, reference, frequency, octave] = n;
+  const map = lines.slice(7, 7 + size).map((m) => m.split(/\s+/)[0]);
+  if (map.length < size || map.some((m) => !/^(x|\d+)$/.test(m))) return { ok: false, error: `a map of ${size} keys expected` };
   if (first > last || middle < 0 || middle > 127 || reference < 0 || reference > 127) return { ok: false, error: 'notes out of range' };
-  return { ok: true, size, reference, frequency };
+  return { ok: true, size, reference, frequency, octave, degrees: map.filter((m) => m !== 'x').map(Number) };
+}
+
+// Why a .scl and a .kbm (their texts) may give Scala Error together, or null: a linear map (size 0)
+// did on your FH-2 (check T2); a map reaching a degree the scale hasn't, or an octave past its notes,
+// doesn't fit it (the manual: a .kbm for a 7-tone scale with a 5-tone .scl).
+export function scalaMismatch(sclText, kbmText) {
+  const k = parseKbm(kbmText);
+  if (!k.ok) return `the .kbm: ${k.error}`;
+  if (k.size === 0) return 'a linear map (size 0) gave Scala Error on your FH-2';
+  if (sclText == null) return null;
+  const sc = parseScl(sclText);
+  if (!sc.ok) return `the .scl: ${sc.error}`;
+  const top = Math.max(k.octave, ...k.degrees);
+  return top > sc.count ? `the map reaches degree ${top}, the scale has ${sc.count} notes` : null;
 }
 
 // What a slot holds, for a list: "19-EDO (19 notes)" or "slot 5".

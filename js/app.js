@@ -992,9 +992,10 @@ function installScala(kind) {
     const free = files.findIndex((f) => !f) + 1 || 1;
     const slot = h('select', { 'aria-label': 'Slot' }, Array.from({ length: SLOTS }, (_, i) => h('option', { value: String(i + 1), selected: i + 1 === free }, slotLabel(files, i + 1))));
     const what = kind === 'scl' ? `${r.description || 'no description'} · ${r.count} notes` : `${r.size ? `${r.size} keys` : 'linear'} · note ${r.reference} at ${r.frequency} Hz`;
+    const warn = kind === 'kbm' && r.size === 0 ? 'A linear map (size 0) gave Scala Error on your FH-2: one with its keys listed works.' : null;
     const ok = await modal($('dialog'), {
       title: `Install ${file.name}?`,
-      body: [h('p', { class: 'note' }, what), h('label', { class: 'field' }, h('span', {}, `.${kind} slot`), slot),
+      body: [h('p', { class: 'note' }, what), warn && h('p', { class: 'problem' }, warn), h('label', { class: 'field' }, h('span', {}, `.${kind} slot`), slot),
         h('p', { class: 'note' }, 'Replaces what’s there: the FH-2 can’t say what that is.')],
       buttons: [{ label: 'Cancel', value: false }, { label: 'Install', value: true, primary: true }],
     });

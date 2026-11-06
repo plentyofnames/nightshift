@@ -2,7 +2,7 @@
 // (artboard 3), the Euclid pattern, clocks and transport, MIDI knobs and stored levels.
 // Every change goes through act.edit(label, changes), so it can be undone.
 
-import { TUNINGS, SLOTS, scalaFiles, slotLabel, voiceTuning, setTuning } from '../patch/scala.js';
+import { TUNINGS, SLOTS, scalaFiles, slotLabel, voiceTuning, setTuning, scalaMismatch } from '../patch/scala.js';
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
@@ -359,11 +359,16 @@ function tuningRows(s, act) {
     return Array.from({ length: SLOTS }, (_, i) => [i + 1, slotLabel(files, i + 1)]);
   };
   const known = TUNINGS.some(([v]) => v === t.enable);
+  // a pair Night Shift knows both of, that may not play together
+  const sclFile = scalaFiles(values.names, 'scl')[t.scl - 1];
+  const kbmFile = scalaFiles(values.names, 'kbm')[t.kbm - 1];
+  const clash = t.enable === 1 && kbmFile ? scalaMismatch(sclFile?.text ?? null, kbmFile.text) : null;
   return [
     sfield('Tuning', h('span', { class: 'tuning-buttons' }, TUNINGS.map(([v, name]) => h('button', { type: 'button', class: 'btn small', 'aria-pressed': v === t.enable ? 'true' : 'false',
       onclick: () => v !== t.enable && act.edit(v ? `${s.name} tuned by ${name}` : `${s.name}: no tuning`, setTuning(s.index, { enable: v })) }, name)), known ? null : h('span', { class: 'dim' }, ` value ${t.enable}`))),
     t.enable === 1 && sfield('Scale', selectInput(`.scl of ${s.name}`, t.scl, slots('scl'), (v) => tset('Scale', { scl: v })),
       selectInput(`.kbm of ${s.name}`, t.kbm, slots('kbm'), (v) => tset('Keyboard mapping', { kbm: v })), h('span', { class: 'dim', title: 'Slots of the .scl and .kbm files (Settings tab)' }, ' .scl · .kbm')),
+    clash && field('', h('span', { class: 'problem' }, `May show Scala Error: ${clash}`)),
     (t.enable === 2 || t.enable === 3) && field('', h('span', { class: 'dim' }, t.enable === 3 ? 'The FH-2’s MTS tuning, from MTS SysEx (MTSMIDIClient, say)' : 'The FH-2’s MTS tuning, from MIDI (MTS-ESP)')),
   ].filter(Boolean);
 }
