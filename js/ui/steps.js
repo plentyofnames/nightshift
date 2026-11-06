@@ -10,7 +10,7 @@ import { numberInput, selectInput, perScene } from './controls.js';
 import { DIVISIONS, noteName, NOTE_NAMES } from '../patch/tables.js';
 import { playerLine } from './look.js';
 import { noteSequence, setStep, setSequence, setSequenceOn, nextGate, stepPitch, stepNote, pitchLines, degreeName, drumSequence, setDrumStep, nextDrum, setLane, setDrums,
-  DIRECTIONS, PERMUTATIONS, SEQUENCERS, STEPS, GATES, BANK_SLOTS, bankBytes, noteSlot, drumSlot, loadNoteSlot, loadDrumSlot, slotSummary } from '../patch/steps.js';
+  DIRECTIONS, PERMUTATIONS, SEQUENCERS, STEPS, GATES, muteText, BANK_SLOTS, bankBytes, noteSlot, drumSlot, loadNoteSlot, loadDrumSlot, slotSummary } from '../patch/steps.js';
 
 const field = (label, ...control) => h('label', { class: 'steps-field' }, h('span', {}, label), control);
 const toggle = (label, on, onclick, title = '') => h('button', { type: 'button', class: 'btn small', 'aria-pressed': on ? 'true' : 'false', title, onclick }, label);
@@ -51,7 +51,7 @@ function notes(values, j, sel, act) {
     field('Rate', selectInput(`Rate of ${name}`, q.rate, RATES(q.rate), (v) => set('Rate', { rate: v }))),
     field('Gate', numberInput(`Gate length of ${name}`, q.gateLength, { min: 0, max: 127 }, (v) => set('Gate length', { gateLength: v })), q.gateLength ? '' : ' trigger'),
     field('Reset', numberInput(`Reset of ${name}`, q.reset, { min: 0, max: 127 }, (v) => set('Reset', { reset: v })), q.reset ? ' beats' : ' never'),
-    // the root as the Launchpad's keys set it, one octave: with 19 and 60 your FH-2 stopped answering (check S5)
+    // the root as the Launchpad's keys set it, one octave (it adds semitones: check S5)
     field('Root', selectInput(`Root of ${name}`, q.rootNote, [...NOTE_NAMES.map((n, i) => [i, n]), ...(q.rootNote > 11 ? [[q.rootNote, String(q.rootNote)]] : [])], (v) => set('Root', { rootNote: v }))),
     field('Direction', selectInput(`Direction of ${name}`, q.direction, DIRECTIONS.map((d, i) => [i, d]), (v) => set('Direction', { direction: v }))),
     field('Order', selectInput(`Permutation of ${name}`, q.permutation, PERMUTATIONS.map((d, i) => [i, d]), (v) => set('Permutation', { permutation: v }))),
@@ -74,7 +74,7 @@ function notes(values, j, sel, act) {
       s.gates.slice(0, s.length).map((g, n) => h('button', { type: 'button', class: `gate g${g}`, 'aria-label': `Step ${i + 1}, ${s.ratchet ? 'ratchet' : 'sub-step'} ${n + 1}: ${GATES[g]}`,
         onclick: () => step(i, `${GATES[nextGate(g)]} at ${n + 1}`, { gates: s.gates.map((x, m) => (m === n ? nextGate(g) : x)) }) }))))),
     h('span', { class: 'lane-label' }, 'Flags'),
-    q.steps.map((s, i) => col(i, h('span', { class: 'step-flags' }, [s.reset && 'R', s.skip && 'S', s.mute && `M${s.mute}`].filter(Boolean).join(' ')))));
+    q.steps.map((s, i) => col(i, h('span', { class: 'step-flags', title: s.mute ? `Muted ${muteText(s.mute).toLowerCase()}` : '' }, [s.reset && 'R', s.skip && 'S', s.mute && `M${Math.min(s.mute, 6)}`].filter(Boolean).join(' ')))));
 
   return [settings, perScene(grid), k == null ? h('p', { class: 'note' }, 'Click a step to edit it; a sub-step turns off, on, or into a tie.') : perScene(stepEditor(q, k, step, set))];
 }
@@ -92,7 +92,8 @@ function stepEditor(q, k, step, set) {
       row('Octave', buttons(8, 0, s.octave, String, (v) => step(k, `octave ${v}`, { octave: v }))),
       row('Length', buttons(8, 1, s.length, String, (v) => step(k, `${v} sub-steps`, { length: v })),
         toggle('Ratchet', s.ratchet, () => step(k, s.ratchet ? 'no ratchet' : 'ratchet', { ratchet: !s.ratchet }), 'The sub-steps share one step')),
-      row('Mute', buttons(8, 0, s.mute, (v) => (v ? String(v) : 'Never'), (v) => step(k, v ? `mute ${v}` : 'never muted', { mute: v }))),
+      // levels 1–6 as chances (check S5); 7 mutes always, as 6 does
+      row('Mute', buttons(7, 0, Math.min(s.mute, 6), muteText, (v) => step(k, v ? `muted ${muteText(v).toLowerCase()}` : 'never muted', { mute: v }))),
       row('Flags', toggle('Reset', s.reset, () => step(k, s.reset ? 'no reset' : 'reset', { reset: !s.reset }), 'The sequence starts again here'),
         toggle('Skip', s.skip, () => step(k, s.skip ? 'played' : 'skipped', { skip: !s.skip }))),
       row('Range', h('button', { type: 'button', class: 'btn small', disabled: k > q.end, onclick: () => set('Start', { start: k }) }, 'Starts here'),

@@ -3,17 +3,23 @@
 // are preset values, like everything else per scene.
 //
 // A note step: a degree (0–15) and an octave (0–7) for its pitch; a column of 1–8 sub-steps, each
-// off, on or a tie (it plays its note too, held into what follows: check S6, 2026-11-06), which last
-// a step each, or with ratchet on share one step; reset (the sequence starts again there), skip, and mute (0 never, 1–7 more and more
-// likely; the manual has 6 levels). A sequence: its first and last step (0-based), rate (24 ppqn
-// pulses, 0: its clock source), gate length (0: a trigger), reset (quarter notes, 0: never), root,
-// direction and permutation.
+// off, on or a tie (it plays its note too and holds it until just after the next begins), which last
+// a step each, or with ratchet on share one step; reset (the sequence starts again there), skip, and
+// mute (MUTE_CHANCE). A sequence: its first and last step (0-based), rate (24 ppqn pulses, 0: its
+// clock source), gate length (0: a trigger; else a share of each sub-step), reset (quarter notes, 0:
+// never), root (semitones added), direction and permutation. All as your FH-2 played them (checks
+// S1, S5, S6, 2026-11-06): DIRECTIONS 1–3 and PERMUTATIONS 1–3 in the manual's order, the random
+// directions 4–6 taken from it.
 // A drum lane: 32 steps, each off, on or accented, with its own first and last step, rate, reset
 // and mute; one reset for all eight.
 
 import { noteName, NOTE_NAMES } from './tables.js';
 
 export const GATES = ['off', 'on', 'tie'];
+// How likely each mute level mutes its step: about k in 6 for 1–6 (the manual's six levels), 7 as 6.
+// Measured over 33 passes (check S5): 9, 36, 52, 79, 88, 100 and 100 %.
+export const MUTE_CHANCE = [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1, 1];
+export const muteText = (m) => (m === 0 ? 'Never' : m >= 6 ? 'Always' : `${Math.round(100 * MUTE_CHANCE[m])}%`);
 export const DIRECTIONS = ['Forwards', 'Reverse', 'Alt', 'Alt2', 'Random', 'Random2', 'Random3']; // the manual's order
 export const PERMUTATIONS = ['Straight', 'Odd/Even', 'Halves', 'Inwards'];
 export const SEQUENCERS = 4;
@@ -23,8 +29,8 @@ export const LANES = 8;
 // The semitones of each degree above degree 0, as your FH-2 plays them (check S1, 2026-11-06):
 // degrees 0–7 are a major scale up from the root (C D E F G A B C), 8–15 a semitone above each of
 // them, the Launchpad's in-between pads (C♯ D♯ F F♯ G♯ A♯ C C♯). A step plays 12 × (octave + 1) +
-// root + that: degree 0 at octave 3 with root 0 is note 48, C3. (The root was 0 in the check: that
-// it adds semitones is assumed.)
+// root + that: degree 0 at octave 3 with root 0 is note 48, C3; the root adds semitones (roots 2, 7, 11
+// in check S5).
 export const DEGREE_SEMITONES = [0, 2, 4, 5, 7, 9, 11, 12, 1, 3, 5, 6, 8, 10, 12, 13];
 export const stepNote = (s, rootNote = 0) => 12 * (s.octave + 1) + rootNote + DEGREE_SEMITONES[s.degree];
 // A degree's note name within the octave, "↑" when it lands in the next one (degrees 7, 14, 15).

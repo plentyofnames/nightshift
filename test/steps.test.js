@@ -6,7 +6,7 @@ import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { parseDump } from '../js/fh2/sysex.js';
 import { noteSequence, setStep, setSequence, gatesOf, drumSequence, setDrumStep, setLane, nextGate, nextDrum, stepPitch, stepNote, degreeName,
-  bankBytes, bankMessage, noteSlot, drumSlot, loadNoteSlot, loadDrumSlot, slotSummary } from '../js/patch/steps.js';
+  bankBytes, bankMessage, noteSlot, drumSlot, loadNoteSlot, loadDrumSlot, slotSummary, muteText, MUTE_CHANCE } from '../js/patch/steps.js';
 import { bankTestSequence, bankTestDrums } from '../js/fh2/checks.js';
 import { NOTE_SLOT_SAVED, DRUM_SLOT_SAVED, bankWith } from './fixtures-banks.js';
 
@@ -88,4 +88,10 @@ test('a drum bank slot as your FH-2 saved the test pattern, and loaded into the 
   apply(p, loadDrumSlot(slot));
   const d = drumSequence(p.preset.values, p.config.values);
   eq([lanes(d), d.reset], [lanes(want), 9]);
+});
+
+test('mute levels as chances, as your FH-2 muted them (check S5)', () => {
+  eq([0, 1, 2, 3, 4, 5, 6, 7].map(muteText), ['Never', '17%', '33%', '50%', '67%', '83%', 'Always', 'Always']);
+  const measured = [9, 36, 52, 79, 88, 100, 100]; // % of 33 passes muted, levels 1–7
+  assert(measured.every((m, k) => Math.abs(m - 100 * MUTE_CHANCE[k + 1]) <= 13), 'within the spread of 33 passes');
 });

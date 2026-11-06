@@ -497,9 +497,9 @@ async function playRun(rig, start, specs, seconds) {
   rig.log('Installing four test sequences into the FH-2’s RAM…');
   await rig.client.install(start.preset, values);
   await rig.wait(SETTLE_MS);
-  // read back, once more after a pause should it not answer at once; your FH-2 didn't answer at all
-  // with the test sequences in (2026-11-06; it did again once your preset was back), so then the run
-  // goes on without it: the notes are what count
+  // read back, once more after a pause should it not answer at once: while the clock runs and the
+  // FH-2 sends a stream of notes to USB C, it answers no preset request there (your runs, 2026-11-06);
+  // then the run goes on without it, as the notes are what count
   let now = null;
   for (const pause of [0, 3000]) {
     try {
@@ -524,23 +524,23 @@ async function playRun(rig, start, specs, seconds) {
   rig.log(`${ons.length} notes`);
   const by = (list) => PLAY_CHANNELS.map((ch) => list.filter((m) => (m[0] & 15) === ch).map((m) => ({ note: m[1], t: m[3] ?? 0 })));
   const about = `${now ? 'read back after the install' : 'not read back: the FH-2 didn’t answer'}; ${early} notes before the clock was asked for`;
-  return { heard: by(ons), offs: by(offs), held, about };
+  return { heard: by(ons), offs: by(offs), held, about, read: !!now };
 }
 
-// S5: the root (sequencers 1–3 at roots 2, 7 and 11, within the octave the Launchpad's keys set:
-// with 19 and 60 your FH-2 stopped answering), the directions 1–3 (on those same three), and how
-// often each mute level mutes (sequencer 4: steps 1–8 at mute 0–7, fast).
+// S5: the root (sequencers 1–3 at roots 2, 7 and 11, within the octave the Launchpad's keys set),
+// the directions 1–3 (on those same three), and how often each mute level mutes (sequencer 4: steps
+// 1–8 at mute 0–7, fast).
 export const PLAY_ROOTS = [2, 7, 11];
 export function checkPlay(rig) {
   return run(rig, async (start) => {
     const roots = PLAY_ROOTS;
     const specs = [...roots.map((r, j) => ({ seq: { rootNote: r, direction: j + 1 }, step: scale8 })),
       { seq: { rate: 2 }, step: (k) => (k < 8 ? { degree: k, gatesLow: 1, mute: k } : {}) }];
-    const { heard, held, about } = await playRun(rig, start, specs, 30);
+    const { heard, held, about, read } = await playRun(rig, start, specs, 30);
     const orders = roots.map((r, j) => orderOf(heard[j].map((x) => x.note)));
     const lines = roots.map((r, j) => {
       const o = orders[j];
-      const kept = held[j].rootNote === r && held[j].direction === j + 1 ? '' : ` (the FH-2 keeps root ${held[j].rootNote}, direction ${held[j].direction})`;
+      const kept = !read || (held[j].rootNote === r && held[j].direction === j + 1) ? '' : ` (the FH-2 keeps root ${held[j].rootNote}, direction ${held[j].direction})`;
       return heard[j].length ? `direction ${j + 1}, root ${r}${kept}: lowest note ${o.lowest} (root 0 gives 48), notes ${o.spread.join(' ')} above it, order ${o.order ?? `unclear (${o.steps.slice(0, 20).join(' ')})`}`
         : `direction ${j + 1}, root ${r}${kept}: no notes`;
     });
@@ -549,7 +549,7 @@ export function checkPlay(rig) {
     const muted = [1, 2, 3, 4, 5, 6, 7].map((k) => (passes ? Math.round(100 * (1 - m.steps.filter((s) => s === k).length / passes)) : null));
     lines.push(passes ? `mute 1–7 over ${passes} passes, % of passes muted: ${muted.join(' ')}` : 'mutes: no notes');
     lines.push(`notes per sequencer: ${heard.map((x) => x.length).join(', ')}`, `test sequences ${about}`);
-    const summary = `Directions 1–3: ${orders.map((o) => o.order ?? '?').join(', ')} · roots ${roots.join(', ')} (kept as ${held.slice(0, 3).map((q) => q.rootNote).join(', ')}) → +${orders.map((o) => (o.lowest == null ? '?' : o.lowest - 48)).join(', +')}`
+    const summary = `Directions 1–3: ${orders.map((o) => o.order ?? '?').join(', ')} · roots ${roots.join(', ')} (${read ? `kept as ${held.slice(0, 3).map((q) => q.rootNote).join(', ')}` : 'not read back'}) → +${orders.map((o) => (o.lowest == null ? '?' : o.lowest - 48)).join(', +')}`
       + (passes ? ` · mutes 1–7: ${muted.join(' ')} %` : '');
     return { summary: heard.some((x) => x.length) ? summary : 'No notes came: did the clock run?', lines };
   });
