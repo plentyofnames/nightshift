@@ -365,3 +365,181 @@ export async function checkBanks(rig) {
   }
   return { summary: lines.map((l) => l.split(',')[0]).join(' · '), lines };
 }
+
+// ---- what a bank holds (S3 note, S4 drum): a known sequence saved into two slots on the Launchpad,
+// the bank read before and after each save. The active bank is put back at the end, the slots too.
+
+// A note sequence whose fields all differ, to find each in the bank: steps through the degrees,
+// octaves, lengths and mutes, ratchet on every other, gates off/on/tie in turn, a skip on 30, a
+// reset on 31; first 3, last 30, rate 12, gate 77, reset 5, root 3, direction 2, permutation 1.
+export function bankTestSequence(preset, j = 0) {
+  const values = structuredClone(preset);
+  const q = values.noteSequencer[j];
+  q.step.forEach((s, k) => {
+    const gates = Array.from({ length: 8 }, (_, n) => (k + n) % 3);
+    Object.assign(s, { degree: k % 16, octave: k % 8, length: k % 8, ratchet: k % 2, reset: k === 30 ? 1 : 0, skip: k === 29 ? 1 : 0, mute: k % 8,
+      gatesLow: gates.slice(0, 7).reduce((v, g, n) => v | (g << (2 * n)), 0), gatesHigh: gates[7] });
+  });
+  Object.assign(q, { start: 2, end: 29, rate: 12, gateLength: 77, reset: 5, rootNote: 3, direction: 2, permutation: 1 });
+  return values;
+}
+// A drum sequence likewise: lane i has steps k on where (k + i) % 3 > 0, accented where (k + i) % 5 === 0
+// (and on); lane i's first i, last 31 − i, rate 6 + i, reset i + 1, lanes 3 and 6 muted; reset 9.
+export function bankTestDrums(preset) {
+  const values = structuredClone(preset);
+  const d = values.drumSequencer[0];
+  d.lane.forEach((l, i) => {
+    const on = (k) => (k + i) % 3 > 0;
+    const acc = (k) => on(k) && (k + i) % 5 === 0;
+    for (let m = 0; m < 4; m++) {
+      const nib = (f, from) => [0, 1, 2, 3].reduce((v, n) => v | (f(m * 8 + from + n) ? 1 << n : 0), 0);
+      l.hitsLow[m].value = nib(on, 0);
+      l.hitsHigh[m].value = nib(on, 4);
+      l.accentsLow[m].value = nib(acc, 0);
+      l.accentsHigh[m].value = nib(acc, 4);
+    }
+    Object.assign(l, { start: i, end: 31 - i, rate: 6 + i, reset: i + 1, mute: i === 3 || i === 6 ? 1 : 0 });
+  });
+  d.reset = 9;
+  return values;
+}
+
+// Where two bank messages differ: [{ from, to }] runs of changed byte offsets.
+export function changedRuns(a, b) {
+  const runs = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if (a[i] === b[i]) continue;
+    const last = runs.at(-1);
+    if (last && i - last.to <= 4) last.to = i; // short gaps belong to the same run
+    else runs.push({ from: i, to: i });
+  }
+  return runs;
+}
+const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(' ');
+
+function bankCheck(rig, { read, preset, what, where }) {
+  return run(rig, async (start) => {
+    const before = await read();
+    try {
+      await install(rig, start.preset, preset(start.preset.values), `a test ${what}`);
+      await rig.ask(`On the Launchpad: ${where}, and press the first slot (top left). Then Done.`, ['Done']);
+      const one = await read();
+      await rig.ask('The same into the slot right of it. Then Done.', ['Done']);
+      const two = await read();
+      const r1 = changedRuns(before, one);
+      const r2 = changedRuns(one, two);
+      const span = (r) => (r.length ? `${r[0].from}–${r.at(-1).to} (${r.reduce((n, x) => n + x.to - x.from + 1, 0)} bytes in ${r.length} runs)` : 'nothing');
+      const lines = [`message: ${before.length} bytes, header ${hex(before.slice(0, 10))}`,
+        `first save changed bytes ${span(r1)}`, `second save changed bytes ${span(r2)}`];
+      if (r1.length && r2.length) lines.push(`second slot starts ${r2[0].from - r1[0].from} bytes after the first`);
+      if (r1.length) lines.push(`first slot as saved, from byte ${r1[0].from}: ${hex(one.slice(r1[0].from, Math.min(r1.at(-1).to + 1, r1[0].from + 400)))}`);
+      return { summary: r1.length ? `A slot: bytes ${span(r1)}; the next ${r2.length ? `${r2[0].from - r1[0].from} bytes on` : 'unchanged'}` : 'Nothing changed: was it saved into the active bank?', lines };
+    } finally {
+      rig.log('Putting your bank back…');
+      await rig.client.installBank(before);
+      await rig.wait(SETTLE_MS);
+    }
+  });
+}
+
+export const checkNoteBank = (rig) => bankCheck(rig, { read: () => rig.client.sequencerBank(0), preset: (p) => bankTestSequence(p, 0), what: 'note sequence on note sequencer 1',
+  where: 'note sequencer 1, Settings view (9/4): hold Save (2/9, red)' });
+export const checkDrumBank = (rig) => bankCheck(rig, { read: () => rig.client.drumBank(0), preset: bankTestDrums, what: 'drum sequence',
+  where: 'the drum sequencer’s overview: hold Save (6/9, red)' });
+
+// ---- how sequences play (S5, S6): the four note sequencers at once, each to the Mac (USB C) on a
+// channel of its own (13–16), nothing else sent there; one clock run each.
+
+const PLAY_CHANNELS = [12, 13, 14, 15];
+function playConfig(config) {
+  const values = structuredClone(config);
+  const off = (x) => Object.assign(x, { toUsbC: 0 });
+  [values.noteSequencer, values.drumSequencer, values.srr, values.cvMidi].forEach((list) => list.forEach(off));
+  values.noteSequencer.forEach((q, j) => Object.assign(q, { channel: PLAY_CHANNELS[j], toInternal: 0, toUsbA: 0, toUsbC: 1, toDin: 0, toSelect: 0 }));
+  return values;
+}
+// `specs[j]`: { seq (its settings), step(k) (each step's fields) } for sequencer j. Unset steps are silent.
+export function playPreset(preset, specs) {
+  const values = structuredClone(preset);
+  specs.forEach((sp, j) => {
+    const q = values.noteSequencer[j];
+    q.step.forEach((s, k) => Object.assign(s, { degree: 0, octave: 3, length: 0, ratchet: 0, reset: 0, gatesLow: 0, gatesHigh: 0, skip: 0, mute: 0 }, sp.step(k)));
+    Object.assign(q, { start: 0, end: 7, rate: 6, gateLength: 64, reset: 0, rootNote: 0, direction: 0, permutation: 0 }, sp.seq);
+    values[`noteSequencerActive${j}`] = 1;
+    values[`noteSequencerMute${j}`] = 0;
+  });
+  return values;
+}
+const scale8 = (k) => (k < 8 ? { degree: k, gatesLow: 1 } : {}); // steps 1–8: C D E F G A B C, one gate each
+
+// The step orders the manual names, for 8 steps (0-based), as one repeating cycle each.
+export const ORDERS = {
+  Forwards: [0, 1, 2, 3, 4, 5, 6, 7], Reverse: [7, 6, 5, 4, 3, 2, 1, 0], Alt: [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1],
+  Alt2: [0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1, 0], 'Odd/Even': [0, 2, 4, 6, 1, 3, 5, 7], Halves: [0, 4, 1, 5, 2, 6, 3, 7], Inwards: [0, 7, 1, 6, 2, 5, 3, 4],
+};
+// The steps heard (as 0–7, by each note's rank among the notes heard), and the order they follow:
+// a name of ORDERS, 'random' (every step, in no fixed order), or null.
+export function orderOf(notes) {
+  const ranks = [...new Set(notes)].sort((a, b) => a - b);
+  const steps = notes.map((n) => ranks.indexOf(n));
+  const fits = (cycle) => cycle.some((_, at) => steps.every((s, i) => s === cycle[(at + i) % cycle.length]));
+  const name = steps.length >= 10 ? Object.keys(ORDERS).find((k) => fits(ORDERS[k])) : null;
+  return { steps, lowest: ranks[0], spread: ranks.map((n) => n - ranks[0]), order: name ?? (ranks.length === 8 && steps.length >= 24 ? 'random' : null) };
+}
+
+async function playRun(rig, start, specs, seconds) {
+  await install(rig, start.config, playConfig(start.config.values), 'a test config (the note sequencers to USB C, ch 13–16)');
+  await install(rig, start.preset, playPreset(start.preset.values, specs), 'four test sequences');
+  rig.notes();
+  await rig.ask(`Start the clock and let it run for about ${seconds} s, then stop it.`, ['Done']);
+  const heard = rig.notes();
+  rig.log(`${heard.length} notes`);
+  return PLAY_CHANNELS.map((ch) => heard.filter((m) => (m[0] & 15) === ch).map((m) => ({ note: m[1], t: m[3] ?? 0 })));
+}
+
+// S5: the root (sequencers 1–3 at roots 7, 19 and 60), the directions 1–3 (on those same three),
+// and how often each mute level mutes (sequencer 4: steps 1–8 at mute 0–7, fast).
+export function checkPlay(rig) {
+  return run(rig, async (start) => {
+    const roots = [7, 19, 60];
+    const specs = [...roots.map((r, j) => ({ seq: { rootNote: r, direction: j + 1 }, step: scale8 })),
+      { seq: { rate: 2 }, step: (k) => (k < 8 ? { degree: k, gatesLow: 1, mute: k } : {}) }];
+    const heard = await playRun(rig, start, specs, 30);
+    const orders = roots.map((r, j) => orderOf(heard[j].map((x) => x.note)));
+    const lines = roots.map((r, j) => {
+      const o = orders[j];
+      return heard[j].length ? `direction ${j + 1}, root ${r}: lowest note ${o.lowest} (root 0 gives 48), notes ${o.spread.join(' ')} above it, order ${o.order ?? `unclear (${o.steps.slice(0, 20).join(' ')})`}`
+        : `direction ${j + 1}, root ${r}: no notes`;
+    });
+    const m = orderOf(heard[3].map((x) => x.note));
+    const passes = m.steps.filter((s) => s === 0).length;
+    const muted = [1, 2, 3, 4, 5, 6, 7].map((k) => (passes ? Math.round(100 * (1 - m.steps.filter((s) => s === k).length / passes)) : null));
+    lines.push(passes ? `mute 1–7 over ${passes} passes, % of passes muted: ${muted.join(' ')}` : 'mutes: no notes');
+    const summary = `Directions 1–3: ${orders.map((o) => o.order ?? '?').join(', ')} · roots 7, 19, 60 → +${orders.map((o) => (o.lowest == null ? '?' : o.lowest - 48)).join(', +')}`
+      + (passes ? ` · mutes 1–7: ${muted.join(' ')} %` : '');
+    return { summary: heard.some((x) => x.length) ? summary : 'No notes came: did the clock run?', lines };
+  });
+}
+
+// S6: the permutations 1–3 (sequencers 1–3), and length against ratchet (sequencer 4: a step of 4
+// sub-steps, the same with ratchet, a step on then tie, a plain step), timed.
+export function checkOrders(rig) {
+  return run(rig, async (start) => {
+    const rhythm = [{ degree: 0, length: 3, gatesLow: 85 }, { degree: 2, length: 3, ratchet: 1, gatesLow: 85 }, { degree: 4, length: 1, gatesLow: 9 }, { degree: 7, gatesLow: 1 }];
+    const specs = [1, 2, 3].map((p) => ({ seq: { permutation: p }, step: scale8 }));
+    specs.push({ seq: { end: 3 }, step: (k) => rhythm[k] ?? {} });
+    const heard = await playRun(rig, start, specs, 15);
+    const lines = [1, 2, 3].map((p, j) => {
+      const o = orderOf(heard[j].map((x) => x.note));
+      return heard[j].length ? `permutation ${p}: ${o.order ?? `unclear (${o.steps.slice(0, 20).join(' ')})`}` : `permutation ${p}: no notes`;
+    });
+    const r = heard[3];
+    if (r.length) {
+      const names = ['A', 'B', 'C', 'D']; // the four rhythm steps, by note (C, E, G, C above)
+      const ranks = [...new Set(r.map((x) => x.note))].sort((a, b) => a - b);
+      const line = r.slice(0, 24).map((x, i) => `${names[ranks.indexOf(x.note)] ?? '?'}${i ? `+${Math.round(x.t - r[i - 1].t)}` : ''}`).join(' ');
+      lines.push(`rhythm (A: 4 sub-steps, B: 4 with ratchet, C: on then tie, D: one; +ms since the note before): ${line}`);
+    } else lines.push('rhythm: no notes');
+    return { summary: heard.some((x) => x.length) ? `Permutations 1–3: ${lines.slice(0, 3).map((l) => l.split(': ')[1]).join(', ')}` : 'No notes came: did the clock run?', lines };
+  });
+}

@@ -7,7 +7,7 @@ import { DUMPS, CMD } from '../js/fh2/sysex.js';
 import { diff, getPath, setPath } from '../js/fh2/layout.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { EXAMPLE_HARDWARE, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
-import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY, stepNotes, checkSteps, STEP_SEQ } from '../js/fh2/checks.js';
+import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY, stepNotes, checkSteps, STEP_SEQ, ORDERS, orderOf, changedRuns, bankTestSequence, bankTestDrums, checkNoteBank, checkPlay, checkOrders } from '../js/fh2/checks.js';
 
 test('which rule a CC scaling follows', () => {
   const round = [0, 1, 2, 4, 64, 127].map((c) => [c, Math.round((c * 32) / 127)]);
@@ -160,4 +160,102 @@ test('the steps check plays the test sequence to USB C only, reads it, and puts 
   eq(r.lines[1], `degrees 0–15 (semitones from degree 0): ${semis.join(' ')}`);
   eq(r.lines[0], 'degree 0, octave 3, root 0: note 48');
   eq(diff(DUMPS[CMD.INSTALL_CONFIG].layout, original.config, fh2.config).length + diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'all back');
+});
+
+test('step orders: each of the manual’s, found from anywhere in it; random when no cycle fits', () => {
+  const scale = [48, 50, 52, 53, 55, 57, 59, 60];
+  for (const [name, cycle] of Object.entries(ORDERS)) {
+    const heard = Array.from({ length: 40 }, (_, i) => scale[cycle[(i + 3) % cycle.length]]);
+    eq(orderOf(heard).order, name, name);
+  }
+  const shuffled = [3, 7, 0, 2, 2, 5, 1, 6, 4, 0, 7, 3, 5, 6, 1, 4, 2, 0, 7, 7, 3, 1, 6, 5, 4, 2].map((k) => scale[k] + 7);
+  eq([orderOf(shuffled).order, orderOf(shuffled).lowest, orderOf(shuffled).spread], ['random', 55, [0, 2, 4, 5, 7, 9, 11, 12]]);
+});
+
+test('bank test patterns: every field differs, and the runs of changed bytes are found', () => {
+  const { preset } = examplePatch();
+  const q = bankTestSequence(preset.values).noteSequencer[0];
+  eq([q.start, q.end, q.rate, q.gateLength, q.reset, q.rootNote, q.direction, q.permutation], [2, 29, 12, 77, 5, 3, 2, 1]);
+  eq([q.step[5].degree, q.step[5].octave, q.step[5].length, q.step[5].ratchet, q.step[5].mute, q.step[30].reset, q.step[29].skip], [5, 5, 5, 1, 5, 1, 1]);
+  const d = bankTestDrums(preset.values).drumSequencer[0];
+  eq([d.reset, d.lane[3].mute, d.lane[2].start, d.lane[2].end, d.lane[2].rate], [9, 1, 2, 29, 8]);
+  const a = new Uint8Array(100);
+  const b = Uint8Array.from(a);
+  b[10] = 1; b[12] = 2; b[40] = 3; b[41] = 4;
+  eq(changedRuns(a, b), [{ from: 10, to: 12 }, { from: 40, to: 41 }]);
+});
+
+// A stand-in bank: a save writes the test sequence's start, end and rate into slot n at 300 · n.
+function bankRig() {
+  const s = standIn();
+  let bank = new Uint8Array(8199).fill(0);
+  bank.set([0xf0, 0x00, 0x21, 0x27, 0x2f, 0x15, 0x00, 0x01], 0);
+  const original = Uint8Array.from(bank);
+  let slot = 0;
+  s.rig.client.sequencerBank = async () => Uint8Array.from(bank);
+  s.rig.client.installBank = async (bytes) => { bank = Uint8Array.from(bytes); };
+  s.rig.ask = async (q, answers) => {
+    const qq = s.fh2.preset.noteSequencer[0];
+    bank.set([qq.start, qq.end, qq.rate], 100 + 300 * slot++);
+    return answers[0];
+  };
+  return { ...s, original, bank: () => bank };
+}
+
+test('the note bank check: where each save lands, then your bank back', async () => {
+  const b = bankRig();
+  const r = await checkNoteBank(b.rig);
+  eq(r.lines[1], 'first save changed bytes 100–102 (3 bytes in 1 runs)');
+  eq(r.lines[3], 'second slot starts 300 bytes after the first');
+  eq(r.lines[4], 'first slot as saved, from byte 100: 02 1d 0c', 'start 2, end 29, rate 12');
+  eq([...b.bank()], [...b.original], 'the bank put back');
+});
+
+// A stand-in that plays the four test sequences: each step's note by the measured scale, in its order.
+function playRig(muteChance = (k) => k / 10) {
+  const s = standIn();
+  let played = [];
+  s.rig.notes = () => played.splice(0);
+  const semis = [0, 2, 4, 5, 7, 9, 11, 12, 1, 3, 5, 6, 8, 10, 12, 13];
+  const cycles = { 0: ORDERS.Forwards, 1: ORDERS.Reverse, 2: ORDERS.Alt, 3: ORDERS.Alt2 };
+  const perms = { 1: ORDERS['Odd/Even'], 2: ORDERS.Halves, 3: ORDERS.Inwards };
+  let rand = 1;
+  const next = () => ((rand = (rand * 48271) % 2147483647) / 2147483647);
+  s.rig.ask = async (q, answers) => {
+    let t = 0;
+    s.fh2.preset.noteSequencer.forEach((q4, j) => {
+      const ch = s.fh2.config.noteSequencer[j].channel;
+      const steps = q4.end === 3 ? [0, 1, 2, 3] : q4.permutation ? perms[q4.permutation] : cycles[q4.direction];
+      for (let pass = 0; pass < 20; pass++) {
+        for (const k of steps) {
+          const st = q4.step[k];
+          if (st.mute && next() < muteChance(st.mute)) continue;
+          const n = 12 * (st.octave + 1) + q4.rootNote + semis[st.degree];
+          const subs = st.length + 1;
+          for (let g = 0; g < subs; g++) {
+            const gate = (st.gatesLow >> (2 * g)) & 3;
+            t += st.ratchet ? 125 / subs : 125;
+            if (gate === 1) played.push([0x90 | ch, n, 100, t]);
+          }
+        }
+      }
+    });
+    return answers[0];
+  };
+  return s;
+}
+
+test('S5 against a stand-in: roots add, directions 1–3, mute chances', async () => {
+  const { rig, fh2, original } = playRig();
+  const r = await checkPlay(rig);
+  assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2 · roots 7, 19, 60 → +7, +19, +60'), r.summary);
+  assert(/mute 1–7 over 20 passes/.test(r.lines[3]), r.lines[3]);
+  eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'your preset back');
+});
+
+test('S6 against a stand-in: permutations 1–3, and the rhythm timed', async () => {
+  const { rig } = playRig();
+  const r = await checkOrders(rig);
+  eq(r.summary, 'Permutations 1–3: Odd/Even, Halves, Inwards');
+  assert(r.lines[3].includes('A A+125 A+125 A+125 B+31 B+31 B+31 B+31 C+125 D+250'), r.lines[3]);
 });

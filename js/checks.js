@@ -9,7 +9,7 @@ import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';
 import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcrPreset } from './bcr32/checks.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
-import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
+import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, checkNoteBank, checkDrumBank, checkPlay, checkOrders, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
 import { DEFAULT_HARDWARE, validHardware } from './patch/hardware.js';
 import { projectFromJson } from './patch/project.js';
 
@@ -47,6 +47,18 @@ const CHECKS = [
     run: checkSteps },
   { id: 'S2', steps: true, title: 'Sequencer banks', question: 'How long is a note and a drum sequencer bank dump?',
     before: ['Reads the active banks and bank 1; changes nothing.'], run: checkBanks },
+  { id: 'S3', steps: true, title: 'What a note bank holds', question: 'Where in a bank dump does a saved sequence go, and how is it stored?',
+    before: ['Note sequencer 1 gets a test sequence; you save it into two slots on the Launchpad when it asks.', 'Your active bank, config and preset come back afterwards.'],
+    run: checkNoteBank },
+  { id: 'S4', steps: true, title: 'What a drum bank holds', question: 'The same for a drum sequencer bank.',
+    before: ['The drum sequencer gets a test pattern; you save it into two slots on the Launchpad when it asks.', 'Your active bank, config and preset come back afterwards.'],
+    run: checkDrumBank },
+  { id: 'S5', steps: true, title: 'Root, directions, mutes', question: 'What does the root do, which direction is each of values 1–3, and how often does each mute level mute?',
+    before: ['All four note sequencers play test sequences to the Mac (USB C) only, on ch 13–16; you run the clock about 30 s.'],
+    run: checkPlay },
+  { id: 'S6', steps: true, title: 'Orders, length and ratchet', question: 'Which order is each permutation 1–3, and how do a step’s length, ratchet and tie play?',
+    before: ['As S5; you run the clock about 15 s.'],
+    run: checkOrders },
   // the BCR32 on its first day (build plan, M4): nothing is written to it
   { id: 'B1', bcr: true, title: 'Firmware and ports', question: 'Which firmware does it run, and which MIDI ports does it show?',
     before: ['BCR32 on the Mac over USB.'], run: bcrIdentify },
@@ -170,7 +182,7 @@ async function runCheck(c) {
     const toClient = transport.onmessage;
     transport.onmessage = (bytes) => {
       if (bytes.length === 3 && (bytes[0] & 0xf0) === 0xb0) heard.push([...bytes]);
-      if (bytes.length === 3 && (bytes[0] & 0xf0) === 0x90 && bytes[2] > 0) notes.push([...bytes]);
+      if (bytes.length === 3 && (bytes[0] & 0xf0) === 0x90 && bytes[2] > 0) notes.push([...bytes, performance.now()]);
       toClient(bytes);
     };
     const rig = { client, send: (bytes) => transport.send(Uint8Array.from(bytes)), log, wait: (ms) => new Promise((r) => setTimeout(r, ms)), hardware: hardware(), ask,
