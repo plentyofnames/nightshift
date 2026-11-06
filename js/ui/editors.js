@@ -2,6 +2,7 @@
 // (artboard 3), the Euclid pattern, clocks and transport, MIDI knobs and stored levels.
 // Every change goes through act.edit(label, changes), so it can be undone.
 
+import { TUNINGS, SLOTS, scalaFiles, slotLabel, voiceTuning, setTuning } from '../patch/scala.js';
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
@@ -345,6 +346,28 @@ function envelopeSvg(env, color) {
   return svg;
 }
 
+// A voice's tuning (preset, per scene): off, a Scala scale with its keyboard mapping (slots 1–32,
+// named where Night Shift installed them), or the FH-2's MTS tuning (patch/scala.js).
+function tuningRows(s, act) {
+  const values = act.values();
+  const c = values.preset?.converter[s.index];
+  if (!c) return [];
+  const t = voiceTuning(c);
+  const tset = (what, obj) => act.edit(`${what} of ${s.name}`, setTuning(s.index, obj));
+  const slots = (kind) => {
+    const files = scalaFiles(values.names, kind);
+    return Array.from({ length: SLOTS }, (_, i) => [i + 1, slotLabel(files, i + 1)]);
+  };
+  const known = TUNINGS.some(([v]) => v === t.enable);
+  return [
+    sfield('Tuning', h('span', { class: 'tuning-buttons' }, TUNINGS.map(([v, name]) => h('button', { type: 'button', class: 'btn small', 'aria-pressed': v === t.enable ? 'true' : 'false',
+      onclick: () => v !== t.enable && act.edit(v ? `${s.name} tuned by ${name}` : `${s.name}: no tuning`, setTuning(s.index, { enable: v })) }, name)), known ? null : h('span', { class: 'dim' }, ` value ${t.enable}`))),
+    t.enable === 1 && sfield('Scale', selectInput(`.scl of ${s.name}`, t.scl, slots('scl'), (v) => tset('Scale', { scl: v })),
+      selectInput(`.kbm of ${s.name}`, t.kbm, slots('kbm'), (v) => tset('Keyboard mapping', { kbm: v })), h('span', { class: 'dim', title: 'Slots of the .scl and .kbm files (Settings tab)' }, ' .scl · .kbm')),
+    t.enable === 2 && field('', h('span', { class: 'dim' }, 'The FH-2’s MTS tuning, from MIDI (MTS-ESP, say)')),
+  ].filter(Boolean);
+}
+
 export function voiceEditor(view, s, act, color) {
   const cv = s.raw;
   const set = (what, obj) => act.edit(`${what} of ${s.name}`, setConverter(s.index, obj));
@@ -423,7 +446,8 @@ export function voiceEditor(view, s, act, color) {
     pf && sfield(L('Transpose', 'transpose'), numberInput(`Transpose of ${s.name}`, pf.transpose - 64, { min: -64, max: 63 }, (v) => pset('Transpose', { transpose: v + 64 })), ' semitones'),
     pf && oneLine && sfield(L('Glide', 'portamento'), slider(`Glide of ${s.name}`, pf.portamento, { min: 0, max: 127, show: (v) => (v ? String(v) : 'off') }, (v) => pset('Glide', { portamento: v }))),
     field('Bend range', numberInput(`Bend range of ${s.name}`, cv.bendRange, { min: 0, max: 48 }, (v) => set('Bend range', { bendRange: v })), ' semitones'),
-    cv.bendRange > 0 && field('Bend down', selectInput(`Bend down of ${s.name}`, cv.bendDown, [[0, 'Same as up'], ...Array.from({ length: 48 }, (_, i) => [i + 2, `${i + 1} semitones`])], (v) => set('Bend down', { bendDown: v })))));
+    cv.bendRange > 0 && field('Bend down', selectInput(`Bend down of ${s.name}`, cv.bendDown, [[0, 'Same as up'], ...Array.from({ length: 48 }, (_, i) => [i + 2, `${i + 1} semitones`])], (v) => set('Bend down', { bendDown: v }))),
+    ...tuningRows(s, act)));
   parts.push(h('h4', {}, 'Notes'), h('div', { class: 'erows' },
     field('Sustain pedal', selectInput(`Sustain of ${s.name}`, cv.sustain, SUSTAIN.map((n, i) => [i, n]), (v) => set('Sustain pedal', { sustain: v }))),
     oneLine && field('Legato gate', selectInput(`Interrupt gate of ${s.name}`, cv.interruptGate, [[0, 'Stays high'], [1, 'Short dip on legato notes']], (v) => set('Legato gate', { interruptGate: v }))),

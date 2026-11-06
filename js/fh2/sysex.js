@@ -17,6 +17,8 @@ export const CMD = {
   REQUEST_CONFIG: 0x21,
   REQUEST_VERSION: 0x22,
   REQUEST_PRESET: 0x23,
+  INSTALL_SCL: 0x11, // a Scala scale into one of 32 slots (1–32), as Expert Sleepers' Scala tool sends it
+  INSTALL_KBM: 0x12, // a Scala keyboard mapping likewise
   REQUEST_SEQ_BANK: 0x14, // 0: the active bank, 1–8: a bank in flash; the reply is an INSTALL_SEQ_BANK
   INSTALL_SEQ_BANK: 0x15,
   REQUEST_DRUM_BANK: 0x16, // likewise for the drum sequencer
@@ -70,6 +72,9 @@ export function message(cmd, payload = []) {
 const ascii = (s) => [...s].map((c) => c.charCodeAt(0) & 0x7f);
 
 export const displayMessage = (text) => message(CMD.DISPLAY_MESSAGE, [...ascii(text), 0]);
+// 11H / 12H: a .scl or .kbm file's text into slot 1–32 (there is no message to read one back).
+export const sclMessage = (slot, text) => message(CMD.INSTALL_SCL, [slot, ...ascii(text)]);
+export const kbmMessage = (slot, text) => message(CMD.INSTALL_KBM, [slot, ...ascii(text)]);
 // 47H: the open item, if it is a name, set to `text` (as the manual gives it: no 0 at the end)
 export const textEntry = (text) => message(CMD.TEXT_ENTRY, ascii(text));
 export const saveConfig = (slot = 0) => message(CMD.SAVE_CONFIG, [slot]); // 0 = the slot last loaded or saved

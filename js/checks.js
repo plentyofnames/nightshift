@@ -9,7 +9,7 @@ import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';
 import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcrPreset } from './bcr32/checks.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
-import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, checkNoteBank, checkDrumBank, checkPlay, checkOrders, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
+import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, checkNoteBank, checkDrumBank, checkPlay, checkOrders, checkTuning, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
 import { DEFAULT_HARDWARE, validHardware } from './patch/hardware.js';
 import { projectFromJson } from './patch/project.js';
 
@@ -59,6 +59,10 @@ const CHECKS = [
   { id: 'S6', steps: true, title: 'Orders, length and ratchet', question: 'Which order is each permutation 1–3, and how do a step’s length, ratchet and tie play (with a short gate, note-offs too)?',
     before: ['Stop the clock before Run.', 'As S5; you run the clock about 15 s.'],
     run: checkOrders },
+  // for tunings (build plan, M4: Scala/MTS)
+  { id: 'T1', tuning: true, title: 'Tuning choices', question: 'What does each of a voice’s tuning values do, and do its .scl and .kbm numbers count from 0 or from 1?',
+    before: ['Replaces .scl and .kbm slot 32 with a test scale: the FH-2 can’t say what’s there now.', 'A voice outside your rack plays a note per choice; leave the FH-2 on its overview.'],
+    run: checkTuning },
   // the BCR32 on its first day (build plan, M4): nothing is written to it
   { id: 'B1', bcr: true, title: 'Firmware and ports', question: 'Which firmware does it run, and which MIDI ports does it show?',
     before: ['BCR32 on the Mac over USB.'], run: bcrIdentify },
@@ -288,8 +292,9 @@ function render() {
       state.error && h('span', { class: 'status' }, state.error),
       h('button', { type: 'button', class: 'btn', onclick: copy }, 'Copy results'),
       h('a', { class: 'btn', href: 'index.html' }, 'Night Shift')),
-    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig && !c.bcr && !c.steps).map(card),
+    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig && !c.bcr && !c.steps && !c.tuning).map(card),
       h('h2', { class: 'checks-head' }, 'For the step editor'), CHECKS.filter((c) => c.steps).map(card),
+      h('h2', { class: 'checks-head' }, 'For tunings'), CHECKS.filter((c) => c.tuning).map(card),
       h('h2', { class: 'checks-head' }, 'Before a gig'), CHECKS.filter((c) => c.gig).map(card),
       h('h2', { class: 'checks-head' }, 'BCR32, day one'), CHECKS.filter((c) => c.bcr).map(card),
       h('section', { class: 'check-card' }, h('h2', {}, 'Results'), h('pre', { class: 'log' }, resultsText()))));

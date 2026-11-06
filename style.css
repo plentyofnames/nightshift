@@ -453,7 +453,7 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .step-editor { padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .step-editor h3 { margin: 0 0 6px; }
 .steps-buttons { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
-.steps-page .btn[aria-pressed='true'], .input-uses .btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.steps-page .btn[aria-pressed='true'], .input-uses .btn[aria-pressed='true'], .tuning-buttons .btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .bank-head { align-items: center; margin: 6px 0; }
 .bank-slots { display: flex; flex-direction: column; gap: 2px; }
 .bank-slot { display: grid; grid-template-columns: 24px minmax(0, 260px) 180px auto; gap: 10px; align-items: center; font-size: 12px; }
@@ -463,3 +463,4 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .bank-slot .strip i { height: 10px; background: var(--panel2); border-radius: 1px; }
 .bank-slot .strip i.on { background: #378ADD; }
 .bank-slot .strip i.out { opacity: 0.35; }
+.tuning-buttons { display: inline-flex; gap: 4px; flex-wrap: wrap; }

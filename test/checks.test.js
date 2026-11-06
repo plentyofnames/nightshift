@@ -7,7 +7,7 @@ import { DUMPS, CMD } from '../js/fh2/sysex.js';
 import { diff, getPath, setPath } from '../js/fh2/layout.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { EXAMPLE_HARDWARE, DEFAULT_HARDWARE } from '../js/patch/hardware.js';
-import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY, stepNotes, checkSteps, STEP_SEQ, ORDERS, orderOf, changedRuns, bankTestSequence, bankTestDrums, checkNoteBank, checkPlay, checkOrders } from '../js/fh2/checks.js';
+import { fitScaling, withMapping, testChannel, hiddenOutput, check19, sceneReload, SCALED_SETTINGS, checksBusy, CHECKS_BUSY_KEY, stepNotes, checkSteps, STEP_SEQ, ORDERS, orderOf, changedRuns, bankTestSequence, bankTestDrums, checkNoteBank, checkPlay, checkOrders, checkTuning, TUNING_CASES, TEST_SCL } from '../js/fh2/checks.js';
 
 test('which rule a CC scaling follows', () => {
   const round = [0, 1, 2, 4, 64, 127].map((c) => [c, Math.round((c * 32) / 127)]);
@@ -296,4 +296,24 @@ test('S5 asks the FH-2 again when it doesn’t answer at once after the install'
   };
   const r = await checkPlay(rig);
   assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2'), r.summary);
+});
+
+test('T1: a test voice outside the rack plays a note per tuning choice, the screen read each time', async () => {
+  const { rig, fh2, original } = standIn();
+  const installed = [];
+  rig.client.installScl = async (slot, text) => installed.push(['scl', slot, text.split('\n')[2]]);
+  rig.client.installKbm = async (slot) => installed.push(['kbm', slot]);
+  const sent = [];
+  rig.send = (b) => sent.push(b);
+  rig.client.screenText = async () => {
+    const c = fh2.preset.converter.find((x) => x.scalaEnable) ?? null;
+    return { mode: 0, lines: [c ? `Scala ${c.scalaEnable}` : '12-TET', '', '', ''] };
+  };
+  const r = await checkTuning(rig);
+  eq(installed, [['scl', 32, 'Night Shift test: 5 equal steps per octave'], ['kbm', 32]]);
+  eq(r.lines.length, TUNING_CASES.length + 1);
+  eq(r.lines[1], 'enable 1, .scl 31, .kbm 31 → 60: Scala 1 · 61: Scala 1');
+  eq(sent.filter((b) => (b[0] & 0xf0) === 0x90).length, 2 * TUNING_CASES.length, 'notes 60 and 61 per choice');
+  eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length + diff(DUMPS[CMD.INSTALL_CONFIG].layout, original.config, fh2.config).length, 0, 'config and preset back');
+  assert(TEST_SCL.includes(' 5\n'), 'five notes');
 });

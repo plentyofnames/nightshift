@@ -6,6 +6,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, selectInput, slider, perScene, ec4Label } from './controls.js';
 import { TAP_TYPES, START_STOP_TYPES, PARAM_NAMES, noteName } from '../patch/tables.js';
 import { settingsByName, settingsWarnings, settingText, calibrationOf } from '../fh2/menu.js';
+import { scalaFiles, voiceTuning } from '../patch/scala.js';
 
 const section = (title, ...rows) => h('section', { class: 'settings-section' }, h('h3', {}, title), rows);
 const field = (label, control, unit, title) => h('div', { class: 'erow', title }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control, unit));
@@ -103,7 +104,26 @@ export function renderSettings(view, c, p, sceneName, act) {
     cal ? (calRows.length ? h('div', { class: 'erows' }, calRows) : h('p', { class: 'note' }, 'No calibration for the jacks in your rack.')) : null,
     savedRows.length ? [h('h4', {}, 'Saved'), h('div', { class: 'erows' }, savedRows)] : null);
 
-  return h('div', { class: 'settings-page' }, head, scene, config, module, calibrations, controls);
+  // the Scala files Night Shift installed (the FH-2 can't say what its slots hold), and the voices of
+  // this scene using them
+  const users = (kind, slot) => (p?.converter ?? []).flatMap((cv, i) => {
+    const t = voiceTuning(cv);
+    const v = view.sources.find((x) => x.kind === 'voice' && x.index === i);
+    return v && t.enable === 1 && t[kind] === slot ? [v.name] : [];
+  });
+  const scalaRows = (kind) => scalaFiles(act.names, kind).filter(Boolean).map((f) => field(`.${kind} ${f.slot}`, [
+    h('span', {}, f.name), users(kind, f.slot).length ? h('span', { class: 'dim' }, ` · ${users(kind, f.slot).join(', ')}`) : null, ' ',
+    h('button', { type: 'button', class: 'btn small', disabled: act.busy, onclick: () => act.scala.resend(kind, f.slot), title: 'Into its slot again (on another FH-2, say)' }, 'Send again'), ' ',
+    h('button', { type: 'button', class: 'btn small', onclick: () => act.scala.forget(kind, f.slot), title: 'Out of the project only: the FH-2 keeps it' }, 'Forget')]));
+  const scala = act.scala && section('Scala files',
+    h('div', { class: 'settings-head' },
+      h('button', { type: 'button', class: 'btn', disabled: act.busy, onclick: () => act.scala.install('scl') }, 'Install .scl…'),
+      h('button', { type: 'button', class: 'btn', disabled: act.busy, onclick: () => act.scala.install('kbm') }, 'Install .kbm…'),
+      h('span', { class: 'note' }, '32 slots each, in the FH-2’s flash')),
+    [...scalaRows('scl'), ...scalaRows('kbm')].length ? h('div', { class: 'erows' }, scalaRows('scl'), scalaRows('kbm'))
+      : h('p', { class: 'note' }, 'None installed from Night Shift yet. A voice picks its scale in its panel (Tuning).'));
+
+  return h('div', { class: 'settings-page' }, head, scene, config, module, calibrations, scala, controls);
 }
 
 // "slot 1 at power-on · saved: 1, 5", from calibrationOf.

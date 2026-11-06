@@ -11,6 +11,8 @@ import { DUMPS, CMD } from './sysex.js';
 import { getPath, setPath, diff } from './layout.js';
 import { encodeTarget, isUsed, mappingsOf } from '../patch/mappings.js';
 import { isPresent } from '../patch/hardware.js';
+import { addVoice } from '../patch/edit.js';
+import { suggestChannel } from '../patch/alloc.js';
 
 // While a check runs, checks.html keeps a timestamp here, renewed every second; Night Shift's
 // live editing waits while it is fresh, so it doesn't take the test config in or send into it.
@@ -589,5 +591,55 @@ export function checkOrders(rig) {
     const pass = heard[3].length ? rhythmPass(heard[3], offs[3]) : null;
     lines.push(pass ? `rhythm (A 4 sub-steps, B 4 with ratchet, C 2 with ratchet, D on then tie, E one; ms from A, / a note-off): ${pass}` : 'rhythm: no notes', `test sequences ${about}`);
     return { summary: heard.some((x) => x.length) ? `Permutations 1–3: ${lines.slice(0, 3).map((l) => l.split(': ')[1]).join(', ')}` : 'No notes came: did the clock run?', lines };
+  });
+}
+
+// ---- check T1: a voice's tuning (preset scalaEnable, scalaScl, scalaKbm): what each enable value
+// does, and which numbers the slots go by. A test voice (CV only, outside your rack, on a channel
+// nothing listens to) plays a note for each choice, and the FH-2's screen is read: with Scala it
+// shows the note's frequency, with MTS its retuned pitch (manual). A test scale goes into .scl and
+// .kbm slot 32 (installs use slots 1–32): 5 equal steps per octave, note 60 at 261.63 Hz, so note
+// 61 is 300.53 Hz there (277.18 in 12-TET).
+
+export const TEST_SCL = '! nightshift-test.scl\n!\nNight Shift test: 5 equal steps per octave\n 5\n!\n 240.0\n 480.0\n 720.0\n 960.0\n 2/1\n';
+export const TEST_KBM = '! nightshift-test.kbm\n! map size (0: linear)\n0\n! first and last note\n0\n127\n! middle note\n60\n! reference note and frequency\n60\n261.625565\n! formal octave degree\n5\n';
+export const TUNING_CASES = [
+  { enable: 0, scl: 0, kbm: 0 }, { enable: 1, scl: 31, kbm: 31 }, { enable: 1, scl: 32, kbm: 32 }, { enable: 1, scl: 0, kbm: 0 },
+  { enable: 2, scl: 31, kbm: 31 }, { enable: 3, scl: 31, kbm: 31 },
+];
+
+export function checkTuning(rig) {
+  return run(rig, async (start) => {
+    const o = hiddenOutput(rig.hardware);
+    if (o == null) throw new Error('every CV output is in your rack: no jack to test on without hearing it');
+    const channel = suggestChannel(start.config.values, 15);
+    const config = structuredClone(start.config.values);
+    const voice = addVoice({ config, preset: start.preset.values }, { output: o, channel, outs: { cvOut: 1 } });
+    for (const c of voice) setPath(config, c.path, c.value);
+    const i = voice[0].path[1];
+    await install(rig, start.config, config, `a test config (voice ${i + 1} on output ${o + 1}, outside your rack, ch ${channel + 1})`);
+    rig.log('Installing the test scale into .scl and .kbm slot 32…');
+    await rig.client.installScl(32, TEST_SCL);
+    await rig.wait(SETTLE_MS);
+    await rig.client.installKbm(32, TEST_KBM);
+    await rig.wait(SETTLE_MS);
+    const lines = [];
+    for (const t of TUNING_CASES) {
+      const preset = structuredClone(start.preset.values);
+      Object.assign(preset.converter[i], { scalaEnable: t.enable, scalaScl: t.scl, scalaKbm: t.kbm });
+      await install(rig, start.preset, preset, `enable ${t.enable}, .scl ${t.scl}, .kbm ${t.kbm}`);
+      const shown = [];
+      for (const note of [60, 61]) {
+        rig.send([0x90 | channel, note, 100]);
+        await rig.wait(300);
+        shown.push(`${note}: ${(await rig.client.screenText()).lines.map((l) => l.trim()).filter(Boolean).join(' | ')}`);
+        rig.send([0x80 | channel, note, 0]);
+        await rig.wait(100);
+      }
+      rig.log(`enable ${t.enable}: ${shown.join(' · ')}`);
+      lines.push(`enable ${t.enable}, .scl ${t.scl}, .kbm ${t.kbm} → ${shown.join(' · ')}`);
+    }
+    lines.push('.scl and .kbm slot 32 now hold the test scale');
+    return { summary: 'See what the screen showed for each choice', lines };
   });
 }

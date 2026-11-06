@@ -6,6 +6,7 @@ import './edit.test.js';
 import './menu.test.js';
 import './ec4.test.js';
 import './steps.test.js';
+import './scala.test.js';
 import './link.test.js';
 import './live.test.js';
 import './checks.test.js';

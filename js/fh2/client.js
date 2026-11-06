@@ -3,7 +3,7 @@
 // Installs (10H, 13H) and saves to flash (18H, 19H) have no reply: check an install by
 // pulling the dump again (verifyInstall).
 
-import { CMD, DUMPS, message, commandOf, parseDump, buildDump, textOf, screenTextOf, itemValueOf, remote, textEntry, saveConfig, savePreset, displayMessage , screenshotOf } from './sysex.js';
+import { CMD, DUMPS, message, commandOf, parseDump, buildDump, textOf, screenTextOf, itemValueOf, remote, textEntry, sclMessage, kbmMessage, saveConfig, savePreset, displayMessage , screenshotOf } from './sysex.js';
 import { diff } from './layout.js';
 
 export class TimeoutError extends Error {
@@ -83,6 +83,15 @@ export class Fh2 extends EventTarget {
 
   drumBank(index = 0) {
     return this._request(message(CMD.REQUEST_DRUM_BANK, [index]), CMD.INSTALL_DRUM_BANK);
+  }
+
+  // A Scala scale or keyboard mapping (its file's text) into flash slot 1–32. No reply.
+  installScl(slot, text) {
+    return this._request(sclMessage(slot, text));
+  }
+
+  installKbm(slot, text) {
+    return this._request(kbmMessage(slot, text));
   }
 
   // Makes a bank message (from the calls above, or a .syx file) the FH-2's active bank, in RAM.

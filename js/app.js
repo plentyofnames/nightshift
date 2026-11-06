@@ -36,6 +36,7 @@ import { getPath, setPath } from './fh2/layout.js';
 import { settingsByName, startAutoCalibration, watchAutoCalibration, finishAutoCalibration, saveCalibration, setStartupCalibration } from './fh2/menu.js';
 import { calibrationDialog } from './ui/calibrate.js';
 import { renderSteps } from './ui/steps.js';
+import { scalaFiles, fileChange, asciiText, parseScl, parseKbm, SLOTS, slotLabel } from './patch/scala.js';
 import { fromModule, anotherPatch, dueIn, MERGE_MAX } from './fh2/live.js';
 import { checksBusy } from './fh2/checks.js';
 
@@ -965,6 +966,57 @@ async function installBank(kind) {
   }));
 }
 
+// ---- Scala files: installed into the FH-2's slots (11H, 12H) and kept in the project, since the
+// FH-2 can't say what a slot holds (patch/scala.js)
+
+// Resolves to true once sent (withFh2 reports a failure itself).
+async function sendScala(kind, slot, text) {
+  let sent = false;
+  await withFh2((pair) => withFh2Client(pair, async (client) => {
+    await (kind === 'scl' ? client.installScl(slot, text) : client.installKbm(slot, text));
+    sent = true;
+  }));
+  return sent;
+}
+
+// A .scl or .kbm file picked, checked, given a slot (after a question), installed and recorded.
+function installScala(kind) {
+  const input = h('input', { type: 'file', accept: kind === 'scl' ? '.scl,text/plain' : '.kbm,text/plain' });
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const text = asciiText(await file.text());
+    const r = kind === 'scl' ? parseScl(text) : parseKbm(text);
+    if (!r.ok) return status(`${file.name}: ${r.error}`, true);
+    const files = scalaFiles(state.names, kind);
+    const free = files.findIndex((f) => !f) + 1 || 1;
+    const slot = h('select', { 'aria-label': 'Slot' }, Array.from({ length: SLOTS }, (_, i) => h('option', { value: String(i + 1), selected: i + 1 === free }, slotLabel(files, i + 1))));
+    const what = kind === 'scl' ? `${r.description || 'no description'} · ${r.count} notes` : `${r.size ? `${r.size} keys` : 'linear'} · note ${r.reference} at ${r.frequency} Hz`;
+    const ok = await modal($('dialog'), {
+      title: `Install ${file.name}?`,
+      body: [h('p', { class: 'note' }, what), h('label', { class: 'field' }, h('span', {}, `.${kind} slot`), slot),
+        h('p', { class: 'note' }, 'Replaces what’s there: the FH-2 can’t say what that is.')],
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Install', value: true, primary: true }],
+    });
+    if (!ok) return;
+    const n = Number(slot.value);
+    const name = file.name.replace(/\.(scl|kbm)$/i, '');
+    if (!(await sendScala(kind, n, text))) return;
+    edit(`${file.name} in .${kind} slot ${n}`, [fileChange(kind, n, { name, text })]);
+  };
+  input.click();
+}
+
+async function resendScala(kind, slot) {
+  const f = scalaFiles(state.names, kind)[slot - 1];
+  if (f && (await sendScala(kind, slot, f.text))) status(`${f.name} sent into .${kind} slot ${slot} again`);
+}
+
+function forgetScala(kind, slot) {
+  const f = scalaFiles(state.names, kind)[slot - 1];
+  if (f) edit(`Forgot ${f.name} in .${kind} slot ${slot}`, [fileChange(kind, slot, null)]);
+}
+
 async function saveFlash() {
   const configSlot = state.slots.config ?? 0;
   const presetSlot = state.slots.scenes[state.scene] ?? 0;
@@ -1532,7 +1584,8 @@ function render() {
     select: (sel) => { state.steps = { seq: state.steps.seq, lane: state.steps.lane, ...sel }; render(); },
     banks: { shown: state.banks, read: readBank, open: openBank, save: saveBank, install: installBank } });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
-    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4, removeMapping: removeMappingOf });
+    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4, removeMapping: removeMappingOf,
+      names: state.names, scala: { install: installScala, resend: resendScala, forget: forgetScala } });
   else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,
     scenes: () => { state.tab = 'scenes'; render(); }, checks: () => open('checks.html', '_blank'), busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
