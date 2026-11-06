@@ -35,6 +35,14 @@ const liveNumber = (id) => (id === 'live' ? 1 : Number(id.split(':')[1]));
 const liveName = (id) => (id === 'live' ? 'LIVE' : liveNumber(id) < 10 ? `LIV${liveNumber(id)}` : `LV${liveNumber(id)}`);
 const knobsKey = (pageId) => (pageId === 'live' ? LIVE_KEY : isLive(pageId) ? `ec4:${pageId}` : `ec4:add:${pageId}`);
 const pushesKey = (pageId) => `ec4:push:${pageId}`;
+// Editing the pages (your list, 2026-11-03; built 2026-11-06): their order as you moved them, the
+// hidden ones (off the EC4 with their knobs and CCs), and a page sharing another's group (its
+// knobs in that page's lower half: `ec4:into:<page>` names the page it went into).
+const ORDER_KEY = 'ec4:order';
+const HIDDEN_KEY = 'ec4:hidden';
+const intoKey = (pageId) => `ec4:into:${pageId}`;
+const FRONT = ['clock', 'sequencers', 'drumSequencer']; // after LIVE, so they aren't the ones cut past 16
+const idList = (names, key) => (names?.[key] ?? '').split(',').filter(Boolean);
 
 // The settings the FH-2 takes as 14-bit (CC n below 32 with n + 32 as the fine half).
 export const HIRES = new Set(['directLevel', 'lfoSpeed', 'lfoLevel']);
@@ -359,21 +367,40 @@ export function pagesOf(view, names = {}) {
       cells: keys.map((k) => (k ? placed(k, { live: true }) : null)), pushes: fill([]), live: true, full: keys.every(Boolean) };
   });
   all.unshift(...lives);
-  const pages = all.slice(0, GROUPS);
+  // the order: as you moved the pages, else LIVE first, then the clock and the sequencers, then the
+  // rest; a page sharing its group says whose knobs are in its lower half; hidden ones go aside
+  const order = idList(names, ORDER_KEY);
+  const rank = (pg, i) => {
+    const k = order.indexOf(pg.id);
+    return k >= 0 ? k : order.length + 1000 * (pg.live ? 0 : FRONT.includes(pg.id) ? 1 + FRONT.indexOf(pg.id) : 10) + i;
+  };
+  const sorted = all.map((pg, i) => [pg, rank(pg, i)]).sort((a, b) => a[1] - b[1]).map(([pg]) => pg);
+  for (const k of Object.keys(names)) {
+    if (!k.startsWith('ec4:into:')) continue;
+    const host = sorted.find((pg) => pg.id === names[k]);
+    const guest = objects.find((o) => o.page === k.slice(9));
+    if (host && guest) host.shared = { page: guest.page, name: guest.defaultName };
+  }
+  const hiddenIds = new Set(idList(names, HIDDEN_KEY));
+  const shown = sorted.filter((pg) => !hiddenIds.has(pg.id));
+  const hidden = sorted.filter((pg) => hiddenIds.has(pg.id));
+  hidden.forEach((pg) => (pg.hidden = true));
+  const pages = shown.slice(0, GROUPS);
   pages.forEach((pg, g) => (pg.group = g));
   const on = new Map();
   const unmapped = new Set();
-  for (const pg of all) {
+  for (const pg of sorted) {
     const at = (c, index, push) => {
       if (!c) return;
       if (!on.has(c.key)) on.set(c.key, []);
-      on.get(c.key).push({ page: pg.id, name: pg.name, index, push });
+      on.get(c.key).push({ page: pg.id, name: pg.name, index, push, hidden: !!pg.hidden });
     };
     pg.cells.forEach((c, i) => at(c, i, false));
     pg.pushes.forEach((c, i) => at(c, i, true));
   }
-  // the pages past the 16th too, so they can be opened and emptied; only the ones that fit need CCs
-  for (const pg of all) {
+  // the pages past the 16th and the hidden ones too, so they can be opened and emptied; only the
+  // ones on the EC4 need CCs
+  for (const pg of sorted) {
     for (const c of [...pg.cells, ...pg.pushes]) {
       if (!c) continue;
       c.map = mapOf(c.key);
@@ -382,7 +409,7 @@ export function pagesOf(view, names = {}) {
       if (!c.map && !c.gone && pg.group != null) unmapped.add(c.key);
     }
   }
-  return { pages, extra: all.slice(GROUPS), objects, known, on, mapOf, channel: pagesChannels(view)[0] ?? null,
+  return { pages, extra: shown.slice(GROUPS), hidden, objects, known, on, mapOf, channel: pagesChannels(view)[0] ?? null,
     unmapped: [...unmapped], lives: lives.map((pg) => ({ id: pg.id, name: pg.name, full: pg.full })), liveFull: !lives.length || lives.every((pg) => pg.full) };
 }
 
@@ -522,18 +549,22 @@ export function switchOn(config, view, names, model, key) {
   const o = model.objects.find((x) => x.knobs.some((c) => c.key === key) || x.commands.some((c) => c.key === key));
   if (!o) return { error: 'A knob can’t control that' };
   const push = o.commands.some((c) => c.key === key);
-  const list = push ? pushKeys(names, o.page) : addedKeys(names, o.page);
+  // a page sharing another's group: its settings go into that page's lower half
+  const pageId = names[intoKey(o.page)] ?? o.page;
+  const half = pageId !== o.page ? 8 : 0;
+  const list = push ? pushKeys(names, pageId) : addedKeys(names, pageId);
   if (list.includes(key)) return { changes: [] };
-  const tpl = (push ? o.template.pushes : o.template.cells).indexOf(key);
-  const at = tpl >= 0 && !list[tpl] ? tpl : list.indexOf('');
-  const pageName = names[pageNameKey(o.page)] ? fourChars(names[pageNameKey(o.page)]) : o.defaultName;
+  const raw = (push ? o.template.pushes : o.template.cells).indexOf(key);
+  const tpl = raw >= 0 && raw + half < KNOBS ? raw + half : -1;
+  const at = tpl >= 0 && !list[tpl] ? tpl : list.findIndex((k, i) => i >= half && !k);
+  const pageName = names[pageNameKey(pageId)] ? fourChars(names[pageNameKey(pageId)]) : model.objects.find((x) => x.page === pageId)?.defaultName ?? o.defaultName;
   if (at < 0) return { error: `${pageName} is full` };
   list[at] = key;
-  const changes = [listChange(push ? pushesKey(o.page) : knobsKey(o.page), list)];
+  const changes = [listChange(push ? pushesKey(pageId) : knobsKey(pageId), list)];
   const cc = ccFor(config, view, names, model, key);
   if (!cc) return { error: 'No CC left for it' };
   changes.push(...cc);
-  return { changes, where: { page: o.page, name: pageName, index: at, push } };
+  return { changes, where: { page: pageId, name: pageName, index: at, push } };
 }
 
 // Takes `key` off every page (LIVE too) and removes its mapping if Night Shift added it.
@@ -565,8 +596,10 @@ export const objectKeys = (model, id) => model.objects.filter((o) => o.id === id
 export const jackKeys = (output, only = () => true) => LFO_PARAMS.filter(only).map((param) => settingKey({ kind: 'output', index: output, param }));
 
 // Switches on everything of an object's template (or the page's objects') that isn't on yet.
-export function wholePage(config, view, names, model, pageId) {
-  const objs = model.objects.filter((o) => o.page === pageId);
+export function wholePage(config, view, names, model, ownPage) {
+  const objs = model.objects.filter((o) => o.page === ownPage);
+  const pageId = names[intoKey(ownPage)] ?? ownPage; // sharing another's group: its lower half
+  const half = pageId !== ownPage ? 8 : 0;
   const knobs = addedKeys(names, pageId);
   const pushes = pushKeys(names, pageId);
   const alloc = new Allocator(config, view);
@@ -577,7 +610,8 @@ export function wholePage(config, view, names, model, pageId) {
     for (const [tpl, list] of [[o.template.cells, knobs], [o.template.pushes, pushes]]) {
       tpl.forEach((key, i) => {
         if (!key || list.includes(key) || model.on.has(key) && !model.on.get(key).every((w) => isLive(w.page))) return;
-        const at = !list[i] ? i : list.indexOf('');
+        const want = i + half;
+        const at = want < KNOBS && !list[want] ? want : list.findIndex((k, n) => n >= half && !k);
         if (at < 0) return;
         if (!model.mapOf(key)) {
           const c = alloc.add(key);
@@ -619,4 +653,56 @@ export function removeMappings(names, stray) {
   const made = madeKeys(names);
   for (const s of stray) made.delete(s.key);
   return [...stray.map((s) => ({ dump: 'config', path: ['mapping', s.slot, 'status'], value: 0x7f })), madeChange(made)];
+}
+
+// ---- editing the pages: order, hiding, two in one group
+
+// A page one place earlier (-1) or later (+1) among those on the EC4 (and past the 16th): the
+// order is kept from then on.
+export function movePage(names, model, id, delta) {
+  const ids = [...model.pages, ...model.extra].map((pg) => pg.id);
+  const i = ids.indexOf(id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= ids.length) return [];
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  return [{ dump: 'names', path: [ORDER_KEY], value: ids.join(',') }];
+}
+
+// A page off the EC4 (its knobs and CCs kept), or back.
+export function hidePage(names, id, hide = true) {
+  const ids = new Set(idList(names, HIDDEN_KEY));
+  if (hide) ids.add(id);
+  else ids.delete(id);
+  return [{ dump: 'names', path: [HIDDEN_KEY], value: ids.size ? [...ids].join(',') : null }];
+}
+
+// Whether a page can share a group: an object's page using its top two rows only (knobs and pushes).
+export const halfFree = (pg) => !pg.live && !pg.shared && [...pg.cells, ...pg.pushes].every((c, i) => !c || i % KNOBS < 8);
+
+// Page `b`'s knobs and pushes into page `a`'s lower half: one group for both. { changes } or { error }.
+export function sharePage(names, model, a, b) {
+  const all = [...model.pages, ...model.extra, ...model.hidden];
+  const [A, B] = [all.find((pg) => pg.id === a), all.find((pg) => pg.id === b)];
+  if (!A || !B || a === b) return { error: 'No such page' };
+  if (!halfFree(A) || !halfFree(B)) return { error: 'Both must use their top two rows only' };
+  const [ka, pa, kb, pb] = [addedKeys(names, a), pushKeys(names, a), addedKeys(names, b), pushKeys(names, b)];
+  for (let i = 0; i < 8; i++) {
+    ka[8 + i] = kb[i];
+    pa[8 + i] = pb[i];
+  }
+  return { changes: [listChange(knobsKey(a), ka), listChange(pushesKey(a), pa), listChange(knobsKey(b), fill([]).map(() => '')), listChange(pushesKey(b), fill([]).map(() => '')),
+    { dump: 'names', path: [intoKey(b)], value: a }, ...(idList(names, HIDDEN_KEY).includes(b) ? hidePage(names, b, false) : [])] };
+}
+
+// The page sharing `a`'s group back on its own: its settings from `a`'s lower half to its own top.
+export function splitPage(names, model, a) {
+  const b = Object.keys(names).find((k) => k.startsWith('ec4:into:') && names[k] === a)?.slice(9);
+  if (!b) return [];
+  const own = new Set(model.objects.filter((o) => o.page === b).flatMap((o) => [...o.knobs, ...o.commands].map((c) => c.key)));
+  const [ka, pa, kb, pb] = [addedKeys(names, a), pushKeys(names, a), addedKeys(names, b), pushKeys(names, b)];
+  for (let i = 0; i < 8; i++) {
+    if (own.has(ka[8 + i])) [kb[i], ka[8 + i]] = [ka[8 + i], ''];
+    if (own.has(pa[8 + i])) [pb[i], pa[8 + i]] = [pa[8 + i], ''];
+  }
+  return [listChange(knobsKey(a), ka), listChange(pushesKey(a), pa), listChange(knobsKey(b), kb), listChange(pushesKey(b), pb), { dump: 'names', path: [intoKey(b)], value: null }];
 }

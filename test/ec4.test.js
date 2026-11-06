@@ -8,7 +8,7 @@ import { examplePatch } from '../js/patch/example.js';
 import { apply } from '../js/patch/edit.js';
 import { targetOf, encodeTarget, mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, placeKnob, placeWithCc, takeOff, choicesFor, switchOn, switchOff, wholePage, addLivePage, removeLivePage, movePlace, toLivePage, liveIds,
-  strayMappings, removeMappings, dropMapping, objectKeys, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
+  strayMappings, removeMappings, dropMapping, objectKeys, movePage, hidePage, sharePage, splitPage, halfFree, shortName, jackShort, settingKey, HIRES, SETUP, pageNameKey, toAbsolute, switchOffAll } from '../js/ec4/pages.js';
 import { setupImage, writesFor, writeSetup, readSetup, setupState, owns, pushOf, encoderOf, syncEntry, OWNED, SETUP_NAME, SYNC_HEADER, SYNC_ENTRIES, SYNC_EXTRA, SYNC_FORMAT } from '../js/ec4/setup.js';
 import * as M from '../vendor/lilypad/js/model.js';
 import { demoImage } from '../vendor/lilypad/js/demo.js';
@@ -223,7 +223,7 @@ test('the pages become EC4 setup 15, and nothing else changes', () => {
     refused = true;
   }
   assert(refused, 'a change outside setup 15 is refused');
-  eq(OWNED.reduce((n, [, len]) => n + len, 0), 256 + 64 + 3072 + 512 + 4 + 64 + 512 + 512, 'setup 15, its name, and the FH-2 sync table (A and B)');
+  eq(OWNED.reduce((n, [, len]) => n + len, 0), 256 + 64 + 3072 + 512 + 4 + 64 + 512 + 512 + 256, 'setup 15, its name, and the FH-2 sync tables (A, B and C)');
 });
 
 test('with the pages goes the FH-2 sync table: where each 14-bit knob’s value sits in the preset dump', () => {
@@ -496,4 +496,60 @@ test('a source removed takes its whole page off the EC4, LIVE included, and the 
   assert(slots() < before, 'the CCs it added are gone');
   eq(strayMappings(viewOf(p), after), stray, 'none left behind');
   eq(Object.keys(p.names).filter((k) => k.includes('converter:0')), [], 'nothing of its page left in the names');
+});
+
+test('page order: LIVE first, then the clock and the sequencers; moved, the order sticks', () => {
+  const p = fresh();
+  whole(p, 'converter:0');
+  whole(p, 'euclid:0');
+  whole(p, 'clock');
+  whole(p, 'sequencers');
+  apply(p, toggleLive(p.names, key('converter', 0, 'envAttack')));
+  const ids = () => modelOf(p).pages.map((pg) => pg.id);
+  eq(ids(), ['live', 'clock', 'sequencers', 'converter:0', 'euclid:0']);
+  apply(p, movePage(p.names, modelOf(p), 'euclid:0', -1));
+  apply(p, movePage(p.names, modelOf(p), 'euclid:0', -1));
+  eq(ids(), ['live', 'clock', 'euclid:0', 'sequencers', 'converter:0']);
+  eq(movePage(p.names, modelOf(p), 'live', -1), [], 'nothing before the first');
+});
+
+test('a hidden page is off the EC4 with its knobs and CCs, and comes back', () => {
+  const p = fresh();
+  whole(p, 'euclid:0');
+  whole(p, 'clock');
+  const stray = strayMappings(viewOf(p), modelOf(p));
+  apply(p, hidePage(p.names, 'euclid:0'));
+  let m = modelOf(p);
+  eq([m.pages.map((pg) => pg.id), m.hidden.map((pg) => pg.id)], [['clock'], ['euclid:0']]);
+  const pulses = key('euclid', 0, 'pulses');
+  eq([m.on.get(pulses)[0].hidden, !!m.mapOf(pulses), m.unmapped.includes(pulses)], [true, true, false], 'still placed and mapped, needing nothing');
+  eq(strayMappings(viewOf(p), m), stray, 'its CCs aren’t stray');
+  apply(p, hidePage(p.names, 'euclid:0', false));
+  m = modelOf(p);
+  eq([m.pages.map((pg) => pg.id).includes('euclid:0'), m.hidden.length], [true, 0]);
+});
+
+test('two half pages in one group: the second below the first, its new settings there too, and split again', () => {
+  const p = fresh();
+  whole(p, 'euclid:0');
+  whole(p, 'srr:0');
+  let m = modelOf(p);
+  const [eu, rnd] = ['euclid:0', 'srr:0'].map((id) => m.pages.find((pg) => pg.id === id));
+  eq([halfFree(eu), halfFree(rnd), halfFree(m.pages.find((pg) => pg.id === 'srr:0'))], [true, true, true]);
+  const before = rnd.cells.map((c) => c?.key ?? null);
+  const r = sharePage(p.names, m, 'euclid:0', 'srr:0');
+  apply(p, r.changes);
+  m = modelOf(p);
+  const host = m.pages.find((pg) => pg.id === 'euclid:0');
+  eq([m.pages.some((pg) => pg.id === 'srr:0'), host.shared?.page, host.cells.slice(8).map((c) => c?.key ?? null)], [false, 'srr:0', before.slice(0, 8)]);
+  // one taken off and on again lands in the lower half
+  const depth = key('srr', 0, 'attenuator');
+  apply(p, switchOff(p.names, m, depth));
+  const back = on(p, depth);
+  eq([back.where.page, back.where.index >= 8], ['euclid:0', true]);
+  eq(halfFree(modelOf(p).pages.find((pg) => pg.id === 'euclid:0')), false, 'a shared page can’t share again');
+  apply(p, splitPage(p.names, modelOf(p), 'euclid:0'));
+  m = modelOf(p);
+  eq([m.pages.find((pg) => pg.id === 'euclid:0').cells.slice(8).every((c) => !c), m.pages.find((pg) => pg.id === 'srr:0')?.cells.filter(Boolean).length], [true, 8]);
+  eq(sharePage(p.names, m, 'euclid:0', 'converter:0').error ?? sharePage(p.names, m, 'euclid:0', 'nope').error, 'No such page');
 });

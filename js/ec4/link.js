@@ -9,6 +9,7 @@
 
 import { frame } from '../../vendor/lilypad/js/proto.js';
 import { SETUP, KNOBS } from './pages.js';
+import { editMessage, HAS_013 } from './setup.js';
 
 const TEXT = 0x28;
 const VALUE = 1; // TEXT kind: a value text (0 would be a label)
@@ -50,10 +51,12 @@ export class Ec4Link extends EventTarget {
     this.device = device;
     this.info = info;
     this.texts = info.fwMajor > 0 || info.fwMinor >= 10; // TEXT is new in controlfrog 0.10
+    this.edits = HAS_013(info); // EDIT, a cell of the page in view in RAM only, from 0.13
     this.setup = null;
     this.group = null;
     this.shown = new Map(); // what this group shows now: knob → text, and knob → CC value sent
     this.sent = new Map();
+    this.edited = new Map(); // and knob → the cell record it has (EEPROM's or an EDIT's)
     device.addEventListener('state', (e) => this._state(e.detail));
     device.addEventListener('touch', (e) => this.setup === SETUP && this._emit('touch', e.detail));
   }
@@ -73,6 +76,7 @@ export class Ec4Link extends EventTarget {
     if (moved) {
       this.shown.clear(); // the EC4 drops its texts on every group change
       this.sent.clear();
+      this.edited.clear(); // and its edits: the page is loaded from the EEPROM again
     }
     this._emit('state', { setup, group, moved });
   }
@@ -115,6 +119,23 @@ export class Ec4Link extends EventTarget {
     const last = changed.lastIndexOf(true);
     await this._send(textMessage(VALUE, first, texts.slice(first, last + 1)));
     texts.forEach((t, i) => this.shown.set(i, t));
+  }
+
+  // The page in view as Night Shift has it, one 15-byte cell record per knob (setup.js pageRecords),
+  // into the EC4's RAM (EDIT, controlfrog 0.13): only the cells that differ from what the EC4 has.
+  // `stored`: the EEPROM holds these pages already (as last stored), so a page just loaded needs
+  // nothing until something changes.
+  async edit(records, stored = false) {
+    if (!this.ours || !this.edits) return;
+    for (let i = 0; i < KNOBS; i++) {
+      const r = records[i];
+      const k = r.join(',');
+      if (this.edited.get(i) === k) continue;
+      const fresh = !this.edited.has(i);
+      this.edited.set(i, k);
+      if (fresh && stored) continue;
+      await this._send(editMessage(this.group, i, r));
+    }
   }
 
   // One knob's text while it is being turned (the rest of the page stays as it is).

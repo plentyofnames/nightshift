@@ -3,6 +3,7 @@
 // to see what it controls and to put it on LIVE; a free knob takes any other setting of the
 // page's object (on LIVE, of any object).
 
+import { halfFree } from '../ec4/pages.js';
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { SETUP, KNOBS, GROUPS } from '../ec4/pages.js';
 
@@ -23,7 +24,8 @@ const dragged = (e) => {
 // (and taken off there). Pages past the 16th can be opened too, to take things off them.
 export function renderEc4(view, model, colors, sel, act) {
   const { pages, extra, unmapped, channel } = model;
-  const page = [...pages, ...extra].find((p) => p.id === sel?.page) ?? pages[0];
+  const hidden = model.hidden ?? [];
+  const page = [...pages, ...extra, ...hidden].find((p) => p.id === sel?.page) ?? pages[0];
   const first = page ? page.cells.findIndex((c, i) => c || page.pushes[i]) : -1;
   const knob = page && sel?.page === page.id && sel.knob != null ? sel.knob : first;
   const sourceName = (id) => view.sources.find((s) => s.id === id)?.name ?? view.players.find((p) => p.id === id)?.name ?? null;
@@ -36,8 +38,10 @@ export function renderEc4(view, model, colors, sel, act) {
   const head = h('div', { class: 'ec4-head' },
     unmapped.length > 0 && h('button', { type: 'button', class: 'btn primary', disabled: act.busy, onclick: act.map,
       title: `Adds a CC mapping on ch ${channel + 1} for each that has none (undoable)` }, `Give ${what} a CC`),
+    // with controlfrog 0.13 the EC4 shows your edits from its RAM already: this stores them
     h('button', { type: 'button', class: 'btn' + (unmapped.length ? '' : ' primary'), disabled: act.busy || unmapped.length > 0 || !pages.length, onclick: act.send,
-      title: unmapped.length ? 'Give every knob and push a CC first' : `Writes the pages to EC4 setup ${SETUP + 1}; other setups stay as they are` }, 'Send to EC4'),
+      title: unmapped.length ? 'Give every knob and push a CC first' : `Writes the pages to EC4 setup ${SETUP + 1}; other setups stay as they are` }, act.link?.edits ? 'Store on EC4' : 'Send to EC4'),
+    act.unstored && h('span', { class: 'note warn-note', title: 'The EC4 shows them from its RAM; stored, they stay after power-off' }, 'Not stored'),
     h('span', { class: 'note' }, `Setup ${SETUP + 1} · ${pages.length} page${pages.length === 1 ? "" : "s"} · CCs on ch ${channel + 1}`),
     h('span', { class: 'note', title: act.note || '' }, !act.link ? 'EC4 not linked'
       : act.link.ours ? `Linked · EC4 on page ${act.link.group + 1}` : `EC4 on setup ${act.link.setup + 1}`),
@@ -76,6 +80,8 @@ export function renderEc4(view, model, colors, sel, act) {
       h('span', { class: 'src' }, pg.live ? 'yours' : pg.sub ?? sourceName(pg.source) ?? ''))),
     extra.length > 0 && h('p', { class: 'problem' }, `${extra.length} more don’t fit: `, extra.map((pg, k) => [k ? ', ' : '',
       h('button', { type: 'button', class: 'linkish', onclick: () => act.select(pg.id, null), title: 'Open it, to take things off it' }, pg.name)])),
+    hidden.length > 0 && h('p', { class: 'note' }, 'Hidden: ', hidden.map((pg, k) => [k ? ', ' : '',
+      h('button', { type: 'button', class: 'linkish', onclick: () => act.select(pg.id, null), title: 'Off the EC4, its knobs and CCs kept' }, pg.name)])),
     addPage,
     h('button', { type: 'button', class: 'btn small ec4-add-live', disabled: !room, onclick: act.addLive,
       title: room ? 'A page of your own, from any source' : `${GROUPS} pages at most` }, '+ LIVE page'));
@@ -118,8 +124,19 @@ export function renderEc4(view, model, colors, sel, act) {
 
   const face = h('section', { class: 'ec4-face', 'aria-label': `Page ${page.name}` },
     h('div', { class: 'ec4-title' },
-      h('h3', {}, page.group != null ? `Page ${page.group + 1} · ` : 'Doesn’t fit · ', h('span', { class: 'mono' }, page.name)),
+      h('h3', {}, page.group != null ? `Page ${page.group + 1} · ` : page.hidden ? 'Hidden · ' : 'Doesn’t fit · ', h('span', { class: 'mono' }, page.name),
+        page.shared ? h('span', { class: 'dim' }, ` + ${page.shared.name} below`) : null),
       h('span', { class: 'actions' },
+        // its place among the pages, on the EC4 or not, and a group shared with another half-page
+        !page.hidden && [h('button', { type: 'button', class: 'btn small', 'aria-label': 'Earlier', title: 'One page earlier', disabled: page === pages[0], onclick: () => act.movePage(page.id, -1) }, '◀'),
+          h('button', { type: 'button', class: 'btn small', 'aria-label': 'Later', title: 'One page later', disabled: page === [...pages, ...extra].at(-1), onclick: () => act.movePage(page.id, 1) }, '▶')],
+        h('button', { type: 'button', class: 'btn small', onclick: () => act.hide(page.id, !page.hidden), title: page.hidden ? 'Back on the EC4' : 'Off the EC4; its knobs and CCs stay' }, page.hidden ? 'Show' : 'Hide'),
+        page.shared ? h('button', { type: 'button', class: 'btn small', onclick: () => act.split(page.id), title: `${page.shared.name} back on a page of its own` }, 'Split')
+          : halfFree(page) && (() => {
+            const others = [...pages, ...extra, ...hidden].filter((pg) => pg !== page && halfFree(pg));
+            return others.length > 0 && h('select', { class: 'ec4-share', 'aria-label': 'Share this page’s group with', title: 'Its top two rows here, the other page’s below',
+              onchange: (e) => e.target.value && act.share(page.id, e.target.value) }, h('option', { value: '' }, 'Share with…'), others.map((pg) => h('option', { value: pg.id }, pg.name)));
+          })(),
         fillable && h('button', { type: 'button', class: 'btn small', onclick: () => act.whole(page.id), title: 'Switches on the rest of the template' }, 'Whole page'),
         h('button', { type: 'button', class: 'btn small', onclick: () => act.rename(page.id), title: 'Four characters, shown on the EC4' }, 'Rename'),
         page.live && h('button', { type: 'button', class: 'btn small', onclick: () => act.removeLive(page.id), title: 'Its knobs come off it; undoable' }, 'Remove page'))),

@@ -17,7 +17,8 @@
 
 import * as M from '../../vendor/lilypad/js/model.js';
 import { SETUP, GROUPS, KNOBS, SWITCHES, DEAD_CC, HIRES } from './pages.js';
-import { pathOf, bandsOf } from './values.js';
+import { pathOf, bandsOf, displayCode } from './values.js';
+import { frame, pack, checksum } from '../../vendor/lilypad/js/proto.js';
 import { DUMPS, CMD } from '../fh2/sysex.js';
 import { fingerprint } from '../hash.js';
 
@@ -29,6 +30,10 @@ const MODE = { acc0: 3, acc1: 4, acc2: 5 };
 export const SYNC_HEADER = 0x05c0; // 8 bytes; the rest of its page stays blank
 export const SYNC_ENTRIES = 0x0600; // table A: 2 bytes per knob of setup 15 at + 32·group + 2·knob, MSB first; FFFF: none
 export const SYNC_EXTRA = 0x0200; // table B (format 2): per knob the same way, how a banded value or the tempo maps
+export const SYNC_DISPLAY = 0x0400; // table C (controlfrog 0.13): 1 byte per knob at + 16·group + knob, how its value shows (values.js displayCode)
+// What controlfrog 0.13 adds: table C, and EDIT, a cell of the page in view set in RAM only
+export const HAS_013 = (info) => !!info && (info.fwMajor > 0 || info.fwMinor >= 13);
+const EDIT = 0x2c;
 const SYNC_MAGIC = [0x46, 0x48, 0x32]; // "FH2", then the format
 const SYNC_TO_USB = 1; // where the EC4 sends its requests: USB (the FH-2's USB A)
 export const SYNC_FORMAT = (info) => (info && (info.fwMajor > 0 || info.fwMinor >= 12) ? 2 : 1); // 7-bit knobs from controlfrog 0.12
@@ -37,7 +42,7 @@ export const SYNC_FORMAT = (info) => (info && (info.fwMajor > 0 || info.fwMinor 
 export const SYNC_MAX = 64;
 
 // The byte ranges [addr, len] that are Night Shift's: setup 15, its name, and the FH-2 sync table.
-export const OWNED = [...M.setupRanges(SETUP), [M.setupNameAddr(SETUP), 4], [SYNC_HEADER, 64], [SYNC_ENTRIES, 512], [SYNC_EXTRA, 512]];
+export const OWNED = [...M.setupRanges(SETUP), [M.setupNameAddr(SETUP), 4], [SYNC_HEADER, 64], [SYNC_ENTRIES, 512], [SYNC_EXTRA, 512], [SYNC_DISPLAY, 256]];
 export const owns = (addr) => OWNED.some(([a, n]) => addr >= a && addr < a + n);
 
 // What a knob's encoder sends: { type, channel, number, mode, scale, lower, upper, name }.
@@ -84,10 +89,40 @@ export function syncEntry(cell, { format = 2, tempoMin = null } = {}) {
   return bands ? { a: (2 << 12) | f.offset, b: [bands.n | (bands.min === 1 ? 0x40 : 0), bands.from & 0xff] } : { a: (1 << 12) | f.offset, b: null };
 }
 
+// A knob and the push under it, as setup 15's group `g` holds them, into `img`.
+function writeCell(img, g, i, cell, push, view, channel) {
+  const e = encoderOf(cell, view, channel);
+  // type and scale first: they decide how lower and upper are stored
+  for (const f of ['type', 'scale', 'channel', 'number', 'mode', 'lower', 'upper', 'name']) M.setEncoder(img, SETUP, g, i, f, e[f]);
+  M.setEncoder(img, SETUP, g, i, 'numberHigh', 0);
+  if (i < 15) M.setEncoder(img, SETUP, g, i, 'link', 0);
+  const p = pushOf(push);
+  for (const f of ['type', 'channel', 'mode', 'number', 'display', 'lower', 'upper']) M.setPush(img, SETUP, g, i, f, p[f]);
+  if (i < 15) M.setPush(img, SETUP, g, i, 'link', 0);
+}
+
+// A cell's 15-byte record, as controlfrog's EDIT takes it (docs/protocol.md, "RAM edits"): its 8
+// data planes, its name, push key 1, and push key 2's two bytes, from the stock EEPROM layout.
+export function cellRecord(img, s, g, i) {
+  const d = M.dataBase(s, g);
+  return [...Array.from({ length: 8 }, (_, k) => img[d + 16 * k + i]), ...img.slice(M.encNameAddr(s, g, i), M.encNameAddr(s, g, i) + 4),
+    img[M.key1Base(s, g) + i], img[M.key2Base(s, g) + i], img[M.key2Base(s, g) + 16 + i]];
+}
+// The records of a page as group `g` of setup 15, one per cell.
+export function pageRecords(page, g, view, channel) {
+  const img = new Uint8Array(65536);
+  for (let i = 0; i < KNOBS; i++) writeCell(img, g, i, page?.cells[i], page?.pushes[i], view, channel);
+  return Array.from({ length: KNOBS }, (_, i) => cellRecord(img, SETUP, g, i));
+}
+// EDIT (controlfrog 0.13): cell `i` of group `g` of setup 15 set to `record`, in RAM only.
+export const editMessage = (g, i, record) => frame(EDIT, [SETUP, g, i, ...pack(record), checksum(record)]);
+
 // `base` (64 KB, what the EC4 holds) with setup 15 replaced by the pages, and the sync table in
 // `sync.format` (1 for controlfrog 0.11, 2 from 0.12; `sync.tempoMin` from the config). Format 2's
 // header byte 7 is `sync.programChannel`, the config's preset program change channel (1–16, 0 off):
 // a program change there makes the EC4 ask the FH-2 again, as the scene changes (your call, 2026-11-04).
+// With `sync.display` (controlfrog 0.13) table C too, so the EC4 shows the values in FH-2 units by
+// itself (your idea, 2026-11-06).
 export function setupImage(base, pages, view, channel, sync = {}) {
   const img = Uint8Array.from(base);
   const format = sync.format ?? 1;
@@ -99,17 +134,11 @@ export function setupImage(base, pages, view, channel, sync = {}) {
     const page = pages[g];
     M.writeName(img, M.groupNameAddr(SETUP, g), page ? page.name : BLANK);
     for (let i = 0; i < KNOBS; i++) {
-      const e = encoderOf(page?.cells[i], view, channel);
-      // type and scale first: they decide how lower and upper are stored
-      for (const f of ['type', 'scale', 'channel', 'number', 'mode', 'lower', 'upper', 'name']) M.setEncoder(img, SETUP, g, i, f, e[f]);
-      M.setEncoder(img, SETUP, g, i, 'numberHigh', 0);
-      if (i < 15) M.setEncoder(img, SETUP, g, i, 'link', 0);
-      const p = pushOf(page?.pushes[i]);
-      for (const f of ['type', 'channel', 'mode', 'number', 'display', 'lower', 'upper']) M.setPush(img, SETUP, g, i, f, p[f]);
-      if (i < 15) M.setPush(img, SETUP, g, i, 'link', 0);
+      writeCell(img, g, i, page?.cells[i], page?.pushes[i], view, channel);
       const sy = syncEntry(page?.cells[i], { format, tempoMin: sync.tempoMin });
       img.set(sy ? [sy.a >> 8, sy.a & 0xff] : [0xff, 0xff], SYNC_ENTRIES + 32 * g + 2 * i);
       img.set(sy?.b ?? [0xff, 0xff], SYNC_EXTRA + 32 * g + 2 * i);
+      if (sync.display) img[SYNC_DISPLAY + 16 * g + i] = sy ? displayCode(page.cells[i].key, { range: (o) => view.outputs[o]?.rangeIndex ?? 0 }) : 0xff;
     }
   }
   return img;

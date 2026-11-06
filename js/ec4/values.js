@@ -104,6 +104,40 @@ function hz(v) {
   return f < 1 ? f.toFixed(2) : f < 10 ? f.toFixed(1) : String(Math.round(f));
 }
 
+// The code in controlfrog 0.13's table C that makes the EC4 show a knob's value as valueText does,
+// by itself (docs/protocol.md in the firmware repo, "Table C"): 0x01 the number, 0x02 OFF or the
+// number, 0x03 ON/OFF, 0x04 x·n, 0x05 n OCT, 0x06 degrees, 0x07 the tempo, 0x08 signed offset, 0x09
+// the same with LIN, 0x0A and 0x0B bipolar %, 0x0C %, 0x0D TRIG or %, 0x0E TRIG or % of 128, 0x0F
+// randomness, 0x10 note value, 0x18–0x1C volts by range, 0x1D % of 16383, 0x1E LFO Hz, 0x20–0x24
+// arp mode, swing type, shift-register direction, its scale, key. `ctx`: { range(output) }.
+export function displayCode(key, ctx = {}) {
+  const t = settingOf(key);
+  if (t.kind === 'srr') {
+    return { direction: 0x22, scale: 0x23, key: 0x24, randomness: 0x0f, attenuator: 0x0c, gateLength: 0x0d, rate: 0x10 }[t.param] ?? 0x01;
+  }
+  switch (t.param) {
+    case 'directLevel': return 0x18 + Math.max(0, Math.min(4, ctx.range?.(t.index) ?? 0));
+    case 'lfoLevel': return 0x1d;
+    case 'lfoSpeed': return 0x1e;
+    case 'lfoTempoBase': case 'arpRate': case 'rate': return 0x10;
+    case 'lfoTempoMultiplier': return 0x04;
+    case 'lfoSine': case 'lfoSquare': case 'lfoTriangle': case 'lfoPulseWidth': case 'lfoRandom': case 'lfoNoise': case 'envSustain': return 0x0c;
+    case 'lfoSaw': return 0x0b;
+    case 'lfoPhase': return 0x06;
+    case 'lfoFade': case 'portamento': case 'arpReset': case 'swingAmount': case 'reset': case 'accent': return 0x02;
+    case 'transpose': return 0x08;
+    case 'envDepth': case 'envVelocityDepth': return 0x0a;
+    case 'envAttackShape': case 'envDecayShape': case 'envReleaseShape': return 0x09;
+    case 'arpMode': return 0x20;
+    case 'arpRange': return 0x05;
+    case 'arpGate': return 0x0e;
+    case 'arpLatch': return 0x03;
+    case 'tempo': return 0x07;
+    case 'swingType': return 0x21;
+    default: return 0x01;
+  }
+}
+
 // `ctx`: { range(output) } for the volts of a jack's level.
 export function valueText(key, v, ctx = {}) {
   if (v == null) return null;

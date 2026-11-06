@@ -200,6 +200,7 @@ Framing is `F0 7D 45 43 34 <cmd> … F7`. The EEPROM layout is unchanged from st
 - **SELECT and the `21` STATE event:** a two-way live link. Selecting a source in Night Shift turns the EC4 to that source's page. Changing group on the EC4 selects that source in Night Shift.
 - **TOUCH events (`31`):** "touch a knob to pick it", with no MIDI forwarding needed.
 - **`28` TEXT (firmware 0.10):** per-cell 4-character labels and value texts. Values can show in FH-2 units (1BAR, SAW, 5/16). These texts are RAM only and dropped on every group change, so Night Shift resends them after each STATE.
+- **`2C` EDIT and table C (firmware 0.13, 2026-11-06):** EDIT sets one cell of the page in view in RAM only (`setup group cell`, the cell's 15-byte record packed 8-to-7, the WRITE checksum; no reply; dropped at the next page load). Table C at 0x0400–0x04FF, 1 byte per knob at + 16·group + knob, says how the EC4 shows a synced knob's value in FH-2 units without a host; a host's TEXT wins. The codes are in controlfrog's docs/protocol.md and `values.js displayCode`.
 - **"Send values on group change"** (EEPROM `0x0007`), plus the FH-2's "Send CCs on preset ld": no jumps on page or scene changes.
 - **Shared values:** values belong to the MIDI address. One setting placed on two pages (its own page and LIVE) shares one CC and stays in sync, with only one FH-2 mapping.
 - **One host at a time** on the EC4: Lilypad and Night Shift can't both be connected.

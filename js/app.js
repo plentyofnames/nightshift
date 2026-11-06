@@ -26,8 +26,8 @@ import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
   addLivePage, removeLivePage, movePlace, toLivePage, isLive,
-  wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, toAbsolute, SETUP } from './ec4/pages.js';
-import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, SYNC_FORMAT, SYNC_MAX } from './ec4/setup.js';
+  wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, toAbsolute, movePage, hidePage, sharePage, splitPage, SETUP } from './ec4/pages.js';
+import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, pageRecords, SYNC_FORMAT, SYNC_MAX, HAS_013 } from './ec4/setup.js';
 import { fingerprint } from './hash.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
@@ -1174,11 +1174,14 @@ function renameEc4Page(id) {
 // Reads setup 15 from the EC4, says what it holds, and after a yes writes the pages there.
 // The pre-gig checklist for the patch as it is: fingerprints of what you see, against what Night
 // Shift last wrote to the FH-2's flash and the EC4 (state.held).
+// The sync table's settings for firmware `info` (IDENTIFY): its format, the tempo's CC base, the
+// scene channel, and from controlfrog 0.13 table C (FH-2 units on the EC4 by itself).
+const syncFor = (info) => ({ format: SYNC_FORMAT(info), tempoMin: state.config.values.tempoMin, programChannel: state.config.values.presetProgramChannel, display: HAS_013(info) });
+
 function gigList() {
   const model = state.ec4Model;
   const fw = state.held.ec4?.fw;
-  const sync = { format: SYNC_FORMAT(fw && { fwMajor: fw[0], fwMinor: fw[1] }), tempoMin: state.config.values.tempoMin,
-    programChannel: state.config.values.presetProgramChannel };
+  const sync = syncFor(fw && { fwMajor: fw[0], fwMinor: fw[1] });
   return checklist({
     config: { slot: state.slots.config, fp: fp(state.config), values: state.config.values },
     scenes: state.scenes.map((s, i) => ({ name: sceneName(i), slot: state.slots.scenes[i], fp: fp(s) })),
@@ -1202,7 +1205,7 @@ async function sendEc4() {
     await withDevice(async (device, info) => {
       if (!link) state.ec4.note = `controlfrog ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
       const base = await readSetup(device, (k, n) => status(`Reading EC4 setup ${SETUP + 1}… ${Math.round((100 * k) / n)} %`));
-      const sync = { format: SYNC_FORMAT(info), tempoMin: state.config.values.tempoMin, programChannel: state.config.values.presetProgramChannel };
+      const sync = syncFor(info);
       const img = setupImage(base, model.pages, state.view, model.channel, sync);
       const writes = writesFor(img, base);
       const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0);
@@ -1219,7 +1222,7 @@ async function sendEc4() {
       const ok = await modal($('dialog'), {
         title: `Write the pages to EC4 setup ${SETUP + 1}?`,
         body: h('p', { class: 'note' }, `Setup ${SETUP + 1} holds ${holds}; it is replaced. The other setups stay as they are. `
-          + `With it goes the table that lets the EC4 ask the FH-2 for its ${sync.format > 1 ? '' : '14-bit '}values (controlfrog ${sync.format > 1 ? '0.12' : '0.11'}${synced ? `, ${synced} knob${synced === 1 ? '' : 's'}` : ', none on the pages yet'}).`
+          + `With it goes the table that lets the EC4 ask the FH-2 for its ${sync.format > 1 ? '' : '14-bit '}values (controlfrog ${sync.display ? '0.13, with their FH-2 units' : sync.format > 1 ? '0.12' : '0.11'}${synced ? `, ${synced} knob${synced === 1 ? '' : 's'}` : ', none on the pages yet'}).`
           + (sync.format > 1 && synced > SYNC_MAX ? ` The EC4 keeps only the first ${SYNC_MAX} in step.` : '')),
         buttons: [{ label: 'Cancel', value: false }, { label: 'Write', value: true, primary: true }],
       });
@@ -1336,6 +1339,15 @@ function showOnEc4() {
     const v = valueOf(state.preset.values, c.key);
     return { text: valueText(c.key, v, { range }), cc: c.map.relative ? null : { channel: c.map.channel, number: c.map.cc, value: ccFor(c.key, v, c.map.bits, { tempoMin: state.config.values.tempoMin }), bits: c.map.bits } };
   })).catch(() => {});
+  // controlfrog 0.13: the page as Night Shift has it, into the EC4's RAM (its EEPROM only on Store)
+  if (link.edits) link.edit(pageRecords(page, link.group, state.view, state.ec4Model.channel), !ec4Unstored()).catch(() => {});
+}
+
+// Whether Night Shift's pages differ from what it last stored on the EC4.
+function ec4Unstored() {
+  const model = state.ec4Model;
+  const info = state.ec4.link?.info;
+  return !state.held.ec4?.fp || state.held.ec4.fp !== pagesFingerprint(model.pages, state.view, model.channel, syncFor(info));
 }
 
 // The EC4's knobs: passed on to the FH-2 (thru), their value shown right away (an estimate
@@ -1577,8 +1589,13 @@ function render() {
     select: (page, knob) => { state.ec4.sel = { page, knob }; render(); followOnEc4(); },
     pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
     addLive: addLiveEc4, removeLive: removeLiveEc4, move: moveEc4, toLive: toLiveEc4,
+    movePage: (id, d) => edit('Page moved', movePage(state.names, ec4Model(), id, d)),
+    hide: (id, on) => edit(on ? 'Page hidden' : 'Page back on the EC4', hidePage(state.names, id, on)),
+    share: (a, b) => ec4Edit('Two pages in one group', sharePage(state.names, ec4Model(), a, b)),
+    split: (a) => edit('Page split again', splitPage(state.names, ec4Model(), a)),
     rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
-    link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group }, thru: state.ec4.thru, toggleThru,
+    link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group, edits: state.ec4.link.edits }, thru: state.ec4.thru, toggleThru,
+    unstored: !!state.ec4.link?.edits && !!state.ec4Model?.pages.length && ec4Unstored(),
     relative: toAbsolute(state.config.values, state.ec4Model, state.names), makeAbsolute: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} absolute`, r.changes),
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
   else if (state.tab === 'steps') content = renderSteps(v, values(), state.steps, { edit, busy: state.busy,
