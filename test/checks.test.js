@@ -248,7 +248,7 @@ function playRig(muteChance = (k) => k / 10) {
 test('S5 against a stand-in: roots add, directions 1–3, mute chances', async () => {
   const { rig, fh2, original } = playRig();
   const r = await checkPlay(rig);
-  assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2 · roots 7, 19, 60 (kept as 7, 19, 60) → +7, +19, +60'), r.summary);
+  assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2 · roots 2, 7, 11 (kept as 2, 7, 11) → +2, +7, +11'), r.summary);
   assert(/mute 1–7 over 20 passes/.test(r.lines[3]), r.lines[3]);
   eq(diff(DUMPS[CMD.INSTALL_PRESET].layout, original.preset, fh2.preset).length, 0, 'your preset back');
 });
@@ -265,9 +265,21 @@ test('S5 says what the FH-2 keeps when a value is out of its range, and goes on'
   const install = rig.client.install;
   rig.client.install = async (dump, values) => {
     await install(dump, values);
-    if (dump.kind === 'preset') fh2.preset.noteSequencer.forEach((q) => { q.rootNote = Math.min(q.rootNote, 11); }); // as if it took 0–11 only
+    if (dump.kind === 'preset') fh2.preset.noteSequencer.forEach((q) => { q.rootNote = Math.min(q.rootNote, 6); }); // as if it took 0–6 only
   };
   const r = await checkPlay(rig);
-  assert(r.summary.includes('(kept as 7, 11, 11)'), r.summary);
-  assert(r.lines[1].includes('(the FH-2 keeps root 11, direction 2)'), r.lines[1]);
+  assert(r.summary.includes('(kept as 2, 6, 6)'), r.summary);
+  assert(r.lines[1].includes('(the FH-2 keeps root 6, direction 2)'), r.lines[1]);
+});
+
+test('S5 asks the FH-2 again when it doesn’t answer at once after the install', async () => {
+  const { rig } = playRig();
+  const pull = rig.client.pullPreset;
+  let calls = 0;
+  rig.client.pullPreset = async () => {
+    if (++calls === 2) throw new Error('no reply to FH-2 command 23H'); // the read-back right after the test sequences
+    return pull();
+  };
+  const r = await checkPlay(rig);
+  assert(r.summary.startsWith('Directions 1–3: Reverse, Alt, Alt2'), r.summary);
 });

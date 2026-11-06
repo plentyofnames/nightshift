@@ -497,9 +497,18 @@ async function playRun(rig, start, specs, seconds) {
   rig.log('Installing four test sequences into the FH-2’s RAM…');
   await rig.client.install(start.preset, values);
   await rig.wait(SETTLE_MS);
-  const off = await rig.client.verifyInstall(start.preset, values);
+  // read back, once more after a pause should it not answer at once (your first S5 run: no reply)
+  let now;
+  try {
+    now = await rig.client.pullPreset();
+  } catch {
+    rig.log('No answer yet; asking again…');
+    await rig.wait(3000);
+    now = await rig.client.pullPreset();
+  }
+  const off = diff(DUMPS[CMD.INSTALL_PRESET].layout, values, now.values);
   if (off.length) rig.log(`the FH-2 keeps something else for ${off.map((x) => x.path.join('.')).join(', ')}`);
-  const held = (await rig.client.pullPreset()).values.noteSequencer;
+  const held = now.values.noteSequencer;
   rig.notes();
   rig.offs?.();
   await rig.ask(`Start the clock and let it run for about ${seconds} s, then stop it.`, ['Done']);
@@ -510,11 +519,13 @@ async function playRun(rig, start, specs, seconds) {
   return { heard: by(ons), offs: by(offs), held };
 }
 
-// S5: the root (sequencers 1–3 at roots 7, 19 and 60), the directions 1–3 (on those same three),
-// and how often each mute level mutes (sequencer 4: steps 1–8 at mute 0–7, fast).
+// S5: the root (sequencers 1–3 at roots 2, 7 and 11, within the octave the Launchpad's keys set:
+// with 19 and 60 your FH-2 stopped answering), the directions 1–3 (on those same three), and how
+// often each mute level mutes (sequencer 4: steps 1–8 at mute 0–7, fast).
+export const PLAY_ROOTS = [2, 7, 11];
 export function checkPlay(rig) {
   return run(rig, async (start) => {
-    const roots = [7, 19, 60];
+    const roots = PLAY_ROOTS;
     const specs = [...roots.map((r, j) => ({ seq: { rootNote: r, direction: j + 1 }, step: scale8 })),
       { seq: { rate: 2 }, step: (k) => (k < 8 ? { degree: k, gatesLow: 1, mute: k } : {}) }];
     const { heard, held } = await playRun(rig, start, specs, 30);
@@ -530,7 +541,7 @@ export function checkPlay(rig) {
     const muted = [1, 2, 3, 4, 5, 6, 7].map((k) => (passes ? Math.round(100 * (1 - m.steps.filter((s) => s === k).length / passes)) : null));
     lines.push(passes ? `mute 1–7 over ${passes} passes, % of passes muted: ${muted.join(' ')}` : 'mutes: no notes');
     lines.push(`notes per sequencer: ${heard.map((x) => x.length).join(', ')}`);
-    const summary = `Directions 1–3: ${orders.map((o) => o.order ?? '?').join(', ')} · roots 7, 19, 60 (kept as ${held.slice(0, 3).map((q) => q.rootNote).join(', ')}) → +${orders.map((o) => (o.lowest == null ? '?' : o.lowest - 48)).join(', +')}`
+    const summary = `Directions 1–3: ${orders.map((o) => o.order ?? '?').join(', ')} · roots ${roots.join(', ')} (kept as ${held.slice(0, 3).map((q) => q.rootNote).join(', ')}) → +${orders.map((o) => (o.lowest == null ? '?' : o.lowest - 48)).join(', +')}`
       + (passes ? ` · mutes 1–7: ${muted.join(' ')} %` : '');
     return { summary: heard.some((x) => x.length) ? summary : 'No notes came: did the clock run?', lines };
   });

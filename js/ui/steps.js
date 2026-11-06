@@ -7,7 +7,7 @@
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { numberInput, selectInput, perScene } from './controls.js';
-import { DIVISIONS, noteName } from '../patch/tables.js';
+import { DIVISIONS, noteName, NOTE_NAMES } from '../patch/tables.js';
 import { playerLine } from './look.js';
 import { noteSequence, setStep, setSequence, setSequenceOn, nextGate, stepPitch, stepNote, pitchLines, degreeName, drumSequence, setDrumStep, nextDrum, setLane, setDrums,
   DIRECTIONS, PERMUTATIONS, SEQUENCERS, STEPS, GATES, BANK_SLOTS, bankBytes, noteSlot, drumSlot, loadNoteSlot, loadDrumSlot, slotSummary } from '../patch/steps.js';
@@ -51,7 +51,8 @@ function notes(values, j, sel, act) {
     field('Rate', selectInput(`Rate of ${name}`, q.rate, RATES(q.rate), (v) => set('Rate', { rate: v }))),
     field('Gate', numberInput(`Gate length of ${name}`, q.gateLength, { min: 0, max: 127 }, (v) => set('Gate length', { gateLength: v })), q.gateLength ? '' : ' trigger'),
     field('Reset', numberInput(`Reset of ${name}`, q.reset, { min: 0, max: 127 }, (v) => set('Reset', { reset: v })), q.reset ? ' beats' : ' never'),
-    field('Root', numberInput(`Root of ${name}`, q.rootNote, { min: 0, max: 127 }, (v) => set('Root', { rootNote: v }))),
+    // the root as the Launchpad's keys set it, one octave: with 19 and 60 your FH-2 stopped answering (check S5)
+    field('Root', selectInput(`Root of ${name}`, q.rootNote, [...NOTE_NAMES.map((n, i) => [i, n]), ...(q.rootNote > 11 ? [[q.rootNote, String(q.rootNote)]] : [])], (v) => set('Root', { rootNote: v }))),
     field('Direction', selectInput(`Direction of ${name}`, q.direction, DIRECTIONS.map((d, i) => [i, d]), (v) => set('Direction', { direction: v }))),
     field('Order', selectInput(`Permutation of ${name}`, q.permutation, PERMUTATIONS.map((d, i) => [i, d]), (v) => set('Permutation', { permutation: v }))),
     h('span', { class: 'note' }, `Steps ${q.start + 1}–${q.end + 1}`),
