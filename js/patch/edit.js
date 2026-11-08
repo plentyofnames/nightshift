@@ -3,9 +3,11 @@
 // players, the gear on a port and channel), which the FH-2 has no room for. Edits change them
 // in place and derive() redraws.
 //
-// An edit is a list of field changes, { dump: 'config' | 'preset', path, value }, or for a
-// name { dump: 'names', path: [key], value: text or null }. Applying one checks every change
-// first, then returns the changes that undo it, so undo and redo need nothing else.
+// An edit is a list of field changes, { dump: 'config' | 'preset', path, value }, for a
+// name { dump: 'names', path: [key], value: text or null }, or for one of Night Shift's marks on
+// the scene in view { dump: 'marks', path: [key], value: '1' or null } (kept on the preset dump
+// as `marks`, since what they mark is in the preset: a scene's own). Applying one checks every
+// change first, then returns the changes that undo it, so undo and redo need nothing else.
 
 import { getPath, setPath, diff } from '../fh2/layout.js';
 import { DUMPS } from '../fh2/sysex.js';
@@ -41,20 +43,33 @@ function checkName(patch, c) {
   return patch.names;
 }
 
+function checkMark(patch, c) {
+  if (!patch.preset) throw new Error('no scene to mark');
+  if (c.path.length !== 1 || typeof c.path[0] !== 'string') throw new Error('a mark takes one key');
+  if (c.value !== null && c.value !== '1') throw new Error('a mark is on or off');
+  patch.preset.marks ??= {};
+  return patch.preset.marks;
+}
+
+const KEYED = new Set(['names', 'marks']); // dumps that are plain key → text maps
+
 // Applies `changes` and returns the changes that undo them. Nothing changes if one is invalid.
 export function apply(patch, changes) {
-  const targets = changes.map((c) => (c.dump === 'names' ? checkName(patch, c) : check(patch, c)));
+  const targets = changes.map((c) => (c.dump === 'names' ? checkName(patch, c) : c.dump === 'marks' ? checkMark(patch, c) : check(patch, c)));
   const undo = [];
   changes.forEach((c, i) => {
     const values = targets[i];
-    const old = getPath(values, c.path) ?? (c.dump === 'names' ? null : undefined);
+    const old = getPath(values, c.path) ?? (KEYED.has(c.dump) ? null : undefined);
     if (old === c.value) return;
     undo.unshift({ dump: c.dump, path: c.path, value: old });
-    if (c.dump === 'names' && c.value === null) delete values[c.path[0]];
+    if (KEYED.has(c.dump) && c.value === null) delete values[c.path[0]];
     else setPath(values, c.path, c.value);
   });
   return undo;
 }
+
+// The names a scene's derive() gets: Night Shift's names and the scene's own marks.
+export const withMarks = (names, preset) => (preset?.marks ? { ...names, ...preset.marks } : names);
 
 // A name for a source or player id ('converter:2'), or for the gear on a port and channel
 // (deviceKey('din', 4)); empty clears it.
@@ -132,9 +147,9 @@ const noRoom = (what) => new Error(`all the FH-2’s ${what} are in use`);
 // A fixed voltage is the jack's stored level with nothing else on it.
 export const addFixedVoltage = (output, level) => [...setDirectLevel(output, level), keep('level', output)];
 
-// Night Shift's mark (beside the patch, with the names) that a jack's own level or LFO is in
-// use, so it stays listed at its default values: 0 V on a 0–10 V jack, an LFO at depth 0.
-export const keep = (what, output, on = true) => ({ dump: 'names', path: [`keep:${what}:${output}`], value: on ? '1' : null });
+// Night Shift's mark (on the scene in view, beside its preset) that a jack's own level or LFO is
+// in use, so it stays listed at its default values: 0 V on a 0–10 V jack, an LFO at depth 0.
+export const keep = (what, output, on = true) => ({ dump: 'marks', path: [`keep:${what}:${output}`], value: on ? '1' : null });
 
 // A CC sets the jack's stored level. Below CC 32 the FH-2 takes CC n + 32 as its fine half.
 export function addKnob(values, output, channel, cc, relative = false) {
@@ -272,8 +287,8 @@ function unmapOutput(cfg, o, only = () => true) {
 // LFO off, no smoothing, no CC on any of them, and no marks (your call, 2026-11-04: removing
 // one of them clears it all, else a CC left behind keeps it listed).
 export function clearJack(values, o) {
-  const presetPart = values.preset ? [...setDirectLevel(o, 0), ...removeLfo(o), ...setSmoothing(o, 0)] : [keep('lfo', o, false)];
-  return [...presetPart, keep('level', o, false), ...unmapOutput(values.config, o)];
+  const presetPart = values.preset ? [...setDirectLevel(o, 0), ...removeLfo(o), ...setSmoothing(o, 0), keep('level', o, false)] : [];
+  return [...presetPart, ...unmapOutput(values.config, o)];
 }
 
 // An LFO off, with the CCs on its settings: with one left, it would still count as on.
@@ -379,7 +394,7 @@ export function addVoice(values, { output, channel, type = 0, voices = 1, outs =
   const i = freeConverter(values.config);
   if (i < 0) throw noRoom('16 MIDI/CV converters');
   const switches = Object.fromEntries(ALL_OUTPUTS.map(([k]) => [k, outs[k] ?? 0]));
-  return setConverter(i, { enable: 1, channel, type, voices, minNote, maxNote, baseOutput: output, baseGate, stride: cvPerVoice(switches, baseGate), ...switches });
+  return setConverter(i, { enable: 1, channel, type, voices, minNote, maxNote, baseOutput: output, baseGate, stride: cvPerVoice({ ...switches, type }, baseGate), ...switches });
 }
 
 // How many CV jacks one voice takes: its per-voice outputs, less Gate and Trigger when they go
@@ -399,8 +414,7 @@ export function outputSwitch(role) {
 
 // ---- triggers (a note fires a trigger, gate or level)
 
-// Trigger types that put out a level (from velocity or an envelope): they need a CV jack.
-export const LEVEL_TRIGGER_TYPES = new Set([3, 4, 9, 10]);
+export { LEVEL_TRIGGER_TYPES } from './tables.js'; // level-type triggers need a CV jack
 export const isAccentType = (type) => type === 5 || type === 6; // these also use the next jack up
 
 export const setTrigger = (i, obj) => fields('config', ['trigger', i], obj);

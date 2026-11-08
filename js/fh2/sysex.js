@@ -135,12 +135,22 @@ export function dumpMessage(cmd, body) {
 }
 
 // A parsed dump keeps its body, so encoding writes over it and leaves unknown bytes alone.
+// A body byte with bit 7 set (the official config tool writes a gamepad's or keyboard's "None"
+// output as FF, fh2-notes.md) is a status byte with no place in SysEx: it is masked, and
+// `masked` counts them, so the module is never sent one.
 export function parseDump(msg) {
   const d = DUMPS[commandOf(msg)];
   if (!d) throw new Error('not an FH-2 config or preset dump');
   const body = bodyOf(msg);
+  let masked = 0;
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] & 0x80) {
+      body[i] &= 0x7f;
+      masked++;
+    }
+  }
   const values = decode(d.layout, body);
-  return { kind: d.kind, cmd: commandOf(msg), body, values, versionOk: values.version === d.version };
+  return { kind: d.kind, cmd: commandOf(msg), body, values, versionOk: values.version === d.version, masked };
 }
 
 export function buildDump(dump, values = dump.values) {

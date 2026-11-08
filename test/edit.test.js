@@ -4,7 +4,7 @@ import { test, assert, eq, eqBytes } from './harness.js';
 import { apply, History, setRange, setDirectLevel, setSmoothing, setGateLevels, addFixedVoltage, addKnob, addLfo, addClock, addEuclid,
   removePort, removeSource, addVoice, addTrigger, setTriggerNote, setTriggerEnvSet, wirePlayer, unwirePlayer, setPlayer, setPlayerRate,
   moveToChannel, setLaneNote, setName, deviceKey, changesTowards, addEuclidWithoutJack, removeLfo, removeLfoWithCcs, addRandom, addRandomNotes, setSrrJack, turnOffInput,
-  useInput, setInput, modulateFrom, inputUse } from '../js/patch/edit.js';
+  useInput, setInput, modulateFrom, inputUse, withMarks, clearJack } from '../js/patch/edit.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { sceneDifferences, fitProblems } from '../js/patch/scenes.js';
 import { playerLine } from '../js/ui/look.js';
@@ -551,7 +551,7 @@ test('a voice whose arp waits for a clock says so: it plays nothing without one'
 
 test('a jack’s own level and LFO stay listed while in use, even at their default values', () => {
   const p = patch();
-  const v = () => derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, p.names);
+  const v = () => derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, withMarks(p.names, p.preset));
   const at = (o) => v().outputs[o].ports.map((x) => x.source);
   // 0 V on a 0–10 V jack is the bottom of its range: in the bytes like an unused jack
   apply(p, addFixedVoltage(3, 0));
@@ -575,7 +575,7 @@ test('a jack’s own level and LFO stay listed while in use, even at their defau
 
 test('removing a jack’s knob, level or LFO clears its whole layer, CCs and all', () => {
   const p = patch();
-  const v = () => derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, p.names);
+  const v = () => derive(p.config.values, p.preset.values, EXAMPLE_HARDWARE, withMarks(p.names, p.preset));
   const mapped = (o) => mappingsOf(p.config.values).filter((m) => m.target.kind === 'output' && m.target.index === o).map((m) => m.target.param);
   // a knob on jack 2's level, a CC on its smoothing, an LFO on it with a CC on its depth
   apply(p, addKnob(values(p), 1, 1, 20));
@@ -740,4 +740,32 @@ test('inputs: X from modulation to notes drops its mappings; its notes take Y as
   const v = view();
   eq([inputUse(v.players.find((q) => q.id === 'cvMidi:0')), p.config.values.mapping[slot].status, v.inputs[1].gateFor], ['notes', 0x7f, 'cvMidi:0']);
   eq(useInput({ config: p.config.values, preset: p.preset.values }, v, 0, 'notes'), [], 'already notes: nothing to change');
+});
+
+test('an MPE voice with a Y CC takes a jack per voice for it: the stride says so', () => {
+  const p = { config: blankConfig(), preset: blankPreset(), names: {} };
+  apply(p, addVoice(values(p), { output: 8, channel: 0, type: 2, voices: 3, outs: { cvOut: 1, gateOut: 1, mpeYcc: 74 }, baseGate: 64 }));
+  const cv = p.config.values.converter[0];
+  eq([cv.type, cv.mpeYcc, cv.stride], [2, 74, 2], 'pitch and Y per voice; the gates are on the expander');
+  eq(derive(p.config.values, p.preset.values).problems, []);
+});
+
+test('a keep mark belongs to its scene: an LFO added in scene A is not listed in scene B', () => {
+  const p = patch();
+  const a = p.preset;
+  const b = structuredClone(a); // scene B, as a copy made before the edit
+  apply(p, addLfo(5, { depth: 0.05 }));
+  apply(p, [{ dump: 'preset', path: ['output', 5, 'lfoLevel'], value: 0 }]); // at depth 0 only the mark keeps it listed
+  const at = (scene, o) => derive(p.config.values, scene.values, EXAMPLE_HARDWARE, withMarks(p.names, scene)).outputs[o].ports.map((x) => x.source);
+  eq([at(a, 5), at(b, 5), a.marks, b.marks], [['lfo:5'], [], { 'keep:lfo:5': '1' }, undefined], 'the mark is scene A’s alone');
+  apply({ ...p, preset: b }, addFixedVoltage(3, 0));
+  apply({ ...p, preset: b }, clearJack({ config: p.config.values, preset: b.values }, 5));
+  eq([at(a, 5), at(b, 3), at(a, 3), a.marks], [['lfo:5'], ['levels'], [], { 'keep:lfo:5': '1' }], 'clearing jack 6 in B leaves A’s mark; B’s level is B’s');
+  // the project file keeps each scene's marks; an older project's marks (among the names) go onto every scene
+  const j = projectFromJson(projectToJson({ config: p.config, scenes: [a, b], scene: 0, names: p.names, hardware: EXAMPLE_HARDWARE }));
+  eq(j.scenes.map((s) => s.marks), [{ 'keep:lfo:5': '1' }, { 'keep:level:3': '1' }]);
+  const older = JSON.parse(projectToJson({ config: p.config, scenes: [a, b], scene: 0, names: { 'keep:level:7': '1', 'converter:0': 'Lead' }, hardware: EXAMPLE_HARDWARE }));
+  delete older.marks;
+  const o = projectFromJson(JSON.stringify(older));
+  eq([o.names, o.scenes.map((s) => s.marks)], [{ 'converter:0': 'Lead' }, [{ 'keep:level:7': '1' }, { 'keep:level:7': '1' }]]);
 });

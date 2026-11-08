@@ -22,6 +22,7 @@ export function projectToJson({ config, scenes, scene, names, hardware, slots = 
     hardware,
     config: toBase64(buildDump(config)),
     scenes: scenes.map((s) => toBase64(buildDump(s))),
+    marks: scenes.map((s) => s.marks ?? {}), // each scene's keep marks (edit.js keep)
     scene,
     names,
     slots,
@@ -44,6 +45,13 @@ export function projectFromJson(text) {
   const scenes = (j.scenes ?? []).map((s) => parseDump(fromBase64(s)));
   if (scenes.some((s) => s.kind !== 'preset')) throw new Error('one of its scenes is not a preset dump');
   const names = j.names && typeof j.names === 'object' ? Object.fromEntries(Object.entries(j.names).filter(([, v]) => typeof v === 'string')) : {};
+  // the keep marks, per scene; a project from before they were (they sat among the names, and so
+  // showed in every scene) keeps that: its marks go onto every scene
+  const isMark = (k) => /^keep:(lfo|level):\d+$/.test(k);
+  const marksFrom = (m) => Object.fromEntries(Object.entries(m && typeof m === 'object' ? m : {}).filter(([k, v]) => isMark(k) && v === '1'));
+  const old = Object.fromEntries(Object.entries(names).filter(([k]) => isMark(k)));
+  for (const k of Object.keys(old)) delete names[k];
+  scenes.forEach((s, i) => { s.marks = { ...old, ...marksFrom(j.marks?.[i]) }; });
   const slot = (v) => (Number.isInteger(v) && v >= 1 && v <= 30 ? v : null);
   return {
     config, scenes, names,

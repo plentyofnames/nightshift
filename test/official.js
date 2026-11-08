@@ -55,6 +55,7 @@ const NAME = (r) => {
 };
 const num = (v) => (typeof v === 'boolean' ? Number(v) : Number(v));
 const padName = (v) => (v + ' '.repeat(16)).slice(0, 16);
+const trimName = (v) => padName(v).replace(/ +$/, ''); // what name16.read gives
 const hi = (v) => (num(v) & 0x80 ? 1 : 0);
 
 // A stand-in document: values are made on first read by the matching rule, and remembered.
@@ -110,7 +111,7 @@ const MAPPABLE = '(arpeg\\d+_[A-Z]+|mcvcom\\d+_[A-Z]+|mcvm[23]_\\d+_[A-Z]+|euc_\
 const MAP_CH = (r) => (r() < 0.08 ? R(1, 16)(r) : '-1');
 
 export const configRules = [
-  [/^config_name$/, NAME, (m, v) => [[['name'], padName(v)]]],
+  [/^config_name$/, NAME, (m, v) => [[['name'], trimName(v)]]],
   [new RegExp(`^(${Object.keys(GLOBALS).join('|')})$`), (r, m) => GLOBALS[m[1]][0](r), (m, v) => [[[GLOBALS[m[1]][1]], num(v)]]],
   [/^rng_(\d+)$/, R(0, 4), (m, v) => [[['outputRange', m[1] - 1, 'value'], num(v)]]],
   [/^mcv_(\w+)_(\d+)$/, (r, m) => MCV[m[1]][0](r), (m, v) => [[['converter', m[2] - 1, MCV[m[1]][1]], num(v) + (MCV[m[1]][2] || 0)]]],
@@ -216,7 +217,7 @@ const SRR = { D: 'direction', L: 'length', R: 'randomness', T: 'rate', A: 'atten
 const SHAPE = { AS: 'envAttackShape', DS: 'envDecayShape', RS: 'envReleaseShape' };
 
 export const presetRules = [
-  [/^config_name$/, NAME, (m, v) => [[['name'], padName(v)]]],
+  [/^config_name$/, NAME, (m, v) => [[['name'], trimName(v)]]],
   [/^swing_(type|amount)$/, R(0, 10), (m, v) => [[[m[1] === 'type' ? 'swingType' : 'swingAmount'], num(v)]]],
   [/^swing_pos([123])$/, R(0, 127), (m, v) => [[['swingPosition' + m[1]], num(v)]]],
   [/^tempo$/, (r) => (R(200, 3000)(r) / 10).toFixed(1), (m, v) => [[['tempo'], Math.round(num(v) * 10)]]],

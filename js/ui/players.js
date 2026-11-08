@@ -4,7 +4,7 @@
 
 import { h, $, modal, replace } from '../../vendor/lilypad/js/dom.js';
 import { icon, chip, playerLine, KIND_NAMES } from './look.js';
-import { selectInput, numberInput, perScene, ec4Label } from './controls.js';
+import { selectInput, numberInput, perScene, ec4Label, divisionOptions } from './controls.js';
 import { clockSourceInput } from './editors.js';
 import { DIVISIONS, noteName } from '../patch/tables.js';
 import { playersOf } from '../patch/derive.js';
@@ -72,7 +72,7 @@ function playerRest(view, p, f, parts, act, onSelect) {
     const q = seq ? act.values().preset?.noteSequencer[p.index] : null;
     const set = (what, key, v) => act.edit(`${what} of ${p.name}`, [{ dump: 'preset', path: ['noteSequencer', p.index, key], value: v }]);
     parts.push(section('Clock', h('div', { class: 'erows' },
-      perScene(field(L('Steps at', 'rate'), selectInput(`Rate of ${p.name}`, p.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => act.edit(`Rate of ${p.name}`, setPlayerRate(p.id, v))))),
+      perScene(field(L('Steps at', 'rate'), selectInput(`Rate of ${p.name}`, p.rate, divisionOptions(p.rate, [[0, 'Ext: its clock source']]), (v) => act.edit(`Rate of ${p.name}`, setPlayerRate(p.id, v))))),
       // the clock source only counts at rate Ext, so it only shows then
       p.rate === 0 ? field('Clock source', clockSourceInput(view, act, `Clock source of ${p.name}`, p.clock,
         (v, made) => act.edit(made.length ? `${p.name} clocked by a new Euclid ${v}` : `Clock source of ${p.name}`, [...made, ...setPlayer(p.id, { clock: v })]))) : null,
@@ -181,7 +181,7 @@ export function randomClock(view, s, act) {
   const id = `srrNotes:${s.index}`;
   const clock = act.values().config.srr[s.index].clock;
   return section('Clock', h('div', { class: 'erows' },
-    perScene(field(ec4Label('Steps at', `srr:${s.index}:rate`, act.ec4), selectInput(`Rate of ${s.name}`, rate, [[0, 'Ext: its clock source'], ...DIVISIONS],
+    perScene(field(ec4Label('Steps at', `srr:${s.index}:rate`, act.ec4), selectInput(`Rate of ${s.name}`, rate, divisionOptions(rate, [[0, 'Ext: its clock source']]),
       (v) => act.edit(`Rate of ${s.name}`, setPlayerRate(id, v))))),
     rate === 0 ? field('Clock source', clockSourceInput(view, act, `Clock source of ${s.name}`, clock,
       (v, made) => act.edit(made.length ? `${s.name} clocked by a new Euclid ${v}` : `Clock source of ${s.name}`, [...made, ...setPlayer(id, { clock: v })]))) : null));

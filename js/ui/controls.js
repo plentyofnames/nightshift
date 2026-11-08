@@ -3,7 +3,7 @@
 // the focus on it.
 
 import { h } from '../../vendor/lilypad/js/dom.js';
-import { RANGE_VOLTS, levelToVolts, voltsToLevel } from '../patch/tables.js';
+import { RANGE_VOLTS, DIVISIONS, levelToVolts, voltsToLevel } from '../patch/tables.js';
 
 export function numberInput(label, value, { min, max, step = 1 }, commit) {
   return h('input', {
@@ -11,8 +11,17 @@ export function numberInput(label, value, { min, max, step = 1 }, commit) {
     onchange: (e) => {
       const v = parseFloat(e.target.value);
       if (Number.isFinite(v)) commit(Math.min(max, Math.max(min, v)));
+      else e.target.value = value; // "", "-" or text: back to what the patch holds
     },
   });
+}
+
+// The tempo divisions as select options, after `extra` (e.g. [0, 'Ext']). The FH-2 takes any
+// pulse count 0–127, and a controller knob can set one off the list: that value stays on the
+// list as "n pulses", else the select would show its first option for it.
+export function divisionOptions(current, extra = []) {
+  const list = [...extra, ...DIVISIONS];
+  return list.some(([n]) => n === current) ? list : [...list, [current, `${current} pulses`]];
 }
 
 export function voltsInput(label, level, range, commit) {

@@ -44,11 +44,17 @@ export class Fh2 extends EventTarget {
         return resolve(null);
       }
       const timer = setTimeout(() => {
-        this.pending = null;
+        if (this.pending?.timer === timer) this.pending = null; // not a later request's
         reject(new TimeoutError(`no reply to FH-2 command ${commandOf(bytes).toString(16).toUpperCase()}H`));
       }, this.timeout);
       this.pending = { reply, resolve, timer };
-      this.transport.send(bytes);
+      try {
+        this.transport.send(bytes);
+      } catch (e) { // a port gone away: Web MIDI's send throws
+        clearTimeout(timer);
+        this.pending = null;
+        reject(e);
+      }
     });
     const p = this.chain.then(run, run);
     this.chain = p.catch(() => {});

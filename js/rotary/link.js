@@ -45,12 +45,15 @@ export class Bcr32Link extends EventTarget {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
-  _state({ mode, page }) {
+  _state({ mode, page, solicited = true }) {
     const moved = page !== this.page;
     const up = mode === CONTROLLER && this.mode !== CONTROLLER;
-    if (moved) this.forget(); // the BCR32 drops texts and RAM edits on a page change
+    // a STATE the BCR32 sent by itself for the page it already shows: a T key for that page
+    // (firmware 0.23 loads the page again then, dropping texts and RAM edits)
+    const reloaded = !solicited && !moved && mode === this.mode && this.page != null;
+    if (moved || reloaded) this.forget(); // the BCR32 drops texts and RAM edits on a page change
     if (up) this.sent.clear(); // values wait while the sequencer shows
-    const changed = moved || mode !== this.mode;
+    const changed = moved || mode !== this.mode || reloaded;
     this.mode = mode;
     this.page = page;
     if (changed) this._emit('state', { mode, page, moved });

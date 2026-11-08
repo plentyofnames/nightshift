@@ -22,6 +22,8 @@ export const TRIGGER_TYPES = ['', 'Trigger', 'Gate', 'Velocity trigger', 'Veloci
   'Toggle', 'On/off trigger', 'Envelope', 'Velocity'];
 export const ENVELOPE_TRIGGER = TRIGGER_TYPES.indexOf('Envelope'); // plays one voice's envelope settings ("Env set")
 export const ACCENT_TRIGGER_TYPES = new Set([5, 6]);
+// Trigger types that put out a level (from velocity or an envelope): they need a CV jack.
+export const LEVEL_TRIGGER_TYPES = new Set([3, 4, 9, 10]);
 // Arpeggiator modes: the preset value is a range (manual, "Arpeggiators"); these are their starts.
 export const ARP_MODES = [[0, 'Off'], [11, 'Up'], [22, 'Down'], [32, 'Alt'], [43, 'Alt 2'], [54, 'Step up'], [64, 'Step down'],
   [75, 'Step play'], [86, 'Random'], [96, 'Random 2'], [107, 'Random 3'], [118, 'As played']];

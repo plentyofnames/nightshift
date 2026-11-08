@@ -8,10 +8,10 @@
 import { mappingsOf } from './mappings.js';
 import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
-  CVMIDI_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID, SRR_STOP } from './tables.js';
+  CVMIDI_TYPES, LEVEL_TRIGGER_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID, SRR_STOP } from './tables.js';
 
 // `names` are Night Shift's own names beside the dumps (edit.js setName): for sources and players
-// by id, and for the gear on a port and channel.
+// by id, and for the gear on a port and channel; with the scene's marks (edit.js keep, withMarks).
 export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names = {}) {
   const outputs = Array.from({ length: 128 }, (_, i) => ({
     index: i,
@@ -46,7 +46,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
       }
       p.jack = jackName(p.output, hardware);
       p.present = outputs[p.output].present;
-      outputs[p.output].ports.push({ source: s.id, name: p.name, layer: !!s.layer, standby: !!s.standby });
+      outputs[p.output].ports.push({ source: s.id, name: p.name, layer: !!s.layer, standby: !!s.standby, typeIndex: p.typeIndex });
     }
     return s;
   };
@@ -297,8 +297,9 @@ export function converterPorts(cv, problems = [], i = 0) {
 
 function mpeChannels(cv) {
   const out = [];
-  if (cv.channel === 15) for (let c = 14; c >= cv.lastMpeChannel; c--) out.push(c);
-  else for (let c = cv.channel + 1; c <= cv.lastMpeChannel; c++) out.push(c);
+  const last = Math.min(cv.lastMpeChannel, 15);
+  if (cv.channel === 15) for (let c = 14; c >= last; c--) out.push(c);
+  else for (let c = cv.channel + 1; c <= last; c++) out.push(c);
   return [cv.channel, ...out];
 }
 
@@ -342,7 +343,8 @@ function lfoResetOf(r) {
 function gateFriendly(sources, p) {
   const s = sources.find((x) => x.id === p.source);
   if (!s) return true;
-  if (s.kind === 'clock' || s.kind === 'triggers' || s.kind === 'euclid' || s.kind === 'hid') return true;
+  if (s.kind === 'triggers') return p.typeIndex == null || !LEVEL_TRIGGER_TYPES.has(p.typeIndex); // a velocity or envelope trigger is a level
+  if (s.kind === 'clock' || s.kind === 'euclid' || s.kind === 'hid') return true;
   if (s.kind === 'random') return p.name !== 'CV';
   if (s.kind === 'voice') return /^(Gate|Trigger|Para gate)( \d+)?$/.test(p.name); // not Velocity gate: gate outputs are always 10 V
   return false;
@@ -442,12 +444,13 @@ export function playersOf(config, preset, { all = false, names = {} } = {}) {
 // as senders; external devices come from the patch's sidecar (later).
 function channelMap(sources, players, mappings) {
   const ch = Array.from({ length: 16 }, (_, i) => ({ channel: i, senders: [], listeners: [] }));
-  for (const p of players) if (p.internal) ch[p.channel].senders.push({ player: p.id, name: p.name });
+  // a channel past 15 (possible in a hand-edited dump: the fields are 7-bit) is left out, not a crash
+  for (const p of players) if (p.internal) ch[p.channel]?.senders.push({ player: p.id, name: p.name });
   for (const s of sources) {
-    if (s.kind === 'voice') s.channels.forEach((c) => ch[c].listeners.push({ source: s.id, name: s.name, what: `notes ${noteName(s.notes[0])}–${noteName(s.notes[1])}` }));
-    if (s.kind === 'triggers') ch[s.channel].listeners.push({ source: s.id, name: s.name, what: 'notes' });
+    if (s.kind === 'voice') s.channels.forEach((c) => ch[c]?.listeners.push({ source: s.id, name: s.name, what: `notes ${noteName(s.notes[0])}–${noteName(s.notes[1])}` }));
+    if (s.kind === 'triggers') ch[s.channel]?.listeners.push({ source: s.id, name: s.name, what: 'notes' });
   }
-  for (const m of mappings) ch[m.channel].listeners.push({ mapping: m.slot, name: `CC ${m.cc}`, what: m.target.param ?? m.target.kind });
+  for (const m of mappings) ch[m.channel]?.listeners.push({ mapping: m.slot, name: `CC ${m.cc}`, what: m.target.param ?? m.target.kind });
   return ch;
 }
 

@@ -130,6 +130,23 @@ test('collisions and gate-only outputs are reported', () => {
   eq(v.problems.map((p) => p.kind), ['collision', 'gate-only']);
 });
 
+test('a velocity or envelope trigger on a gate jack is a gate-only problem; a plain trigger is not', () => {
+  const c = blankConfig().values;
+  Object.assign(c.trigger[0], { type: 1, channel: 9, note: 36, output: 64 }); // Trigger on GT1·1: a gate
+  Object.assign(c.trigger[1], { type: 4, channel: 9, note: 38, output: 65 }); // Velocity gate on GT1·2: a level
+  Object.assign(c.trigger[2], { type: 9, channel: 9, note: 40, output: 66 }); // Envelope on GT1·3: a level
+  const v = derive(c, null);
+  eq(v.problems.filter((p) => p.kind === 'gate-only').map((p) => p.output), [65, 66]);
+});
+
+test('a channel past 15 in a dump leaves the channel map alone instead of failing', () => {
+  const c = blankConfig().values;
+  Object.assign(c.converter[0], { enable: 1, channel: 20, baseOutput: 0, cvOut: 1, gateOut: 1 });
+  Object.assign(c.converter[1], { enable: 1, channel: 0, type: 2, lastMpeChannel: 40, baseOutput: 8, cvOut: 1, gateOut: 1 });
+  const v = derive(c, null);
+  eq([v.channels.length, v.sources.filter((s) => s.kind === 'voice').length], [16, 2]);
+});
+
 for (const seed of [1, 2]) {
   test(`derive copes with a random config (seed ${seed})`, async (load) => {
     const html = text(await load('test/official/fh2_config_tool.html'));

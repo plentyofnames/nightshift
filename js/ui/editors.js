@@ -4,20 +4,19 @@
 
 import { TUNINGS, SLOTS, scalaFiles, slotLabel, voiceTuning, setTuning, scalaMismatch } from '../patch/scala.js';
 import { h } from '../../vendor/lilypad/js/dom.js';
-import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label } from './controls.js';
+import { numberInput, voltsInput, selectInput, slider, perScene, ec4Label, divisionOptions } from './controls.js';
 import { lfoSamples, euclidPattern, envelopePoints } from '../patch/shapes.js';
 import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_TYPES, ARP_MODES, RANGE_VOLTS, arpModeOf, lfoHz, hzToLfo, durationName, noteName,
   levelToVolts, LFO_RESET_CLOCK, LFO_RESET_EUCLID, ENVELOPE_TRIGGER, SRR_DIRECTIONS, SRR_SCALES, SRR_STOP, srrUsesMidiNotes, srrKeyText,
   srrRandomnessText } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
-  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep, setSrr, setSrrJack, setPlayer } from '../patch/edit.js';
+  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep, setSrr, setSrrJack, setPlayer, moveToChannel } from '../patch/edit.js';
 import { freeCcs, voicePlan, freeEuclid, srrOutputs } from '../patch/alloc.js';
 import { learnCc } from './connect.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const field = (label, ...control) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control));
 const sfield = (label, ...control) => perScene(field(label, ...control)); // kept per scene (in the preset)
-const divisionOptions = (extra = []) => [...extra, ...DIVISIONS.map(([p, name]) => [p, name])];
 
 // ---- clock sources: the external clock or a Euclid pattern, which needs no jack for this
 
@@ -86,7 +85,7 @@ export function lfoEditor(view, o, act, color) {
   const rows = [
     sfield('Timing', selectInput(`Timing of the ${where}`, r.lfoSynced ? 1 : 0, [[0, 'Free'], [1, 'Synced to the tempo']], (v) => set('Timing', { lfoSynced: v }))),
     ...(r.lfoSynced
-      ? [sfield(L('One cycle', 'lfoTempoBase'), selectInput(`Cycle of the ${where}`, r.lfoTempoBase, divisionOptions(), (v) => set('Cycle', { lfoTempoBase: v }))),
+      ? [sfield(L('One cycle', 'lfoTempoBase'), selectInput(`Cycle of the ${where}`, r.lfoTempoBase, divisionOptions(r.lfoTempoBase), (v) => set('Cycle', { lfoTempoBase: v }))),
         sfield(L('Times', 'lfoTempoMultiplier'), numberInput(`Cycle multiplier of the ${where}`, r.lfoTempoMultiplier, { min: 1, max: 127 }, (v) => set('Cycle', { lfoTempoMultiplier: v })))]
       : [sfield(L('Rate', 'lfoSpeed'), numberInput(`Rate of the ${where}`, lfoHz(r.lfoSpeed).toFixed(2), { min: 0.1, max: 10, step: 0.01 }, (v) => set('Rate', { lfoSpeed: hzToLfo(v) })), ' Hz')]),
     // the other timing's knobs, when they are on the EC4: the FH-2 takes whichever rate was set
@@ -187,7 +186,7 @@ export function euclidEditor(s, act, color) {
       num('Pulses', 'pulses', 0, 32),
       num('Steps', 'steps', 1, 32),
       num('Rotation', 'rotation', 0, 32),
-      sfield(L('Step rate', 'rate'), selectInput(`Step rate of ${s.name}`, p.ratePulses, divisionOptions([[0, 'External clock']]), (v) => set('Step rate', { rate: v }))),
+      sfield(L('Step rate', 'rate'), selectInput(`Step rate of ${s.name}`, p.ratePulses, divisionOptions(p.ratePulses, [[0, 'External clock']]), (v) => set('Step rate', { rate: v }))),
       num('Gate length', 'gate', 0, 127),
       num('Accent rate', 'accent', 0, 127),
       sfield(L('Reset', 'reset'), numberInput(`Reset of ${s.name}`, p.reset, { min: 0, max: 32 }, (v) => set('Reset', { reset: v })), ' beats (0 = never)')),
@@ -270,7 +269,7 @@ export function clockEditor(s, act) {
     const rows = [field('Signal', selectInput(`Signal of ${name}`, p.type, TYPE_OPTIONS, (v) => set('Signal', { type: v })))];
     if (p.type === 1) {
       rows.push(
-        field('Every', selectInput(`Rate of ${name}`, p.base, divisionOptions(), (v) => set('Rate', { base: v })),
+        field('Every', selectInput(`Rate of ${name}`, p.base, divisionOptions(p.base), (v) => set('Rate', { base: v })),
           ' × ', numberInput(`Multiplier of ${name}`, p.multiplier, { min: 1, max: 127 }, (v) => set('Rate', { multiplier: v }))),
         field('Pulse', numberInput(`Pulse length of ${name}`, p.length, { min: 0, max: 127 }, (v) => set('Pulse length', { length: v })), ' ms (0 = square)'),
         field('Shift', numberInput(`Shift of ${name}`, p.shift, { min: 0, max: 127 }, (v) => set('Shift', { shift: v })), ` pulses${p.shift ? ` (${durationName(p.shift)})` : ''}`),
@@ -396,7 +395,9 @@ export function voiceEditor(view, s, act, color) {
 
   // what it listens to
   const listens = [
-    field(cv.type === 2 ? 'Global channel' : 'MIDI channel', selectInput(`Channel of ${s.name}`, cv.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => set('Channel', { channel: v }))),
+    // its players (sequencers wired to it) move with it, else they would play into silence
+    field(cv.type === 2 ? 'Global channel' : 'MIDI channel', selectInput(`Channel of ${s.name}`, cv.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]),
+      (v) => (s.players?.length ? act.edit(`${s.name} and its players moved to ch ${v + 1}`, moveToChannel(s, v)) : set('Channel', { channel: v })))),
   ];
   if (cv.type === 2) listens.push(field('Last channel', selectInput(`Last MPE channel of ${s.name}`, cv.lastMpeChannel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => set('Last MPE channel', { lastMpeChannel: v }))));
   listens.push(
@@ -471,7 +472,7 @@ export function voiceEditor(view, s, act, color) {
       const o = s.arpOut;
       rows.push(field('Arpeggiates', `notes on ${heard}`),
         sfield(L('Range', 'arpRange'), selectInput(`Arp range of ${s.name}`, Math.max(1, Math.min(3, a.range)), [[1, '1 octave'], [2, '2 octaves'], [3, '3 octaves']], (v) => pset('Arp range', { arpRange: v }))),
-        sfield(L('Rate', 'arpRate'), selectInput(`Arp rate of ${s.name}`, a.rate, [[0, 'Ext: its clock source'], ...DIVISIONS], (v) => pset('Arp rate', { arpRate: v }))),
+        sfield(L('Rate', 'arpRate'), selectInput(`Arp rate of ${s.name}`, a.rate, divisionOptions(a.rate, [[0, 'Ext: its clock source']]), (v) => pset('Arp rate', { arpRate: v }))),
         a.rate === 0 ? field('Clock source', clockSourceInput(view, act, `Arp clock source of ${s.name}`, cv.arpClock,
           (v, made) => act.edit(made.length ? `${s.name}’s arp clocked by a new Euclid ${v}` : `Arp clock source of ${s.name}`, [...made, ...setConverter(s.index, { arpClock: v })]))) : null,
         sfield(L('Gate', 'arpGate'), slider(`Arp gate of ${s.name}`, a.gate, { min: 0, max: 127, show: (v) => (v ? `${Math.round((v / 128) * 100)}%` : 'trigger') }, (v) => pset('Arp gate', { arpGate: v }))),
@@ -523,7 +524,8 @@ export function triggerEditor(view, s, act) {
   const triggers = s.ports.filter((p) => !p.accent);
   const kit = [
     field('MIDI channel', selectInput(`Channel of ${s.name}`, s.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]),
-      (v) => act.edit(`Channel of ${s.name}: ${v + 1}`, triggers.flatMap((p) => setTrigger(p.trigger, { channel: v }))))),
+      (v) => (s.players?.length ? act.edit(`${s.name} and its players moved to ch ${v + 1}`, moveToChannel(s, v))
+        : act.edit(`Channel of ${s.name}: ${v + 1}`, triggers.flatMap((p) => setTrigger(p.trigger, { channel: v })))))),
     field('Trigger length', numberInput('Trigger length (all triggers)', config.triggerLength, { min: 1, max: 100 },
       (v) => act.edit(`Trigger length (all triggers): ${v} ms`, fields('config', [], { triggerLength: v }))), ' ms, all triggers'),
   ];

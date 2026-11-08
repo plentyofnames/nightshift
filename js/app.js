@@ -7,7 +7,7 @@ import { h, $, replace, download, modal } from '../vendor/lilypad/js/dom.js';
 import { parseDump, buildDump, splitSysex, commandOf, DUMPS, CMD } from './fh2/sysex.js';
 import { diff } from './fh2/layout.js';
 import { derive } from './patch/derive.js';
-import { History, apply, removePort, removeSource, setName, changesTowards, removeLfoWithCcs } from './patch/edit.js';
+import { History, apply, removePort, removeSource, setName, changesTowards, removeLfoWithCcs, withMarks } from './patch/edit.js';
 import { examplePatch } from './patch/example.js';
 import { projectToJson, projectFromJson, PROJECT_EXTENSION } from './patch/project.js';
 import { DEFAULT_HARDWARE, validHardware, blockName, hasController, CONTROLLERS } from './patch/hardware.js';
@@ -51,6 +51,7 @@ const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept afte
 const FH2_SETTINGS_KEY = 'nightshift.fh2settings'; // the FH-2's own settings, as last read
 const FH2_CAL_KEY = 'nightshift.fh2calibrations'; // its calibration slots and startup slots, as last read
 const PATCH_ID_KEY = 'nightshift.patchid'; // which patch the kept one is: every file, Get into nothing or example is a new one
+const EDITED_KEY = 'nightshift.edited'; // '1' while the kept patch has edits that never reached the FH-2 (survives a reload)
 const THRU_KEY = 'nightshift.ec4thru';
 const BCR_THRU_KEY = 'nightshift.bcr32thru';
 const BCR_HELD_KEY = 'nightshift.bcr32held'; // what Night Shift last wrote on the BCR32 (rotary/image.js): its own knobs
@@ -95,19 +96,20 @@ const state = {
   hardware: loadHardware(),
   history: new History(),
   module: null, // the values the FH-2 holds, as last read or sent: { config, preset, scene (yours it came from) }, or null
-  link: 'unknown', // 'connecting', 'connected', 'offline' (no FH-2 port) or 'no-midi' (the browser refuses)
+  link: 'unknown', // 'connecting', 'connected', 'offline' (no FH-2 port), 'silent' (a port, no answer), 'blocked' (MIDI denied) or 'no-midi' (no Web MIDI)
   port: '',
   fh2Settings: storedSettings(), // { at, port, pages } as last read from the module's menus, or null
   fh2Calibrations: storedSettings(FH2_CAL_KEY), // { at, port, slots, startup } as last read (menu.js readCalibrations), or null
   sync: null, // how what you see compares with the FH-2: { kind: 'same' | 'scene' | 'differs' | 'unknown', scene }
   unsent: false, // what you see isn't what the FH-2 holds (or we don't know what it holds)
+  editedBefore: false, // the kept patch was edited before this page load and never sent since (EDITED_KEY)
   busy: false,
   patchId: '', // the patch's (PATCH_ID_KEY), so the base is only used for the patch it belongs to
   view: null,
   colors: new Map(),
   selected: null,
   tab: 'patch',
-  ec4: { sel: null, note: '', link: null, thru: loadThru() }, // the EC4 tab's knob in view ({ page, knob }), a line on
+  ec4: { sel: null, note: '', link: null, thru: loadThru(), stored: false }, // the EC4 tab's knob in view ({ page, knob }), a line on
   // the EC4, the live link (ec4/link.js) while the EC4 is connected, and Night Shift's thru (EC4 → FH-2)
   ec4Model: null, // the EC4 pages (ec4/pages.js pagesOf), recomputed with the view
   bcr32: { sel: { page: 0, knob: null }, note: '', link: null, linking: false, thru: loadThru(BCR_THRU_KEY), image: null, held: loadHeld() }, // the BCR32
@@ -198,6 +200,7 @@ function store() {
     try {
       localStorage.setItem(PATCH_KEY, projectToJson(project()));
       localStorage.setItem(PATCH_ID_KEY, state.patchId);
+      localStorage.setItem(EDITED_KEY, state.unsent && (state.history.canUndo || state.editedBefore) ? '1' : '');
     } catch {}
   }, 300);
 }
@@ -212,7 +215,7 @@ function stored() {
 }
 
 function update() {
-  state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware, state.names) : null;
+  state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware, withMarks(state.names, state.preset)) : null;
   state.colors = state.view ? colorsFor([...state.view.sources, ...state.view.players], state.colors) : new Map();
   state.sync = state.config ? syncOf() : null;
   state.unsent = state.config ? state.sync.kind !== 'same' : false;
@@ -247,7 +250,16 @@ function load({ config, preset, presets, scene = 0, names, hardware, slots, scen
   state.colors = new Map(); // a new patch gets fresh colours
   state.history = new History();
   state.patchId = (from === 'browser' && storedPatchId()) || newPatchId();
+  state.editedBefore = from === 'browser' && storedEdited();
   update();
+}
+
+function storedEdited() {
+  try {
+    return localStorage.getItem(EDITED_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 // ---- editing
@@ -279,12 +291,12 @@ function edit(label, changes, { force = false, fold = null } = {}) {
 // for the FH-2's own changes coming in (edit's `fold`).
 function leftOnEc4(changes) {
   const before = state.ec4Model;
-  const setup = changes.filter((c) => c.dump !== 'preset');
+  const setup = changes.filter((c) => c.dump !== 'preset' && c.dump !== 'marks');
   if (!before || !setup.some((c) => c.dump === 'config')) return [];
   const p = patch();
   const undo = apply(p, setup);
   try {
-    return leftBehind(before, pagesOf(derive(p.config.values, p.preset?.values ?? null, state.hardware, p.names), p.names), p.names);
+    return leftBehind(before, pagesOf(derive(p.config.values, p.preset?.values ?? null, state.hardware, withMarks(p.names, p.preset)), p.names), p.names);
   } finally {
     apply(p, undo);
   }
@@ -472,7 +484,7 @@ function scenesModel(v) {
     scenes: state.scenes.map((s, i) => ({
       name: sceneName(i), slot: state.slots.scenes[i], current: i === state.scene, onModule: onModule(i),
       differences: i ? sceneDifferences(state.scenes[0].values, s.values, state.hardware) : [],
-      fit: fitProblems(i === state.scene ? v : derive(state.config.values, s.values, state.hardware, state.names), state.config.values, s.values),
+      fit: fitProblems(i === state.scene ? v : derive(state.config.values, s.values, state.hardware, withMarks(state.names, s)), state.config.values, s.values),
     })),
   };
 }
@@ -535,6 +547,7 @@ async function openFiles(files) {
       try {
         const d = parseDump(m);
         if (!d.versionOk) notes.push(`${f.name}: ${d.kind} version ${d.values.version}, expected ${DUMPS[d.cmd].version}`);
+        if (d.masked) notes.push(`${f.name}: ${d.masked} byte${d.masked === 1 ? '' : 's'} not 7-bit, cleared (a “None” output from the official tool?)`);
         if (d.kind === 'preset') found.presets.push(d);
         else found.config = d;
         used++;
@@ -566,9 +579,10 @@ function pickFiles() {
   input.click();
 }
 
-// Asks before a file or the example replaces edits that aren't on the FH-2.
+// Asks before a file or the example replaces edits that aren't on the FH-2: edits made here,
+// or before a reload (the history is new then, but EDITED_KEY remembers).
 async function dropUnsent(what) {
-  if (!state.history.canUndo || !state.unsent) return true;
+  if (!state.unsent || !(state.history.canUndo || state.editedBefore)) return true;
   return modal($('dialog'), {
     title: 'Replace your changes?',
     body: h('p', { class: 'note' }, 'Your changes aren’t on the FH-2. Save the project first to keep them.'),
@@ -599,14 +613,13 @@ async function pickFh2() {
 }
 
 async function withFh2(work) {
-  if (state.busy) return;
+  if (state.busy) return status('Busy with the FH-2…', true);
   state.busy = true;
   try {
     const pair = await pickFh2();
     if (pair) await work(pair);
   } catch (e) {
-    status(refused(e) ? 'No MIDI access in this browser'
-      : `The FH-2 didn’t answer: ${e.message}`, true);
+    status(midiProblem(e) ?? `The FH-2 didn’t answer: ${e.message}`, true);
   } finally {
     state.busy = false;
     render();
@@ -626,6 +639,10 @@ function get() {
     if (!state.config || !state.preset) {
       load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
       return status(`Got the patch from ${pair.name}${odd}`, !!odd);
+    }
+    if (state.from === 'example') { // the module's patch in the example's place: yours now, so kept
+      state.from = `${pair.name}, ${r.version}`;
+      state.patchId = newPatchId();
     }
     const changes = [...changesTowards('config', state.config, r.config.values), ...changesTowards('preset', state.preset, r.preset.values)];
     if (!changes.length) {
@@ -649,7 +666,14 @@ async function connect() {
       Object.assign(state, { link: 'offline', module: null });
       return;
     }
-    const r = await pullFromFh2(pair);
+    let r;
+    try {
+      r = await pullFromFh2(pair);
+    } catch (e) { // the port is there but nothing answers: another app holding it, the module in a menu
+      if (midiProblem(e)) throw e;
+      Object.assign(state, { link: 'silent', port: pair.name, module: null });
+      return;
+    }
     Object.assign(state, { link: 'connected', port: pair.name });
     if (!state.config) {
       readModule(r);
@@ -657,7 +681,7 @@ async function connect() {
       state.status = `Got the patch from ${pair.name}`;
     } else readModule(r);
   } catch (e) {
-    Object.assign(state, { link: refused(e) ? 'no-midi' : 'offline', module: null });
+    Object.assign(state, { link: noWebMidi() ? 'no-midi' : refused(e) ? 'blocked' : 'offline', module: null });
   } finally {
     state.busy = false;
     update();
@@ -678,7 +702,10 @@ function watch() {
   }).catch(() => {});
 }
 
+const noWebMidi = () => typeof navigator === 'undefined' || !navigator.requestMIDIAccess;
 const refused = (e) => e.name === 'SecurityError' || e.name === 'NotAllowedError' || /permission|webmidi/i.test(e.message);
+// Why MIDI itself failed, or null when it was the device that didn't answer.
+const midiProblem = (e) => (noWebMidi() ? 'No MIDI in this browser (use Chrome or Edge)' : refused(e) ? 'MIDI access blocked: allow it for this site' : null);
 
 // What came back different after a send, for the status line; '' when nothing did.
 function offText(off) {
@@ -950,6 +977,11 @@ async function saveFlash() {
   });
   if (!ok) return;
   await withFh2(async (pair) => {
+    status(`Checking ${pair.name}…`); // the FH-2 saves what it holds: make sure that is what you see
+    readModule(await pullFromFh2(pair));
+    update();
+    if (state.sync.kind !== 'same') return status('The FH-2 holds something else: Send first', true);
+    status(`Saving to ${pair.name}’s flash…`);
     await saveToFlash(pair, { configSlot, presetSlot });
     // only where the slots are known (else the FH-2 used the ones it last loaded from)
     if (configSlot && presetSlot && state.sync?.kind === 'same') {
@@ -1114,7 +1146,7 @@ function removeMappingOf(m) {
 
 // Mappings on the pages channels that are on no page: listed, then removed after a yes.
 async function tidyEc4() {
-  const stray = strayMappings(state.view, ec4Model());
+  const stray = strayMappings(state.view, ec4Model(), state.names);
   if (!stray.length) return;
   const ok = await modal($('dialog'), {
     title: `Remove ${stray.length} CCs?`,
@@ -1151,7 +1183,7 @@ function gigList() {
 
 async function sendEc4() {
   const model = ec4Model();
-  if (state.busy) return;
+  if (state.busy) return status('Busy with the FH-2…', true);
   if (model.unmapped.length) return status('Give every knob and push a CC first', true);
   state.busy = true;
   try {
@@ -1169,6 +1201,7 @@ async function sendEc4() {
       const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0);
       const sent = () => {
         state.held = { ...state.held, ec4: { at: new Date().toISOString(), fp: pagesFingerprint(model.pages, state.view, model.channel, sync), fw: [info.fwMajor, info.fwMinor] } };
+        state.ec4.stored = true; // this session put the pages on the unit: its EEPROM is known from here on
         store();
       };
       if (!writes.length) {
@@ -1190,7 +1223,7 @@ async function sendEc4() {
       status(`Pages on the EC4, setup ${SETUP + 1}`);
     });
   } catch (e) {
-    status(refused(e) ? 'No MIDI access in this browser' : `The EC4 didn’t answer: ${e.message}`, true);
+    status(midiProblem(e) ?? `The EC4 didn’t answer: ${e.message}`, true);
   } finally {
     state.busy = false;
     render();
@@ -1298,7 +1331,7 @@ function showOnEc4() {
     return { text: valueText(c.key, v, { range }), cc: c.map.relative ? null : { channel: c.map.channel, number: c.map.cc, value: ccFor(c.key, v, c.map.bits, { tempoMin: state.config.values.tempoMin }), bits: c.map.bits } };
   })).catch(() => {});
   // controlfrog 0.13: the page as Night Shift has it, into the EC4's RAM (its EEPROM only on Store)
-  if (link.edits) link.edit(pageRecords(page, link.group, state.view, state.ec4Model.channel), !ec4Unstored()).catch(() => {});
+  if (link.edits) link.edit(pageRecords(page, link.group, state.view, state.ec4Model.channel), state.ec4.stored && !ec4Unstored()).catch(() => {});
 }
 
 // Whether Night Shift's pages differ from what it last stored on the EC4.
@@ -1348,6 +1381,7 @@ async function readBack() {
   // not while the hardware checks page runs a check: the FH-2 holds a test config then
   if (state.busy || state.link !== 'connected' || !state.preset || state.sync?.kind === 'scene' || checksBusy(localStorage)) return;
   state.busy = true;
+  render(); // Get, Send and Save rest meanwhile
   try {
     const pair = (await fh2Ports()).find(looksLikeFh2);
     if (!pair) return;
@@ -1367,7 +1401,10 @@ async function readBack() {
   } catch {
     // the knobs still changed the FH-2; the mark says so at the next read
   } finally {
-    state.busy = false;
+    if (state.busy) {
+      state.busy = false;
+      render();
+    }
   }
 }
 
@@ -1473,7 +1510,7 @@ function bcr32Unstored() {
 // Reads the BCR32's image and writes Night Shift's knobs into it: only its own, and another app's
 // only after a yes. Then RELOAD: the BCR32 uses and stores it, and only then does Night Shift hold them.
 async function sendBcr32() {
-  if (state.busy) return;
+  if (state.busy) return status('Busy with the FH-2…', true);
   const model = bcrModel();
   if (model.unmapped.length) return status('Give every knob and push a CC first', true);
   state.busy = true;
@@ -1511,7 +1548,10 @@ async function sendBcr32() {
       status(`Knobs on the BCR32${left ? ` · ${left} left as they were` : ''}`);
     });
   } catch (e) {
-    status(refused(e) ? 'No MIDI access in this browser' : `The BCR32 didn’t answer: ${e.message}`, true);
+    // Rotary Club 0.24 on: RELOAD answers an error when the BCR32 uses the image but couldn't keep it
+    const unkept = e.cmd === 0x24 && e.code != null;
+    status(midiProblem(e) ?? (unkept ? 'The BCR32 uses the knobs but couldn’t keep them (its store failed): try Send again'
+      : `The BCR32 didn’t answer: ${e.message}`), true);
   } finally {
     state.busy = false;
     render();
@@ -1618,9 +1658,18 @@ function onBcr32Touch({ kind, index, page }) {
 
 // What the page in view should show: Night Shift's knobs' values as texts and as the CCs that put
 // them there, and its knobs in the BCR32's RAM until stored (EDIT). Never another app's knob.
+let bcrImageRead = null; // the read of its image after a link-up Night Shift was too busy for
 function showOnBcr32() {
   const link = state.bcr32.link;
   const img = state.bcr32.image;
+  if (link && !img && !state.busy && !state.bcr32.linking && !bcrImageRead) {
+    bcrImageRead = readImage(link.device).then((i) => {
+      sawBcr32(i);
+      render();
+      showOnBcr32();
+    }).catch(() => {}).finally(() => { bcrImageRead = null; });
+    return;
+  }
   if (!link || link.page == null || !img || !state.preset || !state.bcrModel) return;
   const p = link.page;
   const page = state.bcrModel.pages[p];
@@ -1760,9 +1809,12 @@ function bar() {
       : k === 'scene' ? `scene ${sceneName(state.sync.scene)} is on the FH-2`
       : k === 'differs' ? 'differs from the FH-2'
       : state.link === 'no-midi' ? 'no MIDI in this browser'
+      : state.link === 'blocked' ? 'MIDI access blocked'
+      : state.link === 'silent' ? `FH-2 on “${state.port}” didn’t answer`
       : state.link === 'offline' ? 'FH-2 not connected' : 'not on the FH-2';
   // on a narrow window only its dot shows; the words are on hover
-  const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : ''), title: `${mark}${state.port ? ` · FH-2 on port “${state.port}”` : ''}` },
+  const sync = v && h('span', { class: 'sync' + (state.unsent ? ' unsent' : ''),
+    title: `${mark}${state.port && state.link === 'connected' ? ` · FH-2 on port “${state.port}”` : ''}${state.from === 'example' ? ' · the example: not kept in this browser' : ''}` },
     h('i', { class: 'sync-dot', 'aria-hidden': 'true' }), h('span', { class: 'sync-text' }, mark));
   const scenes = v && state.scenes.length > 0 && h('div', { class: 'scenes', role: 'group', 'aria-label': 'Scenes' },
     state.scenes.map((_, i) => h('button', {
@@ -1846,6 +1898,8 @@ function jackIcon() {
 function empty() {
   const why = state.link === 'connecting' ? 'Reading the FH-2…'
     : state.link === 'no-midi' ? 'No MIDI in this browser (use Chrome or Edge).'
+    : state.link === 'blocked' ? 'MIDI access is blocked for this site: allow it in the browser.'
+    : state.link === 'silent' ? `The FH-2 on “${state.port}” didn’t answer. Is another app using it?`
     : 'No FH-2 found. Connect it over USB C.';
   return h('section', { class: 'empty' }, h('p', {}, why),
     h('p', { class: 'note' }, 'Unofficial: not made or supported by Expert Sleepers.'),

@@ -28,7 +28,7 @@ test('field types write what they read', () => {
   }
   const nb = new Uint8Array(17);
   name16.write(nb, 0, 'Live set');
-  assert(name16.read(nb, 0) === 'Live set        ' && nb[16] === 0, 'name');
+  assert(name16.read(nb, 0) === 'Live set' && nb[8] === 0x20 && nb[15] === 0x20 && nb[16] === 0, 'name: padded in the bytes, trimmed when read');
 });
 
 test('bit fields leave the rest of their byte alone', () => {
@@ -177,6 +177,19 @@ test('client pulls, installs and verifies', async (load) => {
   assert(d.length === 1 && d[0].path.join('.') === 'clock.0.base', 'verify should report the one field');
   await client.saveConfigToFlash(3);
   assert(fh2.saved.length === 1 && fh2.saved[0][0] === CMD.SAVE_CONFIG && fh2.saved[0][1] === 3, 'save to flash');
+});
+
+test('a renamed config reads back equal after an install: names are trimmed, the module pads', async (load) => {
+  const b = new Uint8Array(17);
+  name16.write(b, 0, 'Verse');
+  assert(b[5] === 0x20 && b[15] === 0x20 && b[16] === 0 && name16.read(b, 0) === 'Verse', 'padded on write, trimmed on read');
+  const fh2 = new Fh2StandIn(await sampleDumps(load));
+  const client = new Fh2(fh2.transport());
+  const c = await client.pullConfig();
+  c.values.name = 'Live set';
+  await client.install(c);
+  assert((await client.verifyInstall(c)).length === 0, 'verify must not report the name');
+  assert((await client.pullConfig()).values.name === 'Live set', 'the name comes back as edited');
 });
 
 test('client requests go one at a time', async (load) => {

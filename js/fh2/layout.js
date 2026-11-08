@@ -53,13 +53,14 @@ export const u28 = {
   write: (b, o, v) => { for (let i = 0; i < 4; i++) b[o + i] = (v >> (7 * i)) & 0x7f; },
 };
 
-// 16 characters and a terminating zero. The official tools pad names with spaces.
+// 16 characters and a terminating zero. The official tools pad names with spaces; read drops
+// that padding, so a name edited here (trimmed) reads back equal after a send.
 export const name16 = {
   size: 17,
   read: (b, o) => {
     let s = '';
     for (let i = 0; i < 16 && b[o + i]; i++) s += String.fromCharCode(b[o + i]);
-    return s;
+    return s.replace(/ +$/, '');
   },
   write: (b, o, v) => {
     const s = (v + ' '.repeat(16)).slice(0, 16);
