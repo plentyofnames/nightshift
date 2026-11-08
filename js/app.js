@@ -10,7 +10,7 @@ import { derive } from './patch/derive.js';
 import { History, apply, removePort, removeSource, setName, changesTowards, removeLfoWithCcs } from './patch/edit.js';
 import { examplePatch } from './patch/example.js';
 import { projectToJson, projectFromJson, PROJECT_EXTENSION } from './patch/project.js';
-import { DEFAULT_HARDWARE, validHardware, blockName } from './patch/hardware.js';
+import { DEFAULT_HARDWARE, validHardware, blockName, hasController, CONTROLLERS } from './patch/hardware.js';
 import { colorsFor } from './ui/look.js';
 import { renderStage } from './ui/rack.js';
 import { renderInspector } from './ui/inspector.js';
@@ -18,7 +18,7 @@ import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
 import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, loadFh2Calibration, setFh2StartupCalibration, withFh2Client, ec4Port, withEc4,
-  openEc4, watchEc4, fh2Output, pullPresetFromFh2 } from './ui/connect.js';
+  openEc4, watchEc4, fh2Output, pullPresetFromFh2, bcr32Port, withBcr32, openBcr32, watchBcr32 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { renderGig } from './ui/gig.js';
@@ -26,7 +26,13 @@ import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
 import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, placeWithCc, takeOff, switchOn, switchOff, switchOffAll, jackKeys,
   addLivePage, removeLivePage, movePlace, toLivePage, isLive,
-  wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, leftBehind, toAbsolute, movePage, hidePage, sharePage, splitPage, SETUP } from './ec4/pages.js';
+  wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, leftBehind, toAbsolute, movePage, hidePage, sharePage, splitPage, SETUP, ccsFor } from './ec4/pages.js';
+import { bcrPagesOf, putObject, switchOn as bcrOn, switchOff as bcrOff, placeKnob as bcrPlace, takeOff as bcrTakeOff, movePlace as bcrMove, clearPage as bcrClear,
+  choicesFor as bcrChoices, halfChoices, freeHalf, pageOfObject, pageNameKey as bcrNameKey, knobOf, halfOf, KNOBS as BCR_KNOBS } from './rotary/pages.js';
+import { wanted, plan, writePlan, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, pageOnBcr32, editsFor } from './rotary/image.js';
+import { Bcr32Link } from './rotary/link.js';
+import { renderBcr32 } from './ui/bcr32.js';
+import { readRecord } from '../vendor/eyeofprovidence/js/model.js';
 import { readSetup, setupImage, setupState, writesFor, writeSetup, syncEntry, pagesFingerprint, pageRecords, SYNC_FORMAT, SYNC_MAX, HAS_013 } from './ec4/setup.js';
 import { fingerprint } from './hash.js';
 import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
@@ -48,6 +54,37 @@ const FH2_CAL_KEY = 'nightshift.fh2calibrations'; // its calibration slots and s
 const LIVE_KEY = 'nightshift.live'; // '0' while Live is off
 const BASE_KEY = 'nightshift.onfh2'; // what the FH-2 held as Night Shift last knew it (live editing)
 const PATCH_ID_KEY = 'nightshift.patchid'; // which patch the kept one is: every file, Get into nothing or example is a new one
+const THRU_KEY = 'nightshift.ec4thru';
+const BCR_THRU_KEY = 'nightshift.bcr32thru';
+const BCR_HELD_KEY = 'nightshift.bcr32held'; // what Night Shift last wrote on the BCR32 (rotary/image.js): its own knobs
+const CONTROLLER_KEY = 'nightshift.controller';
+function loadThru(key = THRU_KEY) {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+function loadHeld() {
+  try {
+    return heldFromJson(JSON.parse(localStorage.getItem(BCR_HELD_KEY)));
+  } catch {
+    return emptyHeld();
+  }
+}
+function saveHeld() {
+  try {
+    localStorage.setItem(BCR_HELD_KEY, JSON.stringify(heldToJson(state.bcr32.held)));
+  } catch {}
+}
+function loadController() {
+  try {
+    return localStorage.getItem(CONTROLLER_KEY) === 'bcr32' ? 'bcr32' : 'ec4';
+  } catch {
+    return 'ec4';
+  }
+}
+
 const state = {
   config: null, // parsed dumps (sysex.js parseDump); their values are what gets edited
   preset: null, // the scene in view: scenes[scene]
@@ -78,20 +115,18 @@ const state = {
   ec4: { sel: null, note: '', link: null, thru: loadThru() }, // the EC4 tab's knob in view ({ page, knob }), a line on
   // the EC4, the live link (ec4/link.js) while the EC4 is connected, and Night Shift's thru (EC4 → FH-2)
   ec4Model: null, // the EC4 pages (ec4/pages.js pagesOf), recomputed with the view
+  bcr32: { sel: { page: 0, knob: null }, note: '', link: null, linking: false, thru: loadThru(BCR_THRU_KEY), image: null, held: loadHeld() }, // the BCR32
+  // tab's place in view, a line on it, the live link (rotary/link.js), the thru, its image as last read and what Night Shift holds on it
+  bcrModel: null, // the BCR32's pages (rotary/pages.js bcrPagesOf), recomputed with the view
+  bcrDevice: null, // what the BCR32 holds besides: { foreign (other apps' knobs), pages (names, keys) }, from its image
+  controller: loadController(), // the controller the Patch tab's names put settings on, of those switched on (Rack…)
   steps: { seq: 0, step: null, lane: 0 }, // the Steps tab: the sequencer in view, its step or lane
   banks: { notes: null, drums: null }, // the banks shown there: { name, msg } each
   status: '',
   warn: false,
 };
 
-const THRU_KEY = 'nightshift.ec4thru';
-function loadThru() {
-  try {
-    return localStorage.getItem(THRU_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
+
 
 function loadLive() {
   try {
@@ -215,10 +250,12 @@ function update() {
   state.unsent = state.config ? state.sync.kind !== 'same' : false;
   if (state.sync?.kind === 'same') state.live.tracking = true;
   state.ec4Model = state.view ? pagesOf(state.view, state.names) : null;
+  state.bcrModel = state.view ? bcrPagesOf(state.ec4Model, state.names) : null;
   store();
   storeBase();
   render();
   showOnEc4();
+  showOnBcr32();
   scheduleLive();
 }
 
@@ -312,7 +349,7 @@ function remove(source, port) {
     const own = ['level', 'knobs', 'lfo'].includes(source.kind) ? (port ? [port] : source.ports).map((p) => p.output) : [];
     const stays = source.kind === 'random' && source.sendsNotes && source.ports.length;
     const keys = [...own.flatMap((o) => jackKeys(o)), ...(!port && !stays ? objectKeys(model, source.id) : [])];
-    const ec4Off = keys.length ? switchOffAll(state.names, model, keys) : [];
+    const ec4Off = keys.length ? switchOffAll(state.names, model, keys, { everywhere: true }) : [];
     edit(own.length && port ? `Cleared jack ${port.jack}` : `${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
       [...(port ? removePort(values(), source, port) : removeSource(values(), source)), ...ec4Off]);
     if (!port) state.selected = null;
@@ -325,7 +362,7 @@ function remove(source, port) {
 // An LFO off, with the CCs on its settings and its knobs on the EC4's pages.
 function removeLfoOf(output, jack) {
   edit(`Removed the LFO on jack ${jack}`, [...removeLfoWithCcs(values(), output),
-    ...switchOffAll(state.names, ec4Model(), jackKeys(output, (p) => p.startsWith('lfo')))]);
+    ...switchOffAll(state.names, ec4Model(), jackKeys(output, (p) => p.startsWith('lfo')), { everywhere: true })]);
 }
 
 // A player that sends somewhere, picked from the FH-2's unused ones (see ui/players.js).
@@ -1133,7 +1170,9 @@ function takeOffEc4(pageId, i) {
 }
 
 // Clicking a setting's name in the Patch tab: on the EC4, or off again.
+const inputsOf = (key) => state.view.players.filter((p) => p.kind === 'input' && p.targets?.some((t) => settingKey(t.target) === key)).map((p) => 'XY'[p.index]);
 const ec4 = {
+  name: 'EC4',
   state(key) {
     const model = state.ec4Model;
     const c = model?.known.get(key);
@@ -1141,7 +1180,7 @@ const ec4 = {
     const where = model.on.get(key) ?? [];
     const m = model.mapOf(key);
     const cc = m ? `ch ${m.channel + 1} · CC ${m.cc}` : '';
-    const inputs = state.view.players.filter((p) => p.kind === 'input' && p.targets?.some((t) => settingKey(t.target) === key)).map((p) => 'XY'[p.index]);
+    const inputs = inputsOf(key);
     return { on: where.length > 0, inputs, title: where.length
       ? `On the EC4: ${where.map((w) => `${w.name} ${w.push ? 'push' : 'knob'} ${w.index + 1}`).join(', ')} · ${cc}. Click to take it off`
       : `Click to put it on the EC4${cc ? ` (${cc})` : ''}` };
@@ -1158,6 +1197,41 @@ const ec4 = {
 function offEc4(key) {
   ec4.toggle(key);
 }
+
+// The same for the BCR32's pages (rotary/pages.js): a setting goes with its object's others, else
+// into a free half; never onto another app's knob.
+const bcr32Labels = {
+  name: 'BCR32',
+  state(key) {
+    const c = state.ec4Model?.known.get(key);
+    if (!c) return null;
+    const where = state.bcrModel.on.get(key) ?? [];
+    const m = state.ec4Model.mapOf(key);
+    const cc = m ? `ch ${m.channel + 1} · CC ${m.cc}` : '';
+    return { on: where.length > 0, inputs: inputsOf(key), title: where.length
+      ? `On the BCR32: ${where.map((w) => `page ${w.page + 1} ${w.push ? 'push' : 'knob'} ${w.index + 1}`).join(', ')} · ${cc}. Click to take it off`
+      : `Click to put it on the BCR32${cc ? ` (${cc})` : ''}` };
+  },
+  toggle(key) {
+    const model = ec4Model();
+    const bcr = bcrPagesOf(model, state.names);
+    const c = model.known.get(key);
+    if (bcr.on.has(key)) return edit(`Off the BCR32: ${c ? c.label.toLowerCase() : 'a setting gone from the patch'}`, bcrOff(state.names, model, key));
+    const r = bcrOn(state.config.values, state.view, state.names, model, bcr, key, { page: bcrPageInView(), foreign: foreignAt });
+    if (r.error) return status(r.error, true);
+    edit(`On the BCR32: page ${r.where.page + 1} ${r.where.push ? 'push' : 'knob'} ${r.where.index + 1}`, r.changes);
+    state.bcr32.sel = { page: r.where.page, knob: r.where.index };
+    state.bcr32.link?.select(r.where.page).catch(() => {});
+  },
+};
+
+// The controller the Patch tab's names act on: the one whose tab you opened last, of those switched
+// on in Rack…; none, while both are off.
+function target() {
+  const on = ['ec4', 'bcr32'].filter((id) => hasController(state.hardware, id));
+  return on.includes(state.controller) ? state.controller : on[0] ?? null;
+}
+const labels = () => ({ ec4, bcr32: bcr32Labels }[target()] ?? null);
 
 // A page with its whole template: for "+ Page for…" and "Whole page".
 function wholeEc4(pageId) {
@@ -1207,7 +1281,7 @@ function gigList() {
     view: state.view, fh2: state.fh2Settings, held: state.held,
     ec4: { pages: model.pages.length, fp: model.pages.length ? pagesFingerprint(model.pages, state.view, model.channel, sync) : null,
       synced: model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0), max: SYNC_MAX },
-  });
+  }).filter((g) => g.id !== 'ec4' || hasController(state.hardware, 'ec4'));
 }
 
 async function sendEc4() {
@@ -1266,7 +1340,7 @@ let fh2Out = null; // the FH-2's output port, for the thru
 const cc14 = new Cc14();
 
 async function linkEc4() {
-  if (state.ec4.link || state.ec4.linking) return;
+  if (state.ec4.link || state.ec4.linking || !hasController(state.hardware, 'ec4')) return;
   state.ec4.linking = true;
   try {
     const pair = await ec4Port();
@@ -1439,10 +1513,319 @@ function toggleThru() {
   status(state.ec4.thru ? 'Thru on: the EC4’s knobs go on to the FH-2' : 'Thru off');
 }
 
+// ---- the BCR32 under Rotary Club (rotary/): Night Shift's own knobs on its four pages; the rest of
+// each page and the keys stay as another app (Eye of Providence) left them (your calls, 2026-11-08)
+
+const bcrModel = () => bcrPagesOf(ec4Model(), state.names);
+const foreignAt = (p, i) => !!state.bcrDevice?.foreign.has(`${p}:${i}`);
+const bcrPageInView = () => state.bcr32.link?.page ?? state.bcr32.sel?.page ?? 0;
+const bcrSync = () => ({ tempoMin: state.config.values.tempoMin, programChannel: state.config.values.presetProgramChannel });
+
+// The BCR32's image as just read or written: other apps' knobs, the pages' names and keys from it.
+function sawBcr32(img) {
+  state.bcr32.image = img;
+  state.bcrDevice = img ? { foreign: foreignKnobs(img, state.bcr32.held), pages: [0, 1, 2, 3].map((p) => pageOnBcr32(img, p)) } : null;
+}
+
+function mapBcr32() {
+  const want = bcrModel().unmapped;
+  const r = ccsFor(state.config.values, state.view, state.names, ec4Model(), want);
+  if (!r.changes.length) return status(r.left.length ? `No room for ${r.left.length} more CCs` : 'Every knob has a CC', r.left.length > 0);
+  const n = want.length - r.left.length;
+  edit(`${n} CC${n === 1 ? '' : 's'} added${r.left.length ? `; no room for ${r.left.length}` : ''}`, r.changes);
+}
+
+// A free knob (or another app's, which Send then asks about): any setting.
+async function pickBcr32(p, i) {
+  const model = ec4Model();
+  const groups = bcrChoices(model, bcrPagesOf(model, state.names), p);
+  if (!groups.length) return status('Every setting is on this page already');
+  const select = h('select', { 'aria-label': 'Setting' }, groups.map((g) => h('optgroup', { label: g.name },
+    g.cells.map((c) => h('option', { value: c.key }, `${c.label} (${c.short})`)))));
+  const ok = await modal($('dialog'), {
+    title: `Knob ${i + 1} of page ${p + 1}`,
+    body: select,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Put it here', value: true, primary: true }],
+  });
+  if (!ok) return;
+  const r = bcrPlace(state.config.values, state.view, state.names, model, p, i, select.value);
+  if (r.error) return status(r.error, true);
+  state.bcr32.sel = { page: p, knob: i };
+  edit(`Put on page ${p + 1}`, r.changes);
+}
+
+function takeOffBcr32(p, i, push) {
+  edit(`Taken off page ${p + 1}`, bcrTakeOff(state.names, ec4Model(), p, i, push));
+}
+
+function moveBcr32(from, to) {
+  if (from.page === to.page && from.index === to.index) return;
+  state.bcr32.sel = { page: to.page, knob: to.index };
+  edit(from.page === to.page ? `Knob ${from.index + 1} to place ${to.index + 1}` : `Knob to page ${to.page + 1}`, bcrMove(state.names, from, to));
+}
+
+// A knob onto page `q`: the same place if it is free there, else a free one in the same half, else any.
+function toPageBcr32(from, q) {
+  if (from.page === q) return;
+  const bcr = bcrModel();
+  const free = (i) => !bcr.pages[q].cells[i] && !bcr.pages[q].pushes[i] && !foreignAt(q, i);
+  const half = Array.from({ length: 16 }, (_, t) => knobOf(halfOf(from.index), t));
+  const i = free(from.index) ? from.index : half.find(free) ?? [...Array(BCR_KNOBS).keys()].find(free);
+  if (i == null) return status(`Page ${q + 1} is full`, true);
+  moveBcr32(from, { page: q, index: i });
+}
+
+// "+ Half for…": an object's template into a free half of the page in view.
+function putHalfBcr32(objPage) {
+  const p = state.bcr32.sel?.page ?? 0;
+  const model = ec4Model();
+  const bcr = bcrPagesOf(model, state.names);
+  const half = freeHalf(bcr, p, foreignAt);
+  if (half < 0) return status(`No free half on page ${p + 1}`, true);
+  const r = putObject(state.config.values, state.view, state.names, model, bcr, objPage, p, half, foreignAt);
+  if (r.error) return status(r.error, true);
+  state.bcr32.sel = { page: p, knob: knobOf(half, 0) };
+  edit(`${r.count} on page ${p + 1}`, r.changes);
+}
+
+function renameBcr32Page(p) {
+  const theirs = state.bcrDevice?.pages[p]?.name ?? '';
+  rename(bcrNameKey(p), state.bcrModel.pages[p].name ?? (theirs || `P${p + 1}`), theirs ? `the BCR32’s ${theirs}` : 'none', 4);
+}
+
+const sameHeld = (a, b) => a.knobs.size === b.knobs.size && [...a.knobs].every(([id, x]) => b.knobs.get(id)?.every((v, k) => v === x[k]))
+  && a.names.size === b.names.size && [...a.names].every(([p, n]) => b.names.get(p) === n);
+
+// Whether the BCR32 lacks some of Night Shift's knobs as you see them (as its image was last read).
+function bcr32Unstored() {
+  const img = state.bcr32.image;
+  if (!img || !state.bcrModel) return false;
+  const pl = plan(img, wanted(state.bcrModel, state.view, bcrSync()), state.bcr32.held);
+  return pl.writes.length > 0 || pl.conflicts.length > 0;
+}
+
+// Reads the BCR32's image and writes Night Shift's knobs into it: only its own, and another app's
+// only after a yes. Then RELOAD: the BCR32 uses and stores it, and only then does Night Shift hold them.
+async function sendBcr32() {
+  if (state.busy) return;
+  const model = bcrModel();
+  if (model.unmapped.length) return status('Give every knob and push a CC first', true);
+  state.busy = true;
+  try {
+    const link = state.bcr32.link;
+    const pair = link ? null : await bcr32Port();
+    if (!link && !pair) return status('No BCR32 found', true);
+    status('Reading the BCR32…');
+    const withDevice = (work) => (link ? work(link.device, link.info) : withBcr32(pair, work));
+    await withDevice(async (device, info) => {
+      if (!link) state.bcr32.note = `Rotary Club ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
+      const img = await readImage(device, (k, n) => status(`Reading the BCR32… ${Math.round((100 * k) / n)} %`));
+      sawBcr32(img);
+      const want = wanted(model, state.view, bcrSync());
+      let pl = plan(img, want, state.bcr32.held);
+      const asked = pl.conflicts.length;
+      if (asked) {
+        const list = pl.conflicts.map((c) => (c.i != null ? `page ${c.p + 1} knob ${c.i + 1}: ${c.now.name || '····'} (${c.now.sends})` : `page ${c.p + 1}’s name ${c.name}`));
+        const answer = await modal($('dialog'), {
+          title: `${asked} place${asked === 1 ? '' : 's'} hold another app’s`,
+          body: h('p', { class: 'note' }, `${list.slice(0, 8).join('; ')}${list.length > 8 ? ` and ${list.length - 8} more` : ''}.`),
+          buttons: [{ label: 'Cancel', value: false }, { label: 'Leave them', value: 'keep' }, { label: 'Write over', value: 'over', primary: true }],
+        });
+        if (!answer) return status('');
+        if (answer === 'over') pl = plan(img, want, state.bcr32.held, { over: new Set(pl.conflicts.map((c) => (c.i != null ? `${c.p}:${c.i}` : `name:${c.p}`))) });
+      }
+      const left = pl.conflicts.length;
+      if (!pl.writes.length && sameHeld(pl.held, state.bcr32.held)) return status(left ? `Nothing to write · ${left} left as they were` : 'The BCR32 has these knobs already');
+      if (pl.writes.length) await writePlan(device, pl, (k, n) => status(`Writing the BCR32… ${k}/${n}`));
+      else await device.reload(); // the image has them already: stored
+      state.bcr32.held = pl.held;
+      saveHeld();
+      sawBcr32(pl.next);
+      state.bcr32.link?.forget();
+      status(`Knobs on the BCR32${left ? ` · ${left} left as they were` : ''}`);
+    });
+  } catch (e) {
+    status(refused(e) ? 'No MIDI access in this browser' : `The BCR32 didn’t answer: ${e.message}`, true);
+  } finally {
+    state.busy = false;
+    render();
+    showOnBcr32();
+  }
+}
+
+// ---- its live link (rotary/link.js): the BCR32 and Night Shift follow each other's page, the BCR32
+// shows values in FH-2 units and starts its knobs where the FH-2 is, a touched knob shows its setting,
+// and Night Shift's thru passes its knobs (only those) on to the FH-2.
+
+const bcrCc14 = new Cc14();
+
+async function linkBcr32() {
+  if (state.bcr32.link || state.bcr32.linking || !hasController(state.hardware, 'bcr32')) return;
+  state.bcr32.linking = true;
+  try {
+    const pair = await bcr32Port();
+    if (!pair) return;
+    const { device, info } = await openBcr32(pair, onBcr32Midi);
+    const link = new Bcr32Link(device, info);
+    link.addEventListener('state', (e) => onBcr32State(e.detail));
+    link.addEventListener('touch', (e) => onBcr32Touch(e.detail));
+    state.bcr32.link = link;
+    state.bcr32.note = `Rotary Club ${info.fwMajor}.${info.fwMinor}`;
+    await link.start();
+    if (!state.busy) sawBcr32(await readImage(device));
+  } catch (e) {
+    state.bcr32.note = refused(e) ? '' : `BCR32: ${e.message}`;
+    state.bcr32.link?.close();
+    state.bcr32.link = null;
+  } finally {
+    state.bcr32.linking = false;
+    render();
+    showOnBcr32();
+  }
+}
+
+function unlinkBcr32() {
+  state.bcr32.link?.close();
+  state.bcr32.link = null;
+  state.bcr32.note = '';
+  render();
+}
+
+// The object a selection in the Patch tab is about, as the pages name it.
+const objectOfSelection = () => {
+  const sel = state.selected;
+  const id = sel?.source ?? sel?.player ?? (sel?.output != null ? `lfo:${sel.output}` : null);
+  return id === 'clocks' ? 'clock' : id;
+};
+const selectionOf = (id) => (state.view.sources.some((s) => s.id === id) ? { source: id }
+  : state.view.players.some((p) => p.id === id) ? { player: id }
+  : id === 'clock' ? { source: 'clocks' } : id?.startsWith('lfo:') ? { output: Number(id.slice(4)) } : null);
+const objectOfKey = (key) => state.ec4Model?.objects.find((o) => o.knobs.some((c) => c.key === key) || o.commands.some((c) => c.key === key))?.id ?? null;
+
+// Night Shift → BCR32: the page holding most of what you selected.
+function followOnBcr32() {
+  const link = state.bcr32.link;
+  if (!link || state.tab !== 'patch' || !state.bcrModel) return;
+  const id = objectOfSelection();
+  const q = id && pageOfObject(state.ec4Model, state.bcrModel, id);
+  if (q != null) link.select(q).catch(() => {});
+}
+
+// BCR32 → Night Shift: its page shows in the BCR32 tab; in the Patch tab, the object most of its
+// knobs are about, unless what you selected has knobs there.
+function onBcr32State({ page, moved }) {
+  if (moved && page != null && state.bcrModel) {
+    if (state.tab === 'bcr32') state.bcr32.sel = { page, knob: null };
+    else if (state.tab === 'patch' && target() === 'bcr32') {
+      const pg = state.bcrModel.pages[page];
+      const count = new Map();
+      for (const c of [...pg.cells, ...pg.pushes]) {
+        const id = c && objectOfKey(c.key);
+        if (id) count.set(id, (count.get(id) ?? 0) + 1);
+      }
+      const best = [...count].sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (best && !count.has(objectOfSelection())) state.selected = selectionOf(best) ?? state.selected;
+    }
+  }
+  render();
+  showOnBcr32();
+}
+
+// A knob turned or pushed on the BCR32 (not a key: those aren't Night Shift's): its setting shows.
+function onBcr32Touch({ kind, index, page }) {
+  const pg = state.bcrModel?.pages[page];
+  if (!pg || kind > 1) return;
+  const c = kind === 1 ? pg.pushes[index] ?? pg.cells[index] : pg.cells[index] ?? pg.pushes[index];
+  if (!c || foreignAt(page, index)) return;
+  if (state.tab === 'bcr32') {
+    state.bcr32.sel = { page, knob: index };
+    return render();
+  }
+  const row = document.querySelector(`[data-ec4="${c.key}"]`);
+  if (row) {
+    row.scrollIntoView({ block: 'nearest' });
+    row.classList.remove('touched');
+    void row.offsetWidth;
+    row.classList.add('touched');
+  }
+}
+
+// What the page in view should show: Night Shift's knobs' values as texts and as the CCs that put
+// them there, and its knobs in the BCR32's RAM until stored (EDIT). Never another app's knob.
+function showOnBcr32() {
+  const link = state.bcr32.link;
+  const img = state.bcr32.image;
+  if (!link || link.page == null || !img || !state.preset || !state.bcrModel) return;
+  const p = link.page;
+  const page = state.bcrModel.pages[p];
+  const want = wanted({ ...state.bcrModel, pages: [page] }, state.view, bcrSync());
+  const edits = editsFor(img, want, state.bcr32.held, p);
+  const range = (o) => state.view.outputs[o]?.rangeIndex ?? 0;
+  link.show(Array.from({ length: BCR_KNOBS }, (_, i) => {
+    if (!want.knobs.has(`${p}:${i}`) || !edits.has(i)) return null;
+    const c = page.cells[i];
+    if (!c?.map) return { text: null };
+    const v = valueOf(state.preset.values, c.key);
+    return { text: valueText(c.key, v, { range }), cc: c.map.relative ? null
+      : { channel: c.map.channel, number: c.map.cc, value: ccFor(c.key, v, c.map.bits, { tempoMin: state.config.values.tempoMin }), bits: c.map.bits } };
+  })).catch(() => {});
+  link.edit(edits, (i) => readRecord(img, p, i)).catch(() => {});
+}
+
+// The MIDI addresses of Night Shift's knobs and pushes on the BCR32: what the thru passes on.
+function bcrAddresses() {
+  const out = new Set();
+  for (const pg of state.bcrModel?.pages ?? []) {
+    for (const c of [...pg.cells, ...pg.pushes]) {
+      if (!c?.map) continue;
+      out.add(`${c.map.channel}:${c.map.cc}`);
+      if (c.map.bits === 14) out.add(`${c.map.channel}:${c.map.cc + 32}`);
+    }
+  }
+  return out;
+}
+
+// The BCR32's MIDI (its knobs, keys and sequencer tracks share the port): Night Shift's knobs go on to
+// the FH-2 (thru), their value shows right away, and the FH-2 is read back once they rest.
+function onBcr32Midi(bytes) {
+  const model = state.bcrModel;
+  if (!model) return;
+  if (state.bcr32.thru && (bytes[0] & 0xf0) === 0xb0 && bcrAddresses().has(`${bytes[0] & 15}:${bytes[1]}`)) {
+    if (fh2Out?.state === 'connected') fh2Out.send(bytes);
+    else fh2Output().then((o) => { fh2Out = o; o?.send(bytes); }).catch(() => {});
+  }
+  const link = state.bcr32.link;
+  const page = link?.page != null && model.pages[link.page];
+  if (!page) return;
+  const hires = (ch, cc) => page.cells.some((c) => c?.map?.channel === ch && c.map.cc === cc && c.map.bits === 14);
+  const range = (o) => state.view.outputs[o]?.rangeIndex ?? 0;
+  for (const m of bcrCc14.take(bytes, hires)) {
+    page.cells.forEach((c, i) => {
+      if (!c?.map || c.map.channel !== m.channel || c.map.cc !== m.cc || foreignAt(link.page, i)) return;
+      if (!c.map.relative) link.showOne(i, valueText(c.key, fromCc(c.key, m.value, m.bits, { tempoMin: state.config.values.tempoMin }), { range })).catch(() => {});
+      link.sent.set(i, `${m.channel}:${m.cc}:${m.value}`);
+      turned.add(c.key);
+    });
+  }
+  if (turned.size) {
+    clearTimeout(readBackTimer);
+    readBackTimer = setTimeout(readBack, 500);
+  }
+}
+
+function toggleBcr32Thru() {
+  state.bcr32.thru = !state.bcr32.thru;
+  try {
+    localStorage.setItem(BCR_THRU_KEY, state.bcr32.thru ? '1' : '0');
+  } catch {}
+  status(state.bcr32.thru ? 'Thru on: Night Shift’s BCR32 knobs go on to the FH-2' : 'Thru off');
+}
+
 // ---- rack setup
 
 async function editHardware() {
   const hw = structuredClone(state.hardware);
+  if (!Array.isArray(hw.controllers)) hw.controllers = CONTROLLERS.map(([id]) => id);
   const box = (list, a) => h('input', { type: 'checkbox', checked: list.includes(a), onchange: (e) => {
     const i = list.indexOf(a);
     if (e.target.checked && i < 0) list.push(a);
@@ -1452,7 +1835,9 @@ async function editHardware() {
     h('b', {}, 'FHX-8CV expanders, by jumper address'),
     h('div', { class: 'hw-row' }, [1, 2, 3, 4, 5, 6, 7].map((a) => h('label', {}, box(hw.cv, a), `${a}/1–8`))),
     h('b', {}, 'Gate modules, by the outputs they give'),
-    h('div', { class: 'hw-row' }, [0, 1, 2, 3, 4, 5, 6, 7].map((b) => h('label', {}, box(hw.gt, b), `${blockName(b)} (${b & 1 ? 'ESX-8GT' : 'FHX-8GT'})`))));
+    h('div', { class: 'hw-row' }, [0, 1, 2, 3, 4, 5, 6, 7].map((b) => h('label', {}, box(hw.gt, b), `${blockName(b)} (${b & 1 ? 'ESX-8GT' : 'FHX-8GT'})`))),
+    h('b', {}, 'Controllers'),
+    h('div', { class: 'hw-row' }, CONTROLLERS.map(([id, name]) => h('label', {}, box(hw.controllers, id), name))));
   const ok = await modal($('dialog'), {
     title: 'Your rack',
     body: [h('p', { class: 'note' }, 'In rack order: CV1, CV2… and GT1, GT2…'), body],
@@ -1461,8 +1846,14 @@ async function editHardware() {
   if (!ok) return;
   hw.cv.sort((a, b) => a - b);
   hw.gt.sort((a, b) => a - b);
+  hw.controllers = CONTROLLERS.map(([id]) => id).filter((id) => hw.controllers.includes(id));
   state.hardware = hw;
   saveHardware(hw);
+  // a controller switched off is let go; one switched on is looked for
+  if (hasController(hw, 'ec4')) linkEc4();
+  else unlinkEc4();
+  if (hasController(hw, 'bcr32')) linkBcr32();
+  else unlinkBcr32();
   update();
 }
 
@@ -1477,12 +1868,25 @@ function select(sel) {
   state.selected = same ? null : sel;
   render();
   followOnEc4();
+  followOnBcr32();
   // a free jack shows its own level, LFO and smoothing; "Add a source…" there adds a driver
+}
+
+// A tab; a controller's tab makes it the one the Patch tab's names act on.
+function openTab(id) {
+  state.tab = id;
+  if (id === 'ec4' || id === 'bcr32') {
+    state.controller = id;
+    try {
+      localStorage.setItem(CONTROLLER_KEY, id);
+    } catch {}
+  }
+  render();
 }
 
 function bar() {
   const v = state.view;
-  const tab = (id, label) => h('button', { type: 'button', 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => { state.tab = id; render(); } }, label);
+  const tab = (id, label) => h('button', { type: 'button', 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => openTab(id) }, label);
   const k = state.sync?.kind;
   const live = state.live;
   const inStep = live.tracking && state.link === 'connected';
@@ -1512,7 +1916,7 @@ function bar() {
     v && h('div', { class: 'patch-name', title: `Config ${v.globals.name || 'untitled'}` }, h('span', { class: 'lbl' }, 'Config '), h('b', {}, v.globals.name || 'untitled')),
     scenes,
     sync,
-    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('steps', 'Steps'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), tab('ec4', 'EC4'), tab('gig', 'Gig')),
+    v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('steps', 'Steps'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), hasController(state.hardware, 'ec4') && tab('ec4', 'EC4'), hasController(state.hardware, 'bcr32') && tab('bcr32', 'BCR32'), tab('gig', 'Gig')),
     v && h('div', { class: 'undo' },
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)', 'aria-label': 'Undo' }, '↶'),
       h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)', 'aria-label': 'Redo' }, '↷')),
@@ -1600,7 +2004,8 @@ addEventListener('resize', drawLines);
 
 function render() {
   const v = state.view;
-  const sketchPage = v && state.tab === 'patch' ? pageOfSelection(state.ec4Model) : null;
+  if ((state.tab === 'ec4' || state.tab === 'bcr32') && !hasController(state.hardware, state.tab)) state.tab = 'patch';
+  const sketchPage = v && state.tab === 'patch' && target() === 'ec4' ? pageOfSelection(state.ec4Model) : null;
   let content;
   if (!v) content = empty();
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
@@ -1614,16 +2019,24 @@ function render() {
     hide: (id, on) => edit(on ? 'Page hidden' : 'Page back on the EC4', hidePage(state.names, id, on)),
     share: (a, b) => ec4Edit('Two pages in one group', sharePage(state.names, ec4Model(), a, b)),
     split: (a) => edit('Page split again', splitPage(state.names, ec4Model(), a)),
-    rename: renameEc4Page, stray: strayMappings(v, state.ec4Model), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
+    rename: renameEc4Page, stray: strayMappings(v, state.ec4Model, state.names), tidy: tidyEc4, busy: state.busy, note: state.ec4.note,
     link: state.ec4.link && { ours: state.ec4.link.ours, setup: state.ec4.link.setup, group: state.ec4.link.group, edits: state.ec4.link.edits }, thru: state.ec4.thru, toggleThru,
     unstored: !!state.ec4.link?.edits && !!state.ec4Model?.pages.length && ec4Unstored(),
     relative: toAbsolute(state.config.values, state.ec4Model, state.names), makeAbsolute: (r) => edit(`Made ${r.keys.length} knob${r.keys.length === 1 ? '' : 's'} absolute`, r.changes),
     softTakeover: !!state.config.values.softTakeover, turnOffSoftTakeover: () => edit('Soft takeover off', [{ dump: 'config', path: ['softTakeover'], value: 0 }], { force: true }) });
+  else if (state.tab === 'bcr32') content = renderBcr32(v, state.bcrModel, state.colors, state.bcr32.sel, {
+    select: (page, knob) => { state.bcr32.sel = { page, knob }; render(); state.bcr32.link?.select(page).catch(() => {}); },
+    pick: pickBcr32, takeOff: takeOffBcr32, move: moveBcr32, toPage: toPageBcr32, putHalf: putHalfBcr32, halves: halfChoices(state.ec4Model),
+    clear: (p) => edit(`Night Shift’s knobs off page ${p + 1}`, bcrClear(state.names, ec4Model(), p)), rename: renameBcr32Page, map: mapBcr32, send: sendBcr32,
+    busy: state.busy, note: state.bcr32.note, link: state.bcr32.link && { page: state.bcr32.link.page, controller: state.bcr32.link.controller },
+    unstored: !!state.bcr32.link && bcr32Unstored(), thru: state.bcr32.thru, toggleThru: toggleBcr32Thru,
+    speed: speedOf(state.names), setSpeed: (s) => edit(`Knob speed ${s}`, [speedChange(s)]),
+    setFeel: (key, mode) => edit(mode ? `Knob feel ${mode}` : 'Knob feel back to its default', [feelChange(key, mode)]), device: state.bcrDevice });
   else if (state.tab === 'steps') content = renderSteps(v, values(), state.steps, { edit, busy: state.busy,
     select: (sel) => { state.steps = { seq: state.steps.seq, lane: state.steps.lane, ...sel }; render(); },
     banks: { shown: state.banks, read: readBank, open: openBank, save: saveBank, install: installBank } });
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
-    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4, removeMapping: removeMappingOf,
+    { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4: labels(), removeMapping: removeMappingOf,
       names: state.names, scala: { install: installScala, resend: resendScala, forget: forgetScala } });
   else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,
     scenes: () => { state.tab = 'scenes'; render(); }, checks: () => open('checks.html', '_blank'), busy: state.busy });
@@ -1633,7 +2046,7 @@ function render() {
     content = [
       h('section', { class: 'stage-wrap', 'aria-label': 'Sources and rack' }, renderStage(v, state.colors, state.selected, select),
         sketchPage && ec4Sketch(sketchPage, state.colors, state.ec4.link?.ours && state.ec4.link.group === sketchPage.group)),
-      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, removeMapping: removeMappingOf, values, rename, status, ec4, fh2: state.fh2Settings, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration, calibrate: calibrateJack,
+      h('aside', { class: 'inspector', 'aria-label': 'Inspector' }, renderInspector(v, state.colors, state.selected, select, { edit, add: addTo, remove, removeLfo: removeLfoOf, removeMapping: removeMappingOf, values, rename, status, ec4: labels(), fh2: state.fh2Settings, calibrations: state.fh2Calibrations, loadCalibration: loadCalibrationNow, setPowerOnCalibration, calibrate: calibrateJack,
         loadDirect: !!state.fh2Settings && (settingsByName(state.fh2Settings.pages)['Always load direct'] ?? '').trim().startsWith('1') })),
     ];
   }
@@ -1689,4 +2102,6 @@ render();
 connect().then(watch).then(() => {
   linkEc4();
   watchEc4((portState) => (portState === 'connected' ? setTimeout(linkEc4, 600) : unlinkEc4())).catch(() => {});
+  linkBcr32();
+  watchBcr32((portState) => (portState === 'connected' ? setTimeout(linkBcr32, 600) : unlinkBcr32())).catch(() => {});
 });

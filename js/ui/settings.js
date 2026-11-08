@@ -41,7 +41,7 @@ export function renderSettings(view, c, p, sceneName, act) {
       sfield('Name', nameInput('Scene name', p.name, pre('Scene name', 'name'))),
       sfield(L('Tempo', 'tempo'), numberInput('Tempo', (p.tempo / 10).toFixed(1), { min: 10, max: 400, step: 0.1 }, (v) => pre('Tempo (BPM)', 'tempo')(Math.round(v * 10))), ' BPM'),
       sfield(L('Swing', 'swingType'), selectInput('Swing type', p.swingType, SWING_TYPES.map((t, i) => [i, t]), pre('Swing type', 'swingType'))),
-      act.ec4 && field('On the EC4', h('span', { class: 'ec4-cmds' }, [['nudgeSlower', 'Nudge −'], ['nudgeFaster', 'Nudge +'], ['tempoDown', 'Tempo −0.1'],
+      act.ec4 && field(`On the ${act.ec4.name ?? 'EC4'}`, h('span', { class: 'ec4-cmds' }, [['nudgeSlower', 'Nudge −'], ['nudgeFaster', 'Nudge +'], ['tempoDown', 'Tempo −0.1'],
         ['tempoUp', 'Tempo +0.1'], ['displayMode', 'Display'], ['displayItem', 'Display item']].map(([q, t]) => L(t, q)))),
       p.swingType ? sfield(L('Swing amount', 'swingAmount'), slider('Swing amount', p.swingAmount, { min: 0, max: 127, show: (v) => (v ? String(v) : 'none') }, pre('Swing amount', 'swingAmount'))) : null,
       tuplet ? sfield('16th positions', [1, 2, 3].map((n) => numberInput(`Swing position ${n}`, p[`swingPosition${n}`], { min: 0, max: 127 }, pre(`Swing position ${n}`, `swingPosition${n}`))),

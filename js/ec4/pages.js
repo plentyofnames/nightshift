@@ -225,11 +225,15 @@ function ownLayers(view, out, obj) {
 
 // ---- what is on the EC4, as stored
 
-const listOf = (names, key) => {
+const listOf = (names, key, n = KNOBS) => {
   const keys = (names?.[key] ?? '').split(',');
-  return Array.from({ length: KNOBS }, (_, i) => keys[i] ?? '');
+  return Array.from({ length: n }, (_, i) => keys[i] ?? '');
 };
 const listChange = (key, keys) => ({ dump: 'names', path: [key], value: keys.some(Boolean) ? keys.join(',').replace(/,+$/, '') : null });
+// The BCR32's pages (rotary/pages.js) keep their knobs and pushes in lists of 32 the same way, and
+// use the same CCs: a setting still on the BCR32 keeps the mapping Night Shift added for it.
+const BCR_LIST = /^bcr:(knobs|push):\d+$/;
+export const onBcr32 = (names, key) => Object.keys(names ?? {}).some((k) => BCR_LIST.test(k) && names[k].split(',').includes(key));
 // A page's knobs (on LIVE: all of them) and pushes, as stored: 16 setting keys or '' each.
 export const addedKeys = (names, pageId) => listOf(names, knobsKey(pageId));
 export const pushKeys = (names, pageId) => listOf(names, pushesKey(pageId));
@@ -241,11 +245,12 @@ export function liveIds(names) {
   return [...new Set([...made, ...holding])].sort((a, b) => liveNumber(a) - liveNumber(b));
 }
 const livesChange = (ids) => ({ dump: 'names', path: [LIVES_KEY], value: ids.length ? ids.join(',') : null });
-const madeKeys = (names) => new Set((names?.[MADE_KEY] ?? '').split(',').filter(Boolean));
-const madeChange = (set) => ({ dump: 'names', path: [MADE_KEY], value: set.size ? [...set].join(',') : null });
-// every stored page list: [names key, keys]
-const storedLists = (names) => Object.keys(names ?? {}).filter((k) => k === LIVE_KEY || /^ec4:live:\d+$/.test(k) || k.startsWith('ec4:add:') || k.startsWith('ec4:push:'))
-  .map((k) => [k, listOf(names, k)]);
+export const madeKeys = (names) => new Set((names?.[MADE_KEY] ?? '').split(',').filter(Boolean));
+export const madeChange = (set) => ({ dump: 'names', path: [MADE_KEY], value: set.size ? [...set].join(',') : null });
+// every stored page list: [names key, keys]; with `bcr`, the BCR32's too
+const storedLists = (names, bcr = false) => Object.keys(names ?? {})
+  .filter((k) => k === LIVE_KEY || /^ec4:live:\d+$/.test(k) || k.startsWith('ec4:add:') || k.startsWith('ec4:push:') || (bcr && BCR_LIST.test(k)))
+  .map((k) => [k, listOf(names, k, BCR_LIST.test(k) ? 32 : KNOBS)]);
 
 // Puts setting `key` on knob `i` of a page (null takes it off).
 export function placeKnob(names, pageId, i, key) {
@@ -519,14 +524,35 @@ export function mapPages(config, view, pages, names = {}) {
 }
 
 // The config changes (and the note of it) that give `key` a CC if it has none, or null when
-// there's no room.
-function ccFor(config, view, names, model, key) {
+// there's no room. (The BCR32's pages hand out CCs the same way.)
+export function ccFor(config, view, names, model, key) {
   if (model.mapOf(key)) return [];
   const c = new Allocator(config, view).add(key);
   if (!c) return null;
   const made = madeKeys(names);
   made.add(key);
   return [...c, madeChange(made)];
+}
+
+// CCs for several settings at once (a half page on the BCR32), the 14-bit ones first: { changes,
+// left: the keys that found no CC or no mapping slot }.
+export function ccsFor(config, view, names, model, keys) {
+  const alloc = new Allocator(config, view);
+  const made = madeKeys(names);
+  const changes = [];
+  const left = [];
+  const want = [...new Set(keys)].filter((k) => !model.mapOf(k))
+    .sort((a, b) => Number(HIRES.has(settingOf(b).param)) - Number(HIRES.has(settingOf(a).param)));
+  for (const key of want) {
+    const c = alloc.add(key);
+    if (!c) left.push(key);
+    else {
+      changes.push(...c);
+      made.add(key);
+    }
+  }
+  if (changes.length) changes.push(madeChange(made));
+  return { changes, left };
 }
 
 // Puts `key` on knob `i` of a page (a free knob's "+ add"), with a CC if it has none.
@@ -572,18 +598,20 @@ export function switchOn(config, view, names, model, key) {
   return { changes, where: { page: pageId, name: pageName, index: at, push } };
 }
 
-// Takes `key` off every page (LIVE too) and removes its mapping if Night Shift added it.
+// Takes `key` off every page (LIVE too) and removes its mapping if Night Shift added it, unless
+// the BCR32 still has it.
 export const switchOff = (names, model, key) => switchOffAll(names, model, [key]);
 
-// Several at once (each list changed once, so one doesn't undo another's change).
-export function switchOffAll(names, model, keys) {
+// Several at once (each list changed once, so one doesn't undo another's change). `everywhere`:
+// off the BCR32's pages too (a source removed, a mapping dropped), and the mappings with them.
+export function switchOffAll(names, model, keys, { everywhere = false } = {}) {
   const drop = new Set(keys);
   const changes = [];
-  for (const [k, list] of storedLists(names)) {
+  for (const [k, list] of storedLists(names, everywhere)) {
     if (list.some((x) => drop.has(x))) changes.push(listChange(k, list.map((x) => (drop.has(x) ? '' : x))));
   }
   const made = madeKeys(names);
-  const gone = keys.filter((k) => made.has(k));
+  const gone = keys.filter((k) => made.has(k) && (everywhere || !onBcr32(names, k)));
   for (const key of gone) {
     const m = model.mapOf(key);
     if (m) changes.push({ dump: 'config', path: ['mapping', m.slot, 'status'], value: 0x7f });
@@ -599,14 +627,14 @@ export const objectKeys = (model, id) => model.objects.filter((o) => o.id === id
 
 // What an edit leaves on the EC4 when it takes an object out of the patch (a sequencer that stops
 // sending, a shift register off its last jack that sends no notes): its knobs and pushes, LIVE pages
-// included, with the CCs Night Shift added, as removing a source does (your call, 2026-11-06).
+// and the BCR32's included, with the CCs Night Shift added, as removing a source does (your call, 2026-11-06).
 // `before` and `after` are pagesOf the patch before and after the edit, `names` the names after it.
 // A setting another object still has stays.
 export function leftBehind(before, after, names) {
   const ids = new Set(after.objects.map((o) => o.id));
   const keys = [...new Set(before.objects.filter((o) => !ids.has(o.id)).flatMap((o) => [...o.knobs, ...o.commands].map((c) => c.key)))]
     .filter((k) => !after.known.has(k));
-  return keys.length ? switchOffAll(names, after, keys) : [];
+  return keys.length ? switchOffAll(names, after, keys, { everywhere: true }) : [];
 }
 
 // The settings of a jack's own layer: its level, smoothing and LFO.
@@ -646,13 +674,13 @@ export function wholePage(config, view, names, model, ownPage) {
   return { changes, count };
 }
 
-// Mappings on the pages channels that are on no page, other than the CC knobs (whose mapping
-// is the source itself): what an earlier "every knob a CC" left behind, or what a removed page
-// had. [{ slot, key, label }]
-export function strayMappings(view, model) {
+// Mappings on the pages channels that are on no page (the BCR32's included, given `names`), other
+// than the CC knobs (whose mapping is the source itself): what an earlier "every knob a CC" left
+// behind, or what a removed page had. [{ slot, key, label }]
+export function strayMappings(view, model, names = {}) {
   const channels = new Set(pagesChannels(view));
   const knobSlots = new Set(view.sources.filter((s) => s.kind === 'knobs').flatMap((s) => s.ports.map((p) => p.slot)));
-  return view.mappings.filter((m) => m.target.kind !== 'unknown' && channels.has(m.channel) && !knobSlots.has(m.slot) && !model.on.has(settingKey(m.target)))
+  return view.mappings.filter((m) => m.target.kind !== 'unknown' && channels.has(m.channel) && !knobSlots.has(m.slot) && !model.on.has(settingKey(m.target)) && !onBcr32(names, settingKey(m.target)))
     .map((m) => {
       const key = settingKey(m.target);
       const c = model.known.get(key);
@@ -661,9 +689,9 @@ export function strayMappings(view, model) {
     });
 }
 // One mapping gone (from "Controlled by MIDI"): slot `slot`, for setting `key`; a setting on the
-// EC4 comes off it too, since a knob without its CC does nothing.
+// EC4 or the BCR32 comes off it too, since a knob without its CC does nothing.
 export function dropMapping(names, model, slot, key) {
-  const off = model.on.has(key) ? switchOff(names, model, key) : [];
+  const off = model.on.has(key) || onBcr32(names, key) ? switchOffAll(names, model, [key], { everywhere: true }) : [];
   return off.some((c) => c.dump === 'config' && c.path[1] === slot) ? off : [...off, ...removeMappings(names, [{ slot, key }])];
 }
 export function removeMappings(names, stray) {

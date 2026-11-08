@@ -3,6 +3,8 @@
 
 import { midiAccess, midiTransport, portPairs, EC4_NAME } from '../../vendor/lilypad/js/midi.js';
 import { Device } from '../../vendor/lilypad/js/device.js';
+import { Device as RcDevice } from '../../vendor/eyeofprovidence/js/device.js';
+import { BCR32_NAME } from '../../vendor/eyeofprovidence/js/midi.js';
 import { Fh2 } from '../fh2/client.js';
 import { readSettings, readCalibrations, loadCalibration, setStartupCalibration } from '../fh2/menu.js';
 
@@ -210,5 +212,60 @@ export async function watchFh2(onChange) {
   const acc = await midiAccess();
   acc.addEventListener('statechange', (e) => {
     if (FH2_NAME.test(e.port.name ?? '')) onChange(e.port.state);
+  });
+}
+
+// ---- the BCR32 under Rotary Club, through its protocol (Eye of Providence's device.js)
+
+const RC = [0x52, 0x43]; // "RC": Rotary Club's IDENTIFY info
+const rcOk = (info) => info.info?.[0] === RC[0] && info.info?.[1] === RC[1] && (info.fwMajor > 0 || info.fwMinor >= 23);
+const rcAnswer = async (device) => {
+  let info;
+  try {
+    info = await device.identify({ timeout: 800, retries: 1 });
+  } catch (e) {
+    throw new Error(e.name === 'TimeoutError' ? 'no answer (Rotary Club on it?)' : e.message);
+  }
+  if (!rcOk(info)) throw new Error(`Rotary Club ${info.fwMajor}.${info.fwMinor}: the controller needs 0.23`);
+  return info;
+};
+
+export async function bcr32Port() {
+  return portPairs(await midiAccess(), BCR32_NAME).find((p) => BCR32_NAME.test(p.name)) ?? null;
+}
+
+// Opens the BCR32 for `work(device, info)`; Rotary Club 0.23 or later has to answer IDENTIFY first.
+export async function withBcr32(pair, work, log) {
+  const device = new RcDevice(midiTransport(pair.in, pair.out), { log });
+  try {
+    return await work(device, await rcAnswer(device));
+  } finally {
+    device.close();
+  }
+}
+
+// Opens the BCR32 and keeps it open (for the live link): { device, info }. Its channel messages
+// (its knobs, keys and sequencer tracks) go to `onMidi`; Rotary Club's replies and events to the device.
+export async function openBcr32(pair, onMidi, log) {
+  const transport = midiTransport(pair.in, pair.out);
+  const device = new RcDevice(transport, { log });
+  const forDevice = transport.onmessage;
+  transport.onmessage = (bytes) => {
+    forDevice(bytes);
+    if (bytes[0] !== 0xf0) onMidi(bytes);
+  };
+  try {
+    return { device, info: await rcAnswer(device) };
+  } catch (e) {
+    device.close();
+    throw e;
+  }
+}
+
+// Calls `onChange('connected' | 'disconnected')` when a port named like the BCR32 comes or goes.
+export async function watchBcr32(onChange) {
+  const acc = await midiAccess();
+  acc.addEventListener('statechange', (e) => {
+    if (BCR32_NAME.test(e.port.name ?? '') && e.port.type === 'output') onChange(e.port.state);
   });
 }

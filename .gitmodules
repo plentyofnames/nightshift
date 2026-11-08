@@ -1,3 +1,6 @@
 [submodule "vendor/lilypad"]
 	path = vendor/lilypad
 	url = https://github.com/plentyofnames/lilypad.git
+[submodule "vendor/eyeofprovidence"]
+	path = vendor/eyeofprovidence
+	url = https://github.com/plentyofnames/eyeofprovidence.git

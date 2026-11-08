@@ -464,3 +464,19 @@ body.scenes-only .settings-page .erow:not(.per-scene) :is(input, select) { opaci
 .bank-slot .strip i.on { background: #378ADD; }
 .bank-slot .strip i.out { opacity: 0.35; }
 .tuning-buttons { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+
+/* the BCR32 tab: 4 rows of 8 knobs, a gap between the halves; other apps' knobs and the keys dimmed */
+.ec4.bcr { grid-template-columns: 170px minmax(0, 1fr) 280px; }
+@media (max-width: 1100px) { .ec4.bcr { grid-template-columns: minmax(0, 1fr); } }
+.bcr-knobs { grid-template-columns: repeat(4, minmax(0, 1fr)) 4px repeat(4, minmax(0, 1fr)); gap: 6px; }
+.bcr-knobs .tile { min-height: 74px; padding: 6px 8px; }
+.bcr-knobs .tile[aria-pressed='true'] { padding: 5px 7px; }
+.bcr-knobs .short { font-size: 13px; white-space: pre; }
+.bcr-knobs .label { font-size: 11px; line-height: 13px; }
+.bcr-knobs .tile.foreign { background: transparent; border-style: dotted; opacity: 0.6; }
+.bcr-knobs .tile.foreign .short { color: var(--dim); }
+.bcr-knobs .tile.clash { outline: 1px dashed var(--warn); outline-offset: -3px; }
+.bcr-knobs .clash-note { color: var(--warn); margin-top: 0; }
+.bcr-keys { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; }
+.bcr-keys span { font: 500 9.5px/16px var(--mono); color: var(--faint); border: 1px solid var(--line); border-radius: 4px; text-align: center; min-height: 18px; white-space: pre; overflow: hidden; }
+.bcr-keys span.none { border-style: dashed; opacity: 0.6; }

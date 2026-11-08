@@ -480,7 +480,7 @@ export function voiceEditor(view, s, act, color) {
         o && field('Also sends out', `ch ${o.channel + 1} → ${[o.usbC && 'USB C', o.usbA && 'USB A', o.din && 'DIN'].filter(Boolean).join(', ')}`,
           h('button', { type: 'button', class: 'btn small', onclick: () => set('Arp MIDI out', { arpToUsbC: 0, arpToUsbA: 0, arpToDin: 0 }) }, 'Switch off')),
         // the commands (pushes on the EC4) and truncate (a knob): no stored value, only the EC4
-        act.ec4 && field('On the EC4', h('span', { class: 'ec4-cmds' }, [['arpAdd', 'Add'], ['arpRemove', 'Remove'], ['arpRest', 'Rest'],
+        act.ec4 && field(`On the ${act.ec4.name ?? 'EC4'}`, h('span', { class: 'ec4-cmds' }, [['arpAdd', 'Add'], ['arpRemove', 'Remove'], ['arpRest', 'Rest'],
           ['arpTranspose', 'Transpose'], ['arpTransposeInKey', 'In key'], ['arpSetRoot', 'Set root'], ['arpTruncate', 'Truncate']].map(([p, t]) => L(t, p)))));
     }
     parts.push(h('h4', {}, 'Arpeggiator'), h('div', { class: 'erows' }, rows),
