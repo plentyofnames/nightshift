@@ -3,7 +3,7 @@
 
 import { test, assert, eq } from './harness.js';
 import { productQuery, productOf, presetRead, bclLineOf, presetName, pairOrder, relativeCode } from '../js/bcr32/sysex.js';
-import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcrPreset } from '../js/bcr32/checks.js';
+import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcr14Rings, bcrPreset } from '../js/bcr32/checks.js';
 
 const reply = (...data) => [0xf0, 0x00, 0x20, 0x32, 0x00, 0x64, ...data, 0xf7];
 const bcl = (n, text) => reply(0x20, n >> 7, n & 127, ...[...text].map((c) => c.charCodeAt(0)));
@@ -25,6 +25,8 @@ test('what the knobs send: the 14-bit order and the relative codes', () => {
   eq(pairOrder([[0xb0, 1, 64], [0xb1, 33, 10]]).msbFirst, 0, 'another channel is no pair');
   eq([relativeCode(1, 127).code, relativeCode(65, 63).code, relativeCode(65, 1).code, relativeCode(64, 64).code], ['1/127', '65/63', 'sign', 'other']);
   eq([relativeCode(1, 127).fh2, relativeCode(65, 63).fh2, relativeCode(65, 1).fh2], [true, true, false]);
+  eq([relativeCode(1, 65).code, relativeCode(1, 65).fh2, relativeCode(3, 125).code, relativeCode(3, 67).code], ['sign', false, '1/127', 'sign'],
+    'your Rel3 (check B3): 1 up, 65 down is a sign bit, not two’s complement');
 });
 
 // A stand-in BCR32: `onSend(bytes)` gives its answers (they come a moment later, as over USB);
@@ -89,13 +91,21 @@ test('the BCR32 checks against a stand-in', async () => {
   s = standIn({ turns: [[0xb0, 20, 1], [0xb0, 20, 127], [0xb0, 20, 65], [0xb0, 20, 63], [0xb0, 20, 65], [0xb0, 20, 1]] });
   const rel = await bcrRelative(s.rig);
   eq(rel.summary, 'The FH-2 takes Rel1, Rel2');
-  eq(rel.lines[2], 'Rel3 (ch 1 CC 20): 65 up, 1 down: a sign bit, the FH-2 reads the way down wrong');
+  eq(rel.lines[2], 'Rel3 (ch 1 CC 20): 65 up, 1 down: a sign bit, the FH-2 reads it wrong');
   // the LED rings: a sweep to the knob turned, to the CTRL port only
-  s = standIn({ turns: [[0xb3, 40, 10]] });
+  s = standIn({ turns: [[0xb3, 40, 10], [0xb3, 40, 11], [0xb3, 40, 97]] });
   const rings = await bcrRings(s.rig);
-  eq(rings.summary, 'Rings follow CCs on BCR-32 CTRL');
-  assert(s.sent.length > 30 && s.sent.every((b) => b[0] === 0xb3 && b[1] === 40), 'only that knob’s CC');
-  eq(s.sent.at(-1), [0xb3, 40, 64], 'left in the middle');
+  eq(rings.summary, 'Rings follow CCs on BCR-32 CTRL; turning goes on from the value sent');
+  assert(s.sent.length > 20 && s.sent.every((b) => b[0] === 0xb3 && b[1] === 40), 'only that knob’s CC');
+  eq(s.sent.at(-1), [0xb3, 40, 96], 'left at three quarters, away from 11');
+  s = standIn({ turns: [[0xb3, 40, 100], [0xb3, 40, 101], [0xb3, 40, 102]] });
+  eq((await bcrRings(s.rig)).summary, 'Rings follow CCs on BCR-32 CTRL; turning goes on from the knob’s own value', 'only the ring followed');
+  // 14-bit: the pair found, swept coarse half first, and the notch read as a whole value
+  s = standIn({ turns: [[0xb1, 2, 64], [0xb1, 34, 0], [0xb1, 2, 64], [0xb1, 2, 32], [0xb1, 34, 10]] });
+  const r14r = await bcr14Rings(s.rig);
+  eq(r14r.summary, 'The ring follows 14-bit pairs; turning goes on from the value sent');
+  eq(s.sent.slice(-2), [[0xb1, 2, 32], [0xb1, 34, 0]], 'ending at 4096, away from 8192');
+  assert(s.sent.every((b, i) => b[1] === (i % 2 ? 34 : 2)), 'always the coarse half first');
   // the working preset as BCL
   const lines = ['$rev BCR32', '$preset', "  .name 'Init'", '$encoder 1', '  .easypar CC 1 1 0 127 absolute', '$end'];
   s = standIn({ onSend: (b) => (b[6] === 0x40 ? lines.map((t, n) => bcl(n, t)) : []) });

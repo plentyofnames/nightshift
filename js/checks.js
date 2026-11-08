@@ -6,7 +6,7 @@
 
 import { h, $, replace } from '../vendor/lilypad/js/dom.js';
 import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';
-import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcrPreset } from './bcr32/checks.js';
+import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcr14Rings, bcrPreset } from './bcr32/checks.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
 import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, checkNoteBank, checkDrumBank, checkPlay, checkOrders, checkTuning, checkTuningSlots, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
@@ -73,14 +73,16 @@ const CHECKS = [
     before: ['Set a knob to absolute 14-bit on a CC below 32 (front panel or BCR32 Studio).'], run: bcr14bit },
   { id: 'B3', bcr: true, title: 'Relative modes', question: 'What does each relative mode send for one notch, and which does the FH-2 take?',
     before: ['You set a knob to Rel1, Rel2 and Rel3 in turn; the check says when.'], run: bcrRelative },
-  { id: 'B4', bcr: true, title: 'LED rings', question: 'When a knob’s CC comes in, does its ring move?',
-    before: ['A knob on absolute 7-bit. Sent only to the CTRL port: CCs on ZAQ could change the sequencer.'], run: bcrRings },
+  { id: 'B4', bcr: true, title: 'LED rings', question: 'When a knob’s CC comes in, does its ring move, and does turning go on from there?',
+    before: ['A knob on absolute 7-bit, its LED ring on (any mode but Off).', 'Not on the sequencer’s remote channel: CCs there could change it.'], run: bcrRings },
   { id: 'B5', bcr: true, title: 'Display', question: 'Turn a knob: what does the OLED show?',
-    before: ['Controller mode.'], manual: ['Value only', 'Name and value', 'Nothing'] },
+    before: ['Controller mode, the knob’s Show value on.'], manual: ['Value only', 'Name and value', 'Nothing'] },
   { id: 'B6', bcr: true, title: 'Read a preset', question: 'Does it hand over its working preset as BCL text?',
     before: ['Controller mode, sequencer stopped. A read: nothing is written.'], run: bcrPreset },
   { id: 'B7', bcr: true, title: 'On the FH-2’s USB A', question: 'Plugged into the FH-2’s USB A (beside the EC4, through the hub), does the FH-2 react to its knobs?',
     before: ['Give a knob the channel and CC of a knob on an EC4 page: the FH-2 maps that one.'], manual: ['Reacts', 'Nothing'] },
+  { id: 'B8', bcr: true, title: '14-bit rings', question: 'When a 14-bit knob’s pair comes in, does its ring move, and does turning go on from there?',
+    before: ['A knob on absolute 14-bit on a CC below 32, its LED ring on.', 'Not on the sequencer’s remote channel.'], run: bcr14Rings },
 ];
 
 const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, failed: {}, port: '', error: '', asking: null }; // failed: a check's last stop, with its log, until it runs again
@@ -137,8 +139,10 @@ async function bcrRig() {
   const live = (p) => p.state !== 'disconnected' && /bcr/i.test(p.name);
   const ins = [...access.inputs.values()].filter(live);
   const outs = [...access.outputs.values()].filter(live);
-  const ctrl = outs.find((p) => /ctrl/i.test(p.name)) ?? outs.find((p) => !/zaq/i.test(p.name));
-  if (!ctrl) throw new Error(outs.length ? 'no CTRL port on the BCR32' : 'no BCR32 port: is it connected over USB?');
+  // never a guess: CCs on the ZAQ port could change the sequencer
+  if (!outs.length) throw new Error('no BCR32 port: is it connected over USB?');
+  const ctrl = outs.find((p) => /ctrl/i.test(p.name)) ?? (outs.length === 1 ? outs[0] : null);
+  if (!ctrl) throw new Error(`which BCR32 port is CTRL? None is named so: ${outs.map((p) => p.name).join(', ')}`);
   state.port = ctrl.name;
   const listeners = new Set();
   for (const i of ins) i.onmidimessage = (e) => [...listeners].forEach((f) => f(e.data));

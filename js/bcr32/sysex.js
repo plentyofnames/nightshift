@@ -75,11 +75,15 @@ export function pairOrder(messages) {
 }
 
 // What a relative knob sends for one notch right (`up`) and one left (`down`), and whether the
-// FH-2 takes it: it reads both 1/127 (two's complement) and 65/63 (64 ± n) by itself.
+// FH-2 takes it: it reads both 1/127 (two's complement) and 65/63 (64 ± n) by itself. A sign bit
+// (bit 6 for one way, the steps below it) reads wrong either way: n up and 64 + n down (your
+// BCR32's Rel3, check B3) is −63 to the FH-2 as two's complement. Up to 31 steps a notch tell the
+// codes apart: two's complement −n is 128 − n, a sign bit's 64 + n.
 export function relativeCode(up, down) {
-  if (up >= 1 && up <= 63 && down >= 65) return { code: '1/127', fh2: true, text: `${up} up, ${down} down: two’s complement, the FH-2 takes it` };
-  // 64 ± n puts a notch down just below 64; a sign bit (64 + n up, n down) puts it near 0
+  if (up >= 1 && up <= 63 && down >= 96) return { code: '1/127', fh2: true, text: `${up} up, ${down} down: two’s complement, the FH-2 takes it` };
+  if (up >= 1 && up <= 63 && down >= 65) return { code: 'sign', fh2: false, text: `${up} up, ${down} down: a sign bit, the FH-2 reads it wrong` };
+  // 64 ± n puts a notch down just below 64; a sign bit the other way (64 + n up, n down) near 0
   if (up >= 65 && down >= 32 && down <= 63) return { code: '65/63', fh2: true, text: `${up} up, ${down} down: 64 ± n, the FH-2 takes it` };
-  if (up >= 65 && down >= 1 && down < 32) return { code: 'sign', fh2: false, text: `${up} up, ${down} down: a sign bit, the FH-2 reads the way down wrong` };
+  if (up >= 65 && down >= 1 && down < 32) return { code: 'sign', fh2: false, text: `${up} up, ${down} down: a sign bit, the FH-2 reads it wrong` };
   return { code: 'other', fh2: false, text: `${up} up, ${down} down: not a code the FH-2 knows` };
 }
