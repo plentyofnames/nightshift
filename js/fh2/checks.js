@@ -14,8 +14,8 @@ import { isPresent } from '../patch/hardware.js';
 import { addVoice } from '../patch/edit.js';
 import { suggestChannel } from '../patch/alloc.js';
 
-// While a check runs, checks.html keeps a timestamp here, renewed every second; Night Shift's
-// live editing waits while it is fresh, so it doesn't take the test config in or send into it.
+// While a check runs, checks.html keeps a timestamp here, renewed every second; while it is fresh,
+// Night Shift doesn't read its knobs' settings back from the FH-2 (it holds the test config then).
 export const CHECKS_BUSY_KEY = 'nightshift.checks.busy';
 export const checksBusy = (storage) => {
   try {

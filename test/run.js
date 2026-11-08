@@ -10,7 +10,6 @@ import './scala.test.js';
 import './ec4-units.test.js';
 import './feel.test.js';
 import './link.test.js';
-import './live.test.js';
 import './checks.test.js';
 import './gig.test.js';
 import './bcr32.test.js';

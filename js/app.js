@@ -39,20 +39,17 @@ import { renderEc4, ec4Sketch, sketchLines } from './ui/ec4.js';
 import { speedOf, speedChange, feelChange } from './ec4/feel.js';
 import { Ec4Link, Cc14 } from './ec4/link.js';
 import { valueOf, valueText, ccFor, fromCc, pathOf } from './ec4/values.js';
-import { getPath, setPath } from './fh2/layout.js';
+import { getPath } from './fh2/layout.js';
+import { checksBusy } from './fh2/checks.js';
 import { settingsByName, startAutoCalibration, watchAutoCalibration, finishAutoCalibration, saveCalibration, setStartupCalibration } from './fh2/menu.js';
 import { calibrationDialog } from './ui/calibrate.js';
 import { renderSteps } from './ui/steps.js';
 import { scalaFiles, fileChange, asciiText, parseScl, parseKbm, SLOTS, slotLabel } from './patch/scala.js';
-import { fromModule, anotherPatch, dueIn, MERGE_MAX } from './fh2/live.js';
-import { checksBusy } from './fh2/checks.js';
 
 const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
 const FH2_SETTINGS_KEY = 'nightshift.fh2settings'; // the FH-2's own settings, as last read
 const FH2_CAL_KEY = 'nightshift.fh2calibrations'; // its calibration slots and startup slots, as last read
-const LIVE_KEY = 'nightshift.live'; // '0' while Live is off
-const BASE_KEY = 'nightshift.onfh2'; // what the FH-2 held as Night Shift last knew it (live editing)
 const PATCH_ID_KEY = 'nightshift.patchid'; // which patch the kept one is: every file, Get into nothing or example is a new one
 const THRU_KEY = 'nightshift.ec4thru';
 const BCR_THRU_KEY = 'nightshift.bcr32thru';
@@ -106,8 +103,6 @@ const state = {
   unsent: false, // what you see isn't what the FH-2 holds (or we don't know what it holds)
   busy: false,
   patchId: '', // the patch's (PATCH_ID_KEY), so the base is only used for the patch it belongs to
-  live: { on: loadLive(), tracking: false, sending: false, first: 0, last: 0 }, // live editing: Live on, in step
-  // with the FH-2 (it holds your patch or the base), a send in flight, when the edits waiting were made
   view: null,
   colors: new Map(),
   selected: null,
@@ -127,33 +122,6 @@ const state = {
 };
 
 
-
-function loadLive() {
-  try {
-    return localStorage.getItem(LIVE_KEY) !== '0';
-  } catch {
-    return true;
-  }
-}
-
-function storedBase() {
-  try {
-    return JSON.parse(localStorage.getItem(BASE_KEY)) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// Kept while in step, so edits made offline can go out when the FH-2 comes back (not the
-// example's: it isn't the patch kept in this browser).
-let baseKept = null;
-function storeBase() {
-  if (!state.live.tracking || !state.module || state.module === baseKept || state.from === 'example') return;
-  baseKept = state.module;
-  try {
-    localStorage.setItem(BASE_KEY, JSON.stringify({ ...state.module, patchId: state.patchId }));
-  } catch {}
-}
 
 function storedPatchId() {
   try {
@@ -248,15 +216,12 @@ function update() {
   state.colors = state.view ? colorsFor([...state.view.sources, ...state.view.players], state.colors) : new Map();
   state.sync = state.config ? syncOf() : null;
   state.unsent = state.config ? state.sync.kind !== 'same' : false;
-  if (state.sync?.kind === 'same') state.live.tracking = true;
   state.ec4Model = state.view ? pagesOf(state.view, state.names) : null;
   state.bcrModel = state.view ? bcrPagesOf(state.ec4Model, state.names) : null;
   store();
-  storeBase();
   render();
   showOnEc4();
   showOnBcr32();
-  scheduleLive();
 }
 
 // `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. What
@@ -281,7 +246,6 @@ function load({ config, preset, presets, scene = 0, names, hardware, slots, scen
   state.selected = null;
   state.colors = new Map(); // a new patch gets fresh colours
   state.history = new History();
-  state.live.tracking = false; // until it's the same as the FH-2, or sent
   state.patchId = (from === 'browser' && storedPatchId()) || newPatchId();
   update();
 }
@@ -691,10 +655,7 @@ async function connect() {
       readModule(r);
       load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
       state.status = `Got the patch from ${pair.name}`;
-    } else {
-      const base = storedBase();
-      catchUp(r, base?.patchId === state.patchId ? { ...base, scene: base.scene ?? state.scene } : null, { strict: true });
-    }
+    } else readModule(r);
   } catch (e) {
     Object.assign(state, { link: refused(e) ? 'no-midi' : 'offline', module: null });
   } finally {
@@ -734,110 +695,14 @@ function send() {
     const off = offText(r.off);
     if (off) {
       state.module = null;
-      state.live.tracking = false;
       update();
       return status(off, true);
     }
     state.module = { ...r.sent, scene };
-    state.live.tracking = true;
     Object.assign(state, { link: 'connected', port: pair.name });
     update();
     status(`Sent to ${pair.name}`);
   });
-}
-
-// ---- live editing (fh2/live.js): while Night Shift and the FH-2 are in step, edits go to the
-// FH-2's RAM a few seconds after you make them (that doesn't interrupt what plays).
-
-// The FH-2 as just read (`r`), against what Night Shift last knew it held (`base`). Holding the
-// same patch with a few changes, those come into yours as one undoable step, and live editing
-// goes on; else it waits for Get or Send. `strict` (the FH-2 just came back): no changes at all.
-// Returns whether in step.
-function catchUp(r, base, { strict = false } = {}) {
-  const theirs = { config: r.config.values, preset: r.preset.values };
-  readModule(r, base?.scene ?? state.scene);
-  const there = !base || anotherPatch(base, theirs) ? Infinity
-    : diff(DUMPS[r.config.cmd].layout, base.config, theirs.config).length + diff(DUMPS[r.preset.cmd].layout, base.preset, theirs.preset).length;
-  if (there > (strict ? 0 : MERGE_MAX)) {
-    state.live.tracking = false;
-    return false;
-  }
-  state.live.tracking = true;
-  const take = [...fromModule(DUMPS[state.config.cmd].layout, base.config, state.config.values, theirs.config).map((c) => ({ dump: 'config', ...c })),
-    ...(state.preset && base.scene === state.scene ? fromModule(DUMPS[state.preset.cmd].layout, base.preset, state.preset.values, theirs.preset) : [])
-      .map((c) => ({ dump: 'preset', ...c }))];
-  if (take.length) edit('From the FH-2', take, { force: true, fold: 'fh2' }); // one step while it keeps coming
-  return true;
-}
-
-let liveTimer = null;
-
-const liveReady = () => state.live.on && state.live.tracking && state.link === 'connected' && !!state.config && !!state.preset;
-
-// After every change: sends QUIET_MS after the last edit, at most MAX_WAIT_MS after the first.
-function scheduleLive() {
-  if (state.live.sending) return; // sendLive looks again when it's done
-  clearTimeout(liveTimer);
-  liveTimer = null;
-  if (!liveReady() || !state.unsent) {
-    state.live.first = 0;
-    return;
-  }
-  const now = Date.now();
-  state.live.first ||= now;
-  state.live.last = now;
-  liveTimer = setTimeout(sendLive, dueIn(now, state.live.first, state.live.last));
-}
-
-// Reads the FH-2, takes its own changes, then sends what differs (config, scene in view, or both).
-async function sendLive() {
-  liveTimer = null;
-  if (!liveReady() || !state.unsent) return;
-  // after the EC4's knobs are read back, and not while the hardware checks page runs a check (the
-  // FH-2 holds a test config then)
-  if (state.busy || turned.size || readBackTimer || checksBusy(localStorage)) {
-    liveTimer = setTimeout(sendLive, 1000);
-    return;
-  }
-  state.busy = true;
-  state.live.sending = true;
-  render();
-  try {
-    const pair = (await fh2Ports()).find(looksLikeFh2);
-    if (!pair) return;
-    const r = await pullFromFh2(pair);
-    if (!catchUp(r, state.module)) return status('Another patch is on the FH-2: Get or Send', true);
-    if (!liveReady()) return; // Live switched off meanwhile
-    const scene = state.scene;
-    const differs = (d, v) => diff(DUMPS[d.cmd].layout, d.values, v).length > 0;
-    const out = { config: differs(state.config, state.module.config) ? state.config : null, preset: differs(state.preset, state.module.preset) ? state.preset : null };
-    if (!out.config && !out.preset) return;
-    const s = await sendToFh2(pair, out);
-    const off = offText(s.off);
-    if (off) {
-      state.module = null;
-      state.live.tracking = false;
-      return status(off, true);
-    }
-    state.module = { ...state.module, ...s.sent, scene: s.sent.preset ? scene : state.module.scene };
-  } catch (e) {
-    state.live.tracking = false;
-    status(refused(e) ? 'No MIDI access in this browser' : `The FH-2 didn’t answer: ${e.message}`, true);
-  } finally {
-    state.busy = false;
-    state.live.sending = false;
-    state.live.first = 0;
-    update();
-  }
-}
-
-function switchLive() {
-  state.live.on = !state.live.on;
-  try {
-    localStorage.setItem(LIVE_KEY, state.live.on ? '1' : '0');
-  } catch {}
-  status(state.live.on ? 'Live: edits go to the FH-2' : 'Live off: Send sends');
-  scheduleLive();
 }
 
 // The FH-2's own settings (its Settings menu), read by walking the menus: it moves the display
@@ -1462,6 +1327,7 @@ function onEc4Midi(bytes) {
       if (!c.map.relative) link.showOne(i, valueText(c.key, fromCc(c.key, m.value, m.bits, { tempoMin: state.config.values.tempoMin }), { range })).catch(() => {});
       link.sent.set(i, `${m.channel}:${m.cc}:${m.value}`);
       turned.add(c.key);
+      turnedOn = 'EC4';
     });
   }
   if (turned.size) {
@@ -1473,30 +1339,30 @@ function onEc4Midi(bytes) {
 // After the knobs rest: the FH-2's preset is read and the settings they turned take its values,
 // as one step (undo goes back to before the knobs). Only while the FH-2 holds the scene in view.
 const turned = new Set();
+let turnedOn = 'EC4'; // the controller they were turned on
 let readBackTimer = null;
 async function readBack() {
   readBackTimer = null;
   const keys = [...turned];
   turned.clear();
-  if (state.busy || state.link !== 'connected' || !state.preset || state.sync?.kind === 'scene') return;
+  // not while the hardware checks page runs a check: the FH-2 holds a test config then
+  if (state.busy || state.link !== 'connected' || !state.preset || state.sync?.kind === 'scene' || checksBusy(localStorage)) return;
   state.busy = true;
   try {
     const pair = (await fh2Ports()).find(looksLikeFh2);
     if (!pair) return;
     const preset = await pullPresetFromFh2(pair);
     const changes = [];
-    const known = state.module && structuredClone(state.module.preset); // the knobs' settings only: live editing
-    for (const k of keys) { // takes the FH-2's other changes when it next sends
+    for (const k of keys) {
       const path = pathOf(state.ec4Model.known.get(k)?.setting ?? { kind: '' });
       if (!path) continue;
       const v = getPath(preset.values, path);
-      if (known) setPath(known, path, v);
       if (v !== getPath(state.preset.values, path)) changes.push({ dump: 'preset', path, value: v });
     }
-    if (known) state.module = { ...state.module, preset: known };
+    if (state.module) state.module = { ...state.module, preset: structuredClone(preset.values) }; // what the FH-2 holds now
     const labels = keys.map((k) => state.ec4Model.known.get(k)?.label.toLowerCase()).filter(Boolean);
     state.busy = false;
-    if (changes.length) edit(`From the EC4: ${labels.slice(0, 3).join(', ')}${labels.length > 3 ? '…' : ''}`, changes, { force: true });
+    if (changes.length) edit(`From the ${turnedOn}: ${labels.slice(0, 3).join(', ')}${labels.length > 3 ? '…' : ''}`, changes, { force: true });
     else update();
   } catch {
     // the knobs still changed the FH-2; the mark says so at the next read
@@ -1805,6 +1671,7 @@ function onBcr32Midi(bytes) {
       if (!c.map.relative) link.showOne(i, valueText(c.key, fromCc(c.key, m.value, m.bits, { tempoMin: state.config.values.tempoMin }), { range })).catch(() => {});
       link.sent.set(i, `${m.channel}:${m.cc}:${m.value}`);
       turned.add(c.key);
+      turnedOn = 'BCR32';
     });
   }
   if (turned.size) {
@@ -1888,12 +1755,8 @@ function bar() {
   const v = state.view;
   const tab = (id, label) => h('button', { type: 'button', 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => openTab(id) }, label);
   const k = state.sync?.kind;
-  const live = state.live;
-  const inStep = live.tracking && state.link === 'connected';
   const mark = state.link === 'connecting' ? 'reading the FH-2…'
       : k === 'same' ? 'same as the FH-2'
-      : live.sending ? 'sending…'
-      : inStep ? (live.on ? 'sending soon' : 'not sent')
       : k === 'scene' ? `scene ${sceneName(state.sync.scene)} is on the FH-2`
       : k === 'differs' ? 'differs from the FH-2'
       : state.link === 'no-midi' ? 'no MIDI in this browser'
@@ -1924,10 +1787,8 @@ function bar() {
     state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status', title: state.status }, state.status),
     fileMenu(v),
     h('div', { class: 'fh2-group', role: 'group', 'aria-label': 'FH-2' }, h('span', { class: 'lbl' }, 'FH-2'),
-      v && h('button', { type: 'button', class: 'btn live-toggle', 'aria-pressed': live.on ? 'true' : 'false', onclick: switchLive,
-        title: 'On: edits go to the FH-2’s memory (not its flash) a few seconds after you make them. Off: only Send sends.' }, 'Live'),
       h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, title: 'Get from the FH-2: its config and preset become what you see (undoable)' }, 'Get'),
-      v && h('button', { type: 'button', class: 'btn' + (state.unsent && !(live.on && inStep) ? ' primary' : ''), disabled: state.busy, onclick: send, title: 'Send to the FH-2: what you see goes into its memory' }, 'Send'),
+      v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send, title: 'Send to the FH-2: what you see goes into its memory' }, 'Send'),
       v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
         title: state.unsent ? 'Send to the FH-2 first: saving stores what the module holds' : 'Save to flash: store what the FH-2 holds' }, 'Save')));
 }

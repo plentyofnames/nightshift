@@ -319,7 +319,9 @@ Hardware results: learning a knob works (2026-11-03).
 - How the FH-2 scales a 7-bit CC onto a setting with another range (Euclid pulses 0–32, swing type 0–7…) is a guess: linear (hardware check 19). Tempo isn't sent to the EC4 (its CC range is the config's, check 18).
 - Tested with a stand-in EC4 (`test/link.test.js`); not tried on your EC4 yet. The built-in browser has no MIDI, so the link only runs in Chrome. Lilypad must be closed: only one host may talk to the EC4.
 
-**Live editing, FH-2 side built (your idea, 2026-11-03)** (`js/fh2/live.js`):
+**Live editing: removed (your call, 2026-11-08).** It didn't work while something else played or moved: the SysEx seemed to get split or swallowed (with other MIDI on the same USB port, e.g. Logic's). Edits now go to the FH-2 only with **Send** (read back as before); the **Live** switch, `js/fh2/live.js` and its tests are gone (in the history up to 0c6a239). Opening Night Shift reads the FH-2 for the mark only. The knobs' read-back after a turn on the EC4 or the BCR32 stays (a read), and it now waits while the hardware checks page runs a check. What it was:
+
+**Live editing, FH-2 side built (your idea, 2026-11-03)** (`js/fh2/live.js`, removed 2026-11-08):
 - Edits (and undo) go to the FH-2's RAM by themselves, never to its flash: 2 seconds after the last edit, at most 5 seconds after the first one waiting. Only the dump that changed is sent, then read back. **Live** in the bar switches it off (kept in the browser); then only Send to FH-2 sends. Save to flash stays a button.
 - **Only in step** (your point: also after offline edits). Night Shift remembers what the FH-2 held as it last sent or read it, for the patch kept in this browser (not for files opened or the example: those need Send or Get first).
   - When the FH-2 comes back (plugged in, Night Shift opened), it has to hold exactly that for the edits made meanwhile to go out. Anything else: "differs from the FH-2", Get or Send.
