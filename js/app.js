@@ -667,6 +667,10 @@ async function get() {
       if (!controllerOn(id)) continue;
       try {
         said.push(await getController(id));
+        if (id === 'bcr32' && noUsbText()) {
+          warn = true;
+          said.push(noUsbText());
+        }
       } catch (e) {
         warn = true;
         said.push(`${controllerName(id)}: ${midiProblem(e) ?? e.message}`);
@@ -792,6 +796,14 @@ async function send() {
       if (!answer) return status('Nothing sent');
       if (answer === 'over') bcr.pl = plan(bcr.img, bcr.want, state.bcr32.held, { over: new Set(bcr.pl.conflicts.map((c) => (c.i != null ? `${c.p}:${c.i}` : `name:${c.p}`))) });
     }
+    // a BCR32 page holding Night Shift's knobs whose outputs leave out USB: they won't reach the FH-2
+    // (hardware check B14; your call, 2026-11-09: ask at Send)
+    const noUsb = bcr ? bcr32NoUsb().map((p) => p + 1) : [];
+    if (noUsb.length && !await modal($('dialog'), {
+      title: `BCR32 page${noUsb.length > 1 ? 's' : ''} ${noUsb.join(', ')} ${noUsb.length > 1 ? 'don’t' : 'doesn’t'} send on USB`,
+      body: h('p', { class: 'note' }, 'Night Shift’s knobs there won’t reach the FH-2. A page’s outputs are set in Eye of Providence.'),
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Send anyway', value: true, primary: true }],
+    })) return status('Nothing sent');
     if (ec4?.foreign && !await askEc4(ec4)) return status('Nothing sent');
     // written
     if (module) {
@@ -803,6 +815,10 @@ async function send() {
       if (!part) continue;
       try {
         said.push(await write(part));
+        if (id === 'bcr32' && noUsbText()) {
+          warn = true;
+          said.push(noUsbText());
+        }
       } catch (e) {
         warn = true;
         // Rotary Club 0.24 on: RELOAD answers an error when the BCR32 uses the image but couldn't keep it
@@ -1440,8 +1456,20 @@ function gigList() {
 // holding some that don't send on USB (as the BCR32 was last read).
 function bcr32Gig() {
   const bcr = state.bcrModel;
-  const noUsb = state.bcrDevice ? bcr.pages.filter((pg, p) => state.bcrDevice.pages[p] && !state.bcrDevice.pages[p].usb && [...pg.cells, ...pg.pushes].some(Boolean)).map((pg) => pg.index) : [];
-  return { knobs: bcr.count, fp: bcr.count ? wantedFingerprint(wanted(bcr, state.view, bcrSync())) : null, noUsb };
+  return { knobs: bcr.count, fp: bcr.count ? wantedFingerprint(wanted(bcr, state.view, bcrSync())) : null, noUsb: bcr32NoUsb() };
+}
+
+// The BCR32's pages holding Night Shift's knobs that don't send on USB (their outputs, set in Eye of
+// Providence, as last read): those knobs don't reach the FH-2. Named in Get's and Send's status too
+// (hardware check B14, 2026-11-09: the tab's text alone was easy to miss).
+function bcr32NoUsb() {
+  const bcr = state.bcrModel;
+  if (!bcr || !state.bcrDevice) return [];
+  return bcr.pages.filter((pg, p) => state.bcrDevice.pages[p] && !state.bcrDevice.pages[p].usb && [...pg.cells, ...pg.pushes].some(Boolean)).map((pg) => pg.index);
+}
+function noUsbText() {
+  const n = bcr32NoUsb().map((p) => p + 1);
+  return n.length ? `BCR32 page${n.length > 1 ? 's' : ''} ${n.join(', ')} not on USB: ${n.length > 1 ? 'their' : 'its'} knobs don’t reach the FH-2` : '';
 }
 
 // ---- the live link (ec4/link.js): the EC4 and Night Shift follow each other's page, the
