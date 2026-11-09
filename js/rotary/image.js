@@ -15,6 +15,7 @@ import { MAX_CHUNK } from '../../vendor/eyeofprovidence/js/proto.js';
 import { pageRecords, syncEntry } from '../ec4/setup.js';
 import { displayCode } from '../ec4/values.js';
 import { DUMPS, CMD } from '../fh2/sysex.js';
+import { fingerprint } from '../hash.js';
 import { PAGES, KNOBS } from './pages.js';
 
 export const KNOB_BYTES = 20; // the record (15), table A (2), B (2), C (1)
@@ -92,6 +93,13 @@ export function wanted(bcr, view, sync = {}) {
   return { knobs, names, header, synced };
 }
 
+// A fingerprint of what wanted() holds, for the Gig tab (patch/gig.js): changed since Send to BCR32?
+export function wantedFingerprint(want) {
+  const parts = [...want.knobs].sort(([a], [b]) => a.localeCompare(b)).map(([id, b]) => `${id}=${hex(b)}`);
+  parts.push(...[...want.names].sort(([a], [b]) => a - b).map(([p, n]) => `n${p}=${n}`), `h=${want.header ? hex(want.header) : ''}`);
+  return fingerprint(new TextEncoder().encode(parts.join(';')));
+}
+
 // ---- what Night Shift holds: as it last wrote it, kept in this browser
 
 export const emptyHeld = () => ({ knobs: new Map(), names: new Map() });
@@ -128,7 +136,7 @@ export function pageOnBcr32(img, p) {
   if (!img) return null;
   const keys = Array.from({ length: R.KEYS }, (_, j) => {
     const rec = R.readRecord(img, p, R.keyCell(j));
-    const s = R.decodePush(rec);
+    const s = R.decodePush(rec, true); // a key: the push types it ignores read as off
     return { name: R.readName(rec, 8).trim(), sends: s.off ? '' : R.pushSummary(s) };
   });
   return { name: R.pageName(img, p), keys, usb: (R.readOutputs(img, p) & 1) === 1 };

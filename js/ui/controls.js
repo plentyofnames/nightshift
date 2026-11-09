@@ -10,7 +10,10 @@ export function numberInput(label, value, { min, max, step = 1 }, commit) {
     type: 'number', class: 'num', 'aria-label': label, 'data-key': label, min, max, step, value,
     onchange: (e) => {
       const v = parseFloat(e.target.value);
-      if (Number.isFinite(v)) commit(Math.min(max, Math.max(min, v)));
+      // "2.5" in a whole-number box is 3, as the box's step says, not an error
+      const places = (String(step).split('.')[1] ?? '').length;
+      const snap = (x) => Number((Math.round(x / step) * step).toFixed(places));
+      if (Number.isFinite(v)) commit(Math.min(max, Math.max(min, snap(v))));
       else e.target.value = value; // "", "-" or text: back to what the patch holds
     },
   });

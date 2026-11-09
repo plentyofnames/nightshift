@@ -64,12 +64,14 @@ export function projectFromJson(text) {
 }
 
 // `held` as stored, keeping only well-formed parts: { flash: { at, configs: { slot: fp },
-// presets: { slot: fp } }, ec4: { at, fp, fw: [major, minor] } }.
+// presets: { slot: fp } }, ec4: { at, fp, fw: [major, minor] }, bcr32: { at, fp } }.
 function heldFrom(j) {
   const out = {};
   const fps = (o) => Object.fromEntries(Object.entries(o && typeof o === 'object' ? o : {}).filter(([k, v]) => /^\d+$/.test(k) && typeof v === 'string'));
   if (j?.flash && typeof j.flash.at === 'string') out.flash = { at: j.flash.at, configs: fps(j.flash.configs), presets: fps(j.flash.presets) };
   const e = j?.ec4;
   if (e && typeof e.at === 'string' && typeof e.fp === 'string') out.ec4 = { at: e.at, fp: e.fp, fw: Array.isArray(e.fw) && e.fw.length === 2 && e.fw.every(Number.isInteger) ? e.fw : null };
+  const b = j?.bcr32;
+  if (b && typeof b.at === 'string' && typeof b.fp === 'string') out.bcr32 = { at: b.at, fp: b.fp };
   return out;
 }

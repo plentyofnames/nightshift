@@ -199,8 +199,9 @@ export function writesFor(img, base) {
   return out;
 }
 
-// Writes the changes, has the EC4 re-read its settings and turns it to setup 15, page 1.
-export async function writeSetup(device, img, base, onStep = () => {}) {
+// Writes the changes, has the EC4 re-read its settings and turns it to setup 15, page `group` + 1
+// (the page it showed, so a Store doesn't move it).
+export async function writeSetup(device, img, base, onStep = () => {}, group = 0) {
   const writes = writesFor(img, base);
   for (const [k, w] of writes.entries()) {
     for (let a = w.addr; a < w.addr + w.data.length; a++) if (!owns(a)) throw new Error(`refusing to write 0x${a.toString(16)}`);
@@ -208,6 +209,6 @@ export async function writeSetup(device, img, base, onStep = () => {}) {
     onStep(k + 1, writes.length);
   }
   await device.reload();
-  await device.select(SETUP, 0);
+  await device.select(SETUP, group);
   return writes.length;
 }

@@ -7,12 +7,12 @@
 // power-on.
 
 import { h, $, replace } from '../../vendor/lilypad/js/dom.js';
+import { CALIBRATION_NAME_LENGTH as NAME_LENGTH } from '../fh2/menu.js';
 
 const WAIT_MS = 5000; // before the first question
 const POLL_MS = 1000; // between questions, each waiting for its answer
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const NAME_LENGTH = 16;
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

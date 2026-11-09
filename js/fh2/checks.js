@@ -84,11 +84,20 @@ async function read(rig, path) {
 
 async function run(rig, body, options) {
   const start = await begin(rig);
+  let result;
   try {
-    return await body(start);
-  } finally {
-    await restore(rig, start, options);
+    result = await body(start);
+  } catch (e) {
+    // the check's own error first; if putting things back fails too, both
+    try {
+      await restore(rig, start, options);
+    } catch (r) {
+      throw new Error(`${e.message}; and putting your patch back failed: ${r.message}`);
+    }
+    throw e;
   }
+  await restore(rig, start, options);
+  return result;
 }
 
 // ---- check 19: how a 7-bit CC lands on a setting whose range isn't 0–127

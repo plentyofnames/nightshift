@@ -68,7 +68,7 @@ function notes(values, j, sel, act) {
     q.steps.map((s, i) => col(i, h('button', { type: 'button', class: 'step-num', 'aria-pressed': i === k ? 'true' : 'false', 'aria-label': `Step ${i + 1}`, onclick: () => pick(i) }, String(i + 1)))),
     h('span', { class: 'lane-label' }, 'Note'),
     q.steps.map((s, i) => col(i, h('button', { type: 'button', class: 'step-note', 'aria-label': `Step ${i + 1}: ${stepPitch(s, q.rootNote)}`, onclick: () => pick(i) },
-      h('span', { class: 'bar', style: `height:${6 + Math.round((30 * (pitchOf(s) - low)) / (high - low))}px` }), h('span', { class: 'txt' }, pitchLines(s, q.rootNote).map((t) => h('span', {}, t)))))),
+      h('span', { class: 'pitch', style: `height:${6 + Math.round((30 * (pitchOf(s) - low)) / (high - low))}px` }), h('span', { class: 'txt' }, pitchLines(s, q.rootNote).map((t) => h('span', {}, t)))))),
     h('span', { class: 'lane-label' }, 'Rhythm'),
     q.steps.map((s, i) => col(i, h('div', { class: 'step-gates' + (s.ratchet ? ' ratchet' : '') },
       s.gates.slice(0, s.length).map((g, n) => h('button', { type: 'button', class: `gate g${g}`, 'aria-label': `Step ${i + 1}, ${s.ratchet ? 'ratchet' : 'sub-step'} ${n + 1}: ${GATES[g]}`,

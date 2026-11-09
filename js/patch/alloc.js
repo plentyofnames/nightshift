@@ -7,6 +7,8 @@ import { converterPorts } from './derive.js';
 
 import { LFO_RESET_CLOCK, LFO_RESET_EUCLID } from './tables.js';
 
+const HIRES_PARAMS = new Set(['directLevel', 'lfoSpeed', 'lfoLevel']); // as ec4/pages.js HIRES
+
 const restartsFrom = (config, type) => new Set(config.lfoReset.filter((r) => r.type === type).map((r) => r.number));
 
 // A clock slot with no type. A clock with a type stays taken even if its output is outside
@@ -54,11 +56,14 @@ const RESERVED = new Set([0, 6, 32, 38, 64, 66, 96, 97, 98, 99, 100, 101, 120, 1
 // (below 32) with n + 32 as the fine half of a 14-bit value, unless n + 32 is mapped to
 // something else; `fine` says the pair is free, so the knob can be 14-bit.
 export function freeCcs(config, channel) {
-  const used = new Set(mappingsOf(config).filter((m) => m.channel === channel).map((m) => m.cc));
+  const here = mappingsOf(config).filter((m) => m.channel === channel);
+  const used = new Set(here.map((m) => m.cc));
+  // only the 14-bit settings, mapped absolute below CC 32, take n + 32 as their fine half
+  const hires = new Set(here.filter((m) => m.cc < 32 && !m.relative && HIRES_PARAMS.has(m.target.param)).map((m) => m.cc));
   const out = [];
   for (let cc = 0; cc < 128; cc++) {
     if (used.has(cc) || RESERVED.has(cc)) continue;
-    if (cc >= 32 && cc < 64 && used.has(cc - 32)) continue; // the fine half of a used CC
+    if (cc >= 32 && cc < 64 && hires.has(cc - 32)) continue; // the fine half of a used 14-bit CC
     out.push({ cc, fine: cc < 32 && !used.has(cc + 32) });
   }
   return out;

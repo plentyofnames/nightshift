@@ -355,7 +355,7 @@ export function pagesOf(view, names = {}) {
   const known = new Map(objects.flatMap((o) => [...o.knobs, ...o.commands].map((c) => [c.key, c])));
   const placed = (key, more = {}) => (known.has(key) ? { ...known.get(key), ...more }
     : { short: '?', label: 'Gone from the patch', key, setting: settingOf(key), source: null, gone: true, ...more });
-  const nameOf = (id, fallback) => (names[pageNameKey(id)] ? fourChars(names[pageNameKey(id)]) : fallback);
+  const nameOf = (id, fallback) => (names[pageNameKey(id)] && fourChars(names[pageNameKey(id)])) || fallback; // none showable: its own
 
   const all = [];
   for (const id of [...new Set(objects.map((o) => o.page))]) {
@@ -588,7 +588,7 @@ export function switchOn(config, view, names, model, key) {
   const raw = (push ? o.template.pushes : o.template.cells).indexOf(key);
   const tpl = raw >= 0 && raw + half < KNOBS ? raw + half : -1;
   const at = tpl >= 0 && !list[tpl] ? tpl : list.findIndex((k, i) => i >= half && !k);
-  const pageName = names[pageNameKey(pageId)] ? fourChars(names[pageNameKey(pageId)]) : model.objects.find((x) => x.page === pageId)?.defaultName ?? o.defaultName;
+  const pageName = (names[pageNameKey(pageId)] && fourChars(names[pageNameKey(pageId)])) || (model.objects.find((x) => x.page === pageId)?.defaultName ?? o.defaultName);
   if (at < 0) return { error: `${pageName} is full` };
   list[at] = key;
   const changes = [listChange(push ? pushesKey(pageId) : knobsKey(pageId), list)];

@@ -29,7 +29,7 @@ export function renderScenes(m, act) {
     h('h2', {}, `Scenes of “${m.configName}”`),
     h('div', { class: 'scenes-controls' },
       h('label', {}, 'Config goes to ', selectInput('Flash slot of the config', m.configSlot ?? 0, slotOptions, (v) => act.setSlot('config', v || null))),
-      h('label', {}, 'Switch scenes by program change on ', selectInput('Preset program change channel', m.programChannel, [[0, 'off'], ...Array.from({ length: 16 }, (_, c) => [c + 1, `ch ${c + 1}`])], act.setProgramChannel)),
+      h('label', {}, 'Scenes by program change ', selectInput('Preset program change channel', m.programChannel, [[0, 'off'], ...Array.from({ length: 16 }, (_, c) => [c + 1, `ch ${c + 1}`])], act.setProgramChannel)),
       h('button', { type: 'button', class: 'btn', 'aria-pressed': m.scenesOnly ? 'true' : 'false', onclick: act.toggleScenesOnly,
         title: 'Only what a scene holds can change' }, m.scenesOnly ? 'Scenes only: on' : 'Scenes only: off')),
     h('table', { class: 'scenes-table' },

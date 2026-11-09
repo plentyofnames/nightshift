@@ -10,6 +10,7 @@ import { scalaFiles, voiceTuning } from '../patch/scala.js';
 
 const section = (title, ...rows) => h('section', { class: 'settings-section' }, h('h3', {}, title), rows);
 const field = (label, control, unit, title) => h('div', { class: 'erow', title }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control, unit));
+const always = (row) => (row.classList.add('always'), row); // editable under Scenes only too (as on the Scenes tab)
 const sfield = (...a) => perScene(field(...a));
 const CHANNELS = Array.from({ length: 16 }, (_, c) => [c + 1, `ch ${c + 1}`]); // these settings store channels 1–16
 const ONOFF = [[0, 'Off'], [1, 'On']];
@@ -55,7 +56,8 @@ export function renderSettings(view, c, p, sceneName, act) {
       field('Legato velocity', selectInput('Legato velocity', c.legatoVelocity, [[0, 'Each note’s own'], [1, 'First note of a phrase']], cfg('Legato velocity', 'legatoVelocity')), null, 'Mono voices'),
       field('Soft takeover', selectInput('Soft takeover', c.softTakeover, ONOFF, cfg('Soft takeover', 'softTakeover'))),
       field('Euclid accent', numberInput('Euclid accent', c.euclidAccent, { min: 0, max: 127 }, cfg('Euclid accent', 'euclidAccent')), null, 'Level of unaccented pulses when accents are on'),
-      field('Scenes by PC', selectInput('Preset program change channel', c.presetProgramChannel, [[0, 'off'], ...CHANNELS], cfg('Preset program change channel', 'presetProgramChannel')), null, 'Program change switches presets')),
+      always(field('Scenes by program change', selectInput('Preset program change channel', c.presetProgramChannel, [[0, 'off'], ...CHANNELS],
+        (v) => act.edit(v ? `Scenes switch by program change on ch ${v}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: v }], { force: true })), null, 'A program change on this channel loads a preset'))),
     h('h4', {}, 'External clock'),
     h('div', { class: 'erows' },
       field('Multiplier', numberInput('External clock multiplier', c.extClockMultiplier, { min: 1, max: 96 }, cfg('External clock multiplier', 'extClockMultiplier')), null, '24: quarter-note clocks; 1: 24 ppqn'),

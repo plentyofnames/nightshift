@@ -16,7 +16,7 @@ const dragged = (e) => {
 // `bcr`: rotary/pages.js bcrPagesOf; `sel`: { page, knob }; `act`: { select(page, knob), pick(page, knob),
 // takeOff(page, knob, push), move(from, to), putHalf(objPage), halves ([{ page, name }]), clear(page),
 // rename(page), map(), send(), busy, note, link ({ page, controller } or null), unstored, thru,
-// toggleThru(), speed, setSpeed(v), setFeel(key, mode), device ({ foreign: Map 'p:i' → { name, sends },
+// toggleThru(), speed, setSpeed(v), setFeel(key, mode), held (Night Shift has knobs on the unit), device ({ foreign: Map 'p:i' → { name, sends },
 // pages: [{ name, keys, usb }] } or null: the image as last read) }.
 export function renderBcr32(view, bcr, colors, sel, act) {
   const p = Math.max(0, Math.min(PAGES - 1, sel?.page ?? 0));
@@ -32,8 +32,9 @@ export function renderBcr32(view, bcr, colors, sel, act) {
   const head = h('div', { class: 'ec4-head' },
     unmapped.length > 0 && h('button', { type: 'button', class: 'btn primary', disabled: act.busy, onclick: act.map,
       title: `Adds a CC mapping on ch ${bcr.channel + 1} for each that has none (undoable)` }, `Give ${unmapped.length} a CC`),
-    h('button', { type: 'button', class: 'btn' + (unmapped.length ? '' : ' primary'), disabled: act.busy || unmapped.length > 0, onclick: act.send,
-      title: unmapped.length ? 'Give every knob and push a CC first' : 'Writes Night Shift’s knobs; other knobs and the keys stay as they are' }, act.link ? 'Store on BCR32' : 'Send to BCR32'),
+    h('button', { type: 'button', class: 'btn' + (unmapped.length ? '' : ' primary'), disabled: act.busy || unmapped.length > 0 || (!bcr.count && !act.held), onclick: act.send,
+      title: unmapped.length ? 'Give every knob and push a CC first' : !bcr.count ? 'Takes Night Shift’s knobs off the BCR32'
+        : 'Writes Night Shift’s knobs; other knobs and the keys stay as they are' }, act.link ? 'Store on BCR32' : 'Send to BCR32'),
     act.unstored && h('span', { class: 'note warn-note', title: 'Stored, they stay after power-off' }, 'Not stored'),
     h('span', { class: 'note' }, `${bcr.count} knob${bcr.count === 1 ? '' : 's'} · CCs on ch ${bcr.channel + 1}`),
     h('span', { class: 'note', title: act.note || '' }, !act.link ? 'BCR32 not linked' : act.link.controller ? `Linked · BCR32 on page ${act.link.page + 1}` : 'Linked · sequencer showing'),
@@ -120,7 +121,7 @@ export function renderBcr32(view, bcr, colors, sel, act) {
       `${i + 1}${i === knob ? '' : x ? ` · swap with ${x.short}` : page.pushes[i] ? ' · swap with a push' : foreign(p, i) ? ` · ${foreign(p, i).name || 'another’s'}` : ' · free'}`))));
   const pageRow = knob != null && row('Page', h('select', { 'aria-label': `Page of knob ${knob + 1}`, onchange: (e) => act.toPage({ page: p, index: knob }, Number(e.target.value)) },
     bcr.pages.map((_, q) => h('option', { value: String(q), selected: q === p }, `${q + 1} · ${nameOf(q)}`))));
-  const clash = other && (c || push) && row('On the BCR32', `${other.name || 'a knob'} · ${other.sends} (another app’s): Send asks first`);
+  const clash = other && (c || push) && row('On the BCR32', `${other.name || 'a knob'} · ${other.sends}, not from this browser: Send asks first`);
   let detail = null;
   if (c) {
     detail = h('aside', { class: 'ec4-knob', 'aria-label': 'Selected knob' },
@@ -147,7 +148,7 @@ export function renderBcr32(view, bcr, colors, sel, act) {
   } else if (other) {
     detail = h('aside', { class: 'ec4-knob', 'aria-label': 'Another app’s knob' },
       h('h3', {}, `Knob ${knob + 1} · `, h('span', { class: 'mono dim' }, other.name || '····')),
-      h('div', { class: 'erows' }, row('Sends', other.sends), row('Belongs to', 'another app (Eye of Providence)')),
+      h('div', { class: 'erows' }, row('Sends', other.sends), row('Written', 'not from this browser: another app, or Night Shift elsewhere')),
       h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.pick(p, knob), title: 'Send asks before writing over it' }, 'Put a setting here')));
   }
   return h('div', { class: 'ec4-page' }, head, h('div', { class: 'ec4 bcr' }, pages, face, detail ?? h('div')));

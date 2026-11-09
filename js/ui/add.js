@@ -6,6 +6,7 @@ import { icon } from './look.js';
 import { learnCc } from './connect.js';
 import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, TRIGGER_TYPES, voltsToLevel, noteName, SRR_SCALES, srrRandomnessText } from '../patch/tables.js';
 import { freeCcs, suggestCc, suggestChannel, suggestBaseGate, suggestStart, voicePlan, suggestTriggerChannel, suggestNote, jacksInTheWay } from '../patch/alloc.js';
+import { pagesChannels } from '../ec4/pages.js';
 import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, addTrigger, addRandom, VOICE_OUTPUTS, SHARED_OUTPUTS, LEVEL_TRIGGER_TYPES, isAccentType } from '../patch/edit.js';
 
 const KINDS = [
@@ -25,11 +26,12 @@ const SHAPES = ['sine', 'triangle', 'square', 'saw up', 'saw down', 'random', 'n
 // `view` is derive()'s result, `values` the dumps' values ({ config, preset }), `o` the jack's output.
 export async function addToJack(view, values, o) {
   const hardware = view.hardware;
+  const knobChannel = pagesChannels(view)[0] ?? 1; // the controllers' pages channel, as their knobs get
   const why = (k) => (k.cv && o.gate ? 'CV jacks only: gate outputs are always 10 V'
     : k.preset && !values.preset ? 'needs a preset: pull or open one' : null);
   const f = {
     kind: KINDS.find((k) => !why(k))?.id,
-    volts: Math.max(0, RANGE_VOLTS[o.rangeIndex ?? 0][0]), channel: 1, cc: suggestCc(values.config, 1), relative: false,
+    volts: Math.max(0, RANGE_VOLTS[o.rangeIndex ?? 0][0]), channel: knobChannel, cc: suggestCc(values.config, knobChannel), relative: false,
     shape: 'sine', synced: false, hz: 1, lfoPulses: 96, depth: 100,
     base: 24, multiplier: 1, length: 0, transport: 2,
     pulses: 4, steps: 16, rotation: 0, rate: 6,
@@ -201,7 +203,7 @@ function fieldsFor(f, values, o, redraw, view) {
       return [
         field('Pulses', num(f, 'pulses', 0, 32)),
         field('Steps', num(f, 'steps', 1, 32)),
-        field('Rotation', num(f, 'rotation', 0, 31)),
+        field('Rotation', num(f, 'rotation', 0, 32)),
         field('Step rate', pick(f, 'rate', divisions)),
       ];
     case 'random':

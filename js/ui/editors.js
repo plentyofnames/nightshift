@@ -10,8 +10,8 @@ import { DIVISIONS, CLOCK_TYPES, LFO_RESET_TYPES, ALLOCATIONS, SUSTAIN, TRIGGER_
   levelToVolts, LFO_RESET_CLOCK, LFO_RESET_EUCLID, ENVELOPE_TRIGGER, SRR_DIRECTIONS, SRR_SCALES, SRR_STOP, srrUsesMidiNotes, srrKeyText,
   srrRandomnessText } from '../patch/tables.js';
 import { setLfo, setLfoRestart, setClock, setEuclid, setKnob, setDirectLevel, setConverter, setConverterPreset, cvPerVoice, fields, VOICE_OUTPUTS,
-  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep, setSrr, setSrrJack, setPlayer, moveToChannel } from '../patch/edit.js';
-import { freeCcs, voicePlan, freeEuclid, srrOutputs } from '../patch/alloc.js';
+  setTrigger, setTriggerNote, setTriggerEnvSet, LEVEL_TRIGGER_TYPES, addEuclidWithoutJack, keep, setSrr, setSrrJack, setPlayer, moveToChannel, voiceChannel, isAccentType } from '../patch/edit.js';
+import { freeCcs, voicePlan, freeEuclid, srrOutputs, jacksInTheWay } from '../patch/alloc.js';
 import { learnCc } from './connect.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -179,7 +179,7 @@ export function euclidEditor(s, act, color) {
   if (!p) return [h('p', { class: 'note' }, 'No preset loaded.')];
   const set = (what, obj) => act.edit(`${what} of ${s.name}`, setEuclid(s.index, obj));
   const L = (text, param) => ec4Label(text, `euclid:${s.index}:${param}`, act.ec4);
-  const num = (label, key, min, max) => sfield(L(label, key), numberInput(`${label} of ${s.name}`, p[key], { min, max }, (v) => set(label, { [key]: v })));
+  const num = (label, key, min, max, unit = null) => sfield(L(label, key), numberInput(`${label} of ${s.name}`, p[key], { min, max }, (v) => set(label, { [key]: v })), unit);
   return [
     stepsSvg(euclidPattern(p.pulses, p.steps, p.rotation), color),
     h('div', { class: 'erows' },
@@ -187,7 +187,7 @@ export function euclidEditor(s, act, color) {
       num('Steps', 'steps', 1, 32),
       num('Rotation', 'rotation', 0, 32),
       sfield(L('Step rate', 'rate'), selectInput(`Step rate of ${s.name}`, p.ratePulses, divisionOptions(p.ratePulses, [[0, 'External clock']]), (v) => set('Step rate', { rate: v }))),
-      num('Gate length', 'gate', 0, 127),
+      num('Gate length', 'gate', 0, 127, p.gate ? null : ' · 0: the trigger length'),
       num('Accent rate', 'accent', 0, 127),
       sfield(L('Reset', 'reset'), numberInput(`Reset of ${s.name}`, p.reset, { min: 0, max: 32 }, (v) => set('Reset', { reset: v })), ' beats (0 = never)')),
   ];
@@ -288,7 +288,9 @@ export function knobEditor(view, s, act, only = null) {
   const config = act.values().config;
   return s.ports.filter((p) => only == null || p.output === only).map((p) => {
     const set = (what, obj) => act.edit(`${what} of the knob on ${p.jack}`, setKnob(p.slot, { channel: p.channel, cc: p.cc, relative: p.relative, ...obj }));
-    const ccs = [{ cc: p.cc, fine: false }, ...freeCcs(config, p.channel)].sort((a, b) => a.cc - b.cc);
+    // the knob's own CC is 14-bit able when nothing uses its fine half
+    const fine = p.cc < 32 && !config.mapping.some((m) => m.status === (0x30 | p.channel) && m.cc === p.cc + 32);
+    const ccs = [{ cc: p.cc, fine }, ...freeCcs(config, p.channel)].sort((a, b) => a.cc - b.cc);
     const learn = async () => {
       act.status('Turn a knob on a controller connected to this computer…');
       try {
@@ -304,7 +306,9 @@ export function knobEditor(view, s, act, only = null) {
       field('Channel', selectInput(`Channel of the knob on ${p.jack}`, p.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => {
         const free = freeCcs(config, v);
         const cc = free.some((c) => c.cc === p.cc) ? p.cc : (free.find((c) => c.fine) ?? free[0])?.cc;
-        if (cc != null) set('Channel', { channel: v, cc });
+        if (cc == null) return act.status(`No free CC on ch ${v + 1}`, true);
+        act.edit(cc === p.cc ? `Channel of the knob on ${p.jack}: ${v + 1}` : `The knob on ${p.jack} to ch ${v + 1}, CC ${cc} (${p.cc} is taken there)`,
+          setKnob(p.slot, { channel: v, cc, relative: p.relative }));
       })),
       field('CC', selectInput(`CC of the knob on ${p.jack}`, p.cc, ccs.map((c) => [c.cc, `${c.cc}${c.fine ? ' (14-bit)' : ''}`]), (v) => set('CC', { cc: v })),
         h('button', { type: 'button', class: 'btn small', onclick: learn, title: 'Turn a knob on a controller connected to this computer' }, 'Learn')),
@@ -325,7 +329,7 @@ export function levelEditor(view, s, act) {
 
 const NOTES = Array.from({ length: 128 }, (_, n) => [n, `${noteName(n)} (${n})`]);
 const pct = (v) => `${Math.round((v / 127) * 100)}%`;
-const bipolar = (v) => `${v >= 64 ? '+' : '−'}${Math.round((Math.abs(v - 64) / 63) * 100)}%`;
+const bipolar = (v) => (v === 64 ? '0%' : v > 64 ? `+${Math.round(((v - 64) / 63) * 100)}%` : `−${Math.round(((64 - v) / 64) * 100)}%`);
 
 function envelopeSvg(env, color) {
   const svg = document.createElementNS(SVG, 'svg');
@@ -397,13 +401,14 @@ export function voiceEditor(view, s, act, color) {
   const listens = [
     // its players (sequencers wired to it) move with it, else they would play into silence
     field(cv.type === 2 ? 'Global channel' : 'MIDI channel', selectInput(`Channel of ${s.name}`, cv.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]),
-      (v) => (s.players?.length ? act.edit(`${s.name} and its players moved to ch ${v + 1}`, moveToChannel(s, v)) : set('Channel', { channel: v })))),
+      (v) => (s.players?.length ? act.edit(`${s.name} and its players moved to ch ${v + 1}`, moveToChannel(s, v)) : set('Channel', voiceChannel(cv, v))))),
   ];
   if (cv.type === 2) listens.push(field('Last channel', selectInput(`Last MPE channel of ${s.name}`, cv.lastMpeChannel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => set('Last MPE channel', { lastMpeChannel: v }))));
   listens.push(
     field('Lowest note', selectInput(`Lowest note of ${s.name}`, cv.minNote, NOTES, (v) => set('Lowest note', { minNote: v }))),
     field('Highest note', selectInput(`Highest note of ${s.name}`, cv.maxNote, NOTES, (v) => set('Highest note', { maxNote: v }))));
-  const others = (view.channels[cv.channel]?.listeners ?? []).filter((l) => l.name !== s.name && !l.name.startsWith(`${s.name} `)).map((l) => l.name);
+  // the sources that play these notes too (not the CC mappings on the channel)
+  const others = (view.channels[cv.channel]?.listeners ?? []).filter((l) => l.source && l.source !== s.id).map((l) => l.name);
   parts.push(h('h4', {}, 'Listens to'), h('div', { class: 'erows' }, listens),
     others.length ? h('p', { class: 'note' }, `Also on this channel: ${[...new Set(others)].join(', ')}. Different note ranges make a keyboard split.`) : null);
 
@@ -508,7 +513,7 @@ export function voiceEditor(view, s, act, color) {
         env('Attack shape', 'attackShape', 'envAttackShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
         env('Decay shape', 'decayShape', 'envDecayShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
         env('Release shape', 'releaseShape', 'envReleaseShape', (v) => (v === 64 ? 'straight' : String(v - 64))),
-        sfield(L('Time range', 'envRange'), numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v }))),
+        sfield(L('Time range', 'envRange'), numberInput(`Envelope time range of ${s.name}`, e.range, { min: 0, max: 127 }, (v) => pset('Envelope time range', { envRange: v })), ' · 200 ms – 50 s'),
         field('Each note', selectInput(`Envelope start of ${s.name}`, cv.envZeroStart, [[0, 'Rises from where it is'], [1, 'Starts from zero']], (v) => set('Envelope start', { envZeroStart: v })))));
   } else if (!pf) {
     parts.push(h('p', { class: 'note' }, 'No preset loaded.'));
@@ -532,7 +537,9 @@ export function triggerEditor(view, s, act) {
   const boxes = triggers.map((p) => {
     const name = `the trigger on ${p.jack}`;
     const gate = view.outputs[p.output]?.gate;
-    const types = TRIGGER_TYPES.map((n, i) => [i, n]).slice(1).filter(([i]) => !(gate && LEVEL_TRIGGER_TYPES.has(i)) || i === p.typeIndex);
+    // a level type needs a CV jack, an accent type the next jack up free too (as the add dialog checks)
+    const accentRoom = !jacksInTheWay(view, [p.output + 1], ['Its accent']).length;
+    const types = TRIGGER_TYPES.map((n, i) => [i, n]).slice(1).filter(([i]) => i === p.typeIndex || (!(gate && LEVEL_TRIGGER_TYPES.has(i)) && (!isAccentType(i) || accentRoom)));
     const accent = s.ports.find((x) => x.accent && x.trigger === p.trigger);
     return h('div', { class: 'subbox' }, h('h4', {}, `${p.jack}${accent ? ` + ${accent.jack} (accent)` : ''}`), h('div', { class: 'erows' },
       field('Note', selectInput(`Note of ${name}`, p.note ?? -1, [[-1, 'Any note'], ...NOTES], (v) => act.edit(`Note of ${name}`, setTriggerNote(p.trigger, v < 0 ? null : v)))),

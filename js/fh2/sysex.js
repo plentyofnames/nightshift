@@ -81,7 +81,10 @@ export const saveConfig = (slot = 0) => message(CMD.SAVE_CONFIG, [slot]); // 0 =
 
 // 48H: an encoder press or turn, or a left-button press or long hold.
 export const REMOTE_EVENTS = { press: 1, cw: 2, ccw: 3, left: 4, home: 5 };
-export const remote = (event) => message(CMD.REMOTE, [REMOTE_EVENTS[event]]);
+export function remote(event) {
+  if (!(event in REMOTE_EVENTS)) throw new Error(`no such panel event: ${event}`);
+  return message(CMD.REMOTE, [REMOTE_EVENTS[event]]);
+}
 export const savePreset = (slot = 0) => message(CMD.SAVE_PRESET, [slot]);
 
 // Text replies (32H, 49H, 4AH): ASCII after the command, up to a 0 or the F7.
@@ -148,6 +151,11 @@ export function parseDump(msg) {
       body[i] &= 0x7f;
       masked++;
     }
+  }
+  // a dump of another length is another firmware's: say which version it is (the first field)
+  if (body.length < d.layout.size) {
+    const version = body.length >= 4 ? body[0] | (body[1] << 7) | (body[2] << 14) | (body[3] << 21) : null;
+    throw new Error(`${d.kind} dump of ${body.length} bytes${version != null ? `, version ${version}` : ''}: Night Shift knows version ${d.version}`);
   }
   const values = decode(d.layout, body);
   return { kind: d.kind, cmd: commandOf(msg), body, values, versionOk: values.version === d.version, masked };

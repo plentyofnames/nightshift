@@ -56,7 +56,7 @@ export function inputInspector(view, colors, i, onSelect, act) {
   parts.push(section('Turns CV into',
     h('div', { class: 'actions input-uses' }, ['off', ...INPUT_USES].map((u) => {
       const why = u === use ? null : blocked(view, inp, u, act.fh2);
-      return h('button', { type: 'button', class: 'btn', 'aria-pressed': u === use ? 'true' : 'false', disabled: !!why, title: why ?? '', onclick: () => u !== use && pick(u) }, WORDS[u]);
+      return h('button', { type: 'button', class: 'btn', 'aria-pressed': u === use ? 'true' : 'false', disabled: !!why, title: why ?? '', onclick: () => (u !== use || (p && !p.internal && u !== 'off')) && pick(u) }, WORDS[u]); // again: back inside the FH-2
     })),
     p && inp.index === 0 && clocksOn(act.fh2, 'X') ? h('p', { class: 'note' }, 'X is also the FH-2’s clock input: while it turns CV into MIDI, it takes no clock.') : null,
     inp.gateFor ? h('p', { class: 'note' }, `The gate of input ${view.inputs[1 - i].name}’s notes.`) : null));

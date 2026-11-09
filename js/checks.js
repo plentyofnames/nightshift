@@ -1,8 +1,8 @@
 // The hardware checks page (checks.html): runs the checks in fh2/checks.js on the FH-2 (and those
 // in bcr32/checks.js on the BCR32) one at a time, shows what each does as it goes, and keeps the
 // results in the browser, to copy into docs/build-plan.md. While an FH-2 check runs it marks
-// itself busy in the browser's storage, so a Night Shift tab open beside it doesn't send its live
-// edits into the test (app.js liveReady).
+// itself busy in the browser's storage, so a Night Shift tab open beside it doesn't read the test's
+// values back as its knobs' (app.js readBack).
 
 import { h, $, replace } from '../vendor/lilypad/js/dom.js';
 import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';

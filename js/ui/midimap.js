@@ -26,7 +26,6 @@ export function renderMidiMap(view, colors) {
   }
   flushFree();
   return [
-    h('p', { class: 'note', style: 'flex:1 1 100%' }, 'The FH-2 hears USB A, USB C, DIN, the Select Bus and its own players on one set of 16 channels: anything sent on a channel reaches everything listening on it. Your external devices aren’t known yet; declaring them comes later.'),
     h('div', { class: 'midimap' }, rows),
   ];
 }

@@ -29,7 +29,8 @@ import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, place
   wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, leftBehind, toAbsolute, movePage, hidePage, sharePage, splitPage, SETUP, ccsFor } from './ec4/pages.js';
 import { bcrPagesOf, putObject, switchOn as bcrOn, switchOff as bcrOff, placeKnob as bcrPlace, takeOff as bcrTakeOff, movePlace as bcrMove, clearPage as bcrClear,
   choicesFor as bcrChoices, halfChoices, freeHalf, pageOfObject, pageNameKey as bcrNameKey, knobOf, halfOf, KNOBS as BCR_KNOBS } from './rotary/pages.js';
-import { wanted, plan, writePlan, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, pageOnBcr32, editsFor } from './rotary/image.js';
+import { wanted, plan, writePlan, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, pageOnBcr32, editsFor, wantedFingerprint } from './rotary/image.js';
+import { midiPermission } from '../vendor/lilypad/js/midi.js';
 import { Bcr32Link } from './rotary/link.js';
 import { renderBcr32 } from './ui/bcr32.js';
 import { readRecord } from '../vendor/eyeofprovidence/js/model.js';
@@ -50,7 +51,7 @@ const HW_KEY = 'nightshift.hardware';
 const PATCH_KEY = 'nightshift.patch'; // the last patch, as a project, kept after every change
 const FH2_SETTINGS_KEY = 'nightshift.fh2settings'; // the FH-2's own settings, as last read
 const FH2_CAL_KEY = 'nightshift.fh2calibrations'; // its calibration slots and startup slots, as last read
-const PATCH_ID_KEY = 'nightshift.patchid'; // which patch the kept one is: every file, Get into nothing or example is a new one
+const PORT_KEY = 'nightshift.fh2port'; // the port you picked as the FH-2's when none is called FH-2
 const EDITED_KEY = 'nightshift.edited'; // '1' while the kept patch has edits that never reached the FH-2 (survives a reload)
 const THRU_KEY = 'nightshift.ec4thru';
 const BCR_THRU_KEY = 'nightshift.bcr32thru';
@@ -104,7 +105,6 @@ const state = {
   unsent: false, // what you see isn't what the FH-2 holds (or we don't know what it holds)
   editedBefore: false, // the kept patch was edited before this page load and never sent since (EDITED_KEY)
   busy: false,
-  patchId: '', // the patch's (PATCH_ID_KEY), so the base is only used for the patch it belongs to
   view: null,
   colors: new Map(),
   selected: null,
@@ -125,15 +125,6 @@ const state = {
 
 
 
-function storedPatchId() {
-  try {
-    return localStorage.getItem(PATCH_ID_KEY);
-  } catch {
-    return null;
-  }
-}
-
-const newPatchId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
 function storedSettings(key = FH2_SETTINGS_KEY) {
   try {
@@ -165,7 +156,7 @@ function status(text, warn = false) {
 
 const patch = () => ({ config: state.config, preset: state.preset, names: state.names });
 const values = () => ({ config: state.config.values, preset: state.preset?.values ?? null, names: state.names });
-const readModule = (r, scene = state.scene) => { state.module = { ...structuredClone({ config: r.config.values, preset: r.preset.values }), scene }; };
+const readModule = (r) => { state.module = structuredClone({ config: r.config.values, preset: r.preset.values }); };
 const sceneName = (i) => state.scenes[i]?.values.name.trim() || `Scene ${'ABCDEFGHIJKLMNOP'[i] ?? i + 1}`;
 
 // What you see against what the FH-2 holds: the same, another scene of yours, or different.
@@ -199,7 +190,6 @@ function store() {
   storeTimer = setTimeout(() => {
     try {
       localStorage.setItem(PATCH_KEY, projectToJson(project()));
-      localStorage.setItem(PATCH_ID_KEY, state.patchId);
       localStorage.setItem(EDITED_KEY, state.unsent && (state.history.canUndo || state.editedBefore) ? '1' : '');
     } catch {}
   }, 300);
@@ -227,16 +217,17 @@ function update() {
   showOnBcr32();
 }
 
-// `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. What
-// the FH-2 holds stays as it is: the mark compares the new patch with it.
-function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly, held }, from) {
+// `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. A
+// project (`whole`) brings its scenes even when it has none. What the FH-2 holds stays as it is:
+// the mark compares the new patch with it.
+function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly, held, whole = false }, from) {
   if (config) state.config = config;
   state.held = held ?? (config ? {} : state.held);
-  const scenes = presets?.length ? presets : preset ? [preset] : null;
+  const scenes = whole ? presets ?? [] : presets?.length ? presets : preset ? [preset] : null;
   if (scenes) {
     state.scenes = scenes;
-    state.scene = Math.min(scene, scenes.length - 1);
-    state.slots = slots ?? { config: null, scenes: scenes.map(() => null) };
+    state.scene = Math.max(0, Math.min(scene, scenes.length - 1));
+    state.slots = slots ?? { config: config ? null : state.slots.config, scenes: scenes.map(() => null) }; // presets alone: the config keeps its slot
   }
   state.scenesOnly = scenesOnly ?? state.scenes.length > 1;
   state.preset = state.scenes[state.scene] ?? null;
@@ -249,7 +240,6 @@ function load({ config, preset, presets, scene = 0, names, hardware, slots, scen
   state.selected = null;
   state.colors = new Map(); // a new patch gets fresh colours
   state.history = new History();
-  state.patchId = (from === 'browser' && storedPatchId()) || newPatchId();
   state.editedBefore = from === 'browser' && storedEdited();
   update();
 }
@@ -266,15 +256,18 @@ function storedEdited() {
 
 // `force`: for Get from FH-2 and the Scenes page, which may change the config while
 // “Scenes only” is on.
-function edit(label, changes, { force = false, fold = null } = {}) {
+// Returns whether it changed anything.
+function edit(label, changes, { force = false } = {}) {
   if (state.scenesOnly && !force && changes.some((c) => c.dump === 'config')) {
     state.status = 'Setup locked: Scenes only is on';
     state.warn = true;
-    return render();
+    render();
+    return false;
   }
+  let done = false;
   try {
-    const all = fold ? changes : [...changes, ...leftOnEc4(changes)];
-    if (state.history.do(patch(), label, all, { scene: state.scene, fold })) {
+    done = state.history.do(patch(), label, [...changes, ...leftOnEc4(changes)], { scene: state.scene });
+    if (done) {
       state.status = label;
       state.warn = false;
     }
@@ -283,12 +276,12 @@ function edit(label, changes, { force = false, fold = null } = {}) {
     state.warn = true;
   }
   update();
+  return done;
 }
 
 // An edit of the setup that takes something out of the patch (a player stopped, a shift register's
 // last jack cleared) takes its knobs off the EC4 too, in the same step (pages.js leftBehind). The
-// scene's values don't count: a Euclid without a jack at 0 pulses is gone from this scene only. Not
-// for the FH-2's own changes coming in (edit's `fold`).
+// scene's values don't count: a Euclid without a jack at 0 pulses is gone from this scene only.
 function leftOnEc4(changes) {
   const before = state.ec4Model;
   const setup = changes.filter((c) => c.dump !== 'preset' && c.dump !== 'marks');
@@ -326,9 +319,9 @@ function remove(source, port) {
     const stays = source.kind === 'random' && source.sendsNotes && source.ports.length;
     const keys = [...own.flatMap((o) => jackKeys(o)), ...(!port && !stays ? objectKeys(model, source.id) : [])];
     const ec4Off = keys.length ? switchOffAll(state.names, model, keys, { everywhere: true }) : [];
-    edit(own.length && port ? `Cleared jack ${port.jack}` : `${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
+    const done = edit(own.length && port ? `Cleared jack ${port.jack}` : `${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
       [...(port ? removePort(values(), source, port) : removeSource(values(), source)), ...ec4Off]);
-    if (!port) state.selected = null;
+    if (!port && done) state.selected = null;
     render();
   } catch (e) {
     status(`Couldn’t remove that: ${e.message}`, true);
@@ -343,6 +336,7 @@ function removeLfoOf(output, jack) {
 
 // A player that sends somewhere, picked from the FH-2's unused ones (see ui/players.js).
 async function setUpPlayer() {
+  if (state.scenesOnly) return status('Setup locked: Scenes only is on', true);
   try {
     const r = await setUpPlayerDialog(state.view, values());
     if (!r) return;
@@ -427,7 +421,7 @@ function addScene() {
   copy.values.name = `Scene ${letter}`;
   state.scenes.splice(state.scene + 1, 0, copy);
   state.slots.scenes.splice(state.scene + 1, 0, null);
-  shiftSteps(state.scene + 1, 1);
+  state.history.shiftScenes(state.scene + 1, 1);
   state.scene += 1;
   state.preset = copy;
   const lock = state.scenes.length === 2 && !state.scenesOnly;
@@ -448,19 +442,12 @@ async function removeScene() {
   const gone = state.scene;
   state.scenes.splice(gone, 1);
   state.slots.scenes.splice(gone, 1);
-  // steps made in the removed scene can't be undone any more; later scenes move down one
-  state.history.done = state.history.done.filter((s) => s.meta?.scene !== gone);
-  state.history.undone = state.history.undone.filter((s) => s.meta?.scene !== gone);
-  shiftSteps(gone + 1, -1);
+  // its own values' steps go; config steps made while it was in view stay (edit.js History.dropScene)
+  state.history.dropScene(gone);
   state.scene = Math.min(gone, state.scenes.length - 1);
   state.preset = state.scenes[state.scene];
   status(`Removed scene ${name}`);
   update();
-}
-
-// Undo steps remember their scene by number; inserting or removing a scene renumbers them.
-function shiftSteps(from, by) {
-  for (const s of [...state.history.done, ...state.history.undone]) if (s.meta?.scene >= from) s.meta.scene += by;
 }
 
 function toggleScenesOnly() {
@@ -534,7 +521,7 @@ async function openFiles(files) {
       try {
         const project = projectFromJson(await f.text());
         if (!(await dropUnsent('Opening'))) return;
-        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly, held: project.held }, f.name);
+        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly, held: project.held, whole: true }, f.name);
         return status(`Opened ${f.name}`);
       } catch (e) {
         return status(`${f.name}: ${e.message}`, true);
@@ -600,6 +587,8 @@ async function pickFh2() {
     return null;
   }
   if (looksLikeFh2(pairs[0])) return pairs[0];
+  const known = pairs.find((p) => p.name === storedPort());
+  if (known) return known;
   const pick = await modal($('dialog'), {
     title: 'Which port is the FH-2?',
     body: h('p', { class: 'note' }, 'No port is called “FH-2”.'),
@@ -609,7 +598,18 @@ async function pickFh2() {
     status('');
     return null;
   }
+  try {
+    localStorage.setItem(PORT_KEY, pairs[pick].name);
+  } catch {}
   return pairs[pick];
+}
+
+function storedPort() {
+  try {
+    return localStorage.getItem(PORT_KEY);
+  } catch {
+    return null;
+  }
 }
 
 async function withFh2(work) {
@@ -640,9 +640,15 @@ function get() {
       load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
       return status(`Got the patch from ${pair.name}${odd}`, !!odd);
     }
-    if (state.from === 'example') { // the module's patch in the example's place: yours now, so kept
-      state.from = `${pair.name}, ${r.version}`;
-      state.patchId = newPatchId();
+    if (state.from === 'example') state.from = `${pair.name}, ${r.version}`; // the module's patch in the example's place: yours now, so kept
+    // the FH-2 holds another of your scenes: show it, rather than copy it into this one
+    const same = (d, v) => diff(DUMPS[d.cmd].layout, d.values, v).length === 0;
+    const other = same(state.config, r.config.values) && !same(state.preset, r.preset.values) ? state.scenes.findIndex((x) => same(x, r.preset.values)) : -1;
+    if (other >= 0) {
+      state.scene = other;
+      state.preset = state.scenes[other];
+      update();
+      return status(`Scene ${sceneName(other)} is on ${pair.name}`);
     }
     const changes = [...changesTowards('config', state.config, r.config.values), ...changesTowards('preset', state.preset, r.preset.values)];
     if (!changes.length) {
@@ -725,7 +731,7 @@ function send() {
       update();
       return status(off, true);
     }
-    state.module = { ...r.sent, scene };
+    state.module = { ...r.sent };
     Object.assign(state, { link: 'connected', port: pair.name });
     update();
     status(`Sent to ${pair.name}`);
@@ -858,7 +864,7 @@ async function calibrateJack(output) {
         }
       },
     });
-    if (r) status({ saved: `Jack ${jack} calibrated and saved`, accepted: `Jack ${jack} calibrated, until power-off`, abandoned: `Calibration of jack ${jack} abandoned` }[r]);
+    if (r) status({ saved: `Jack ${jack} calibrated and saved${state.fh2Calibrations ? '' : ' · Read calibrations to see it'}`, accepted: `Jack ${jack} calibrated, until power-off`, abandoned: `Calibration of jack ${jack} abandoned` }[r]);
   }));
 }
 
@@ -1176,9 +1182,18 @@ function gigList() {
     config: { slot: state.slots.config, fp: fp(state.config), values: state.config.values },
     scenes: state.scenes.map((s, i) => ({ name: sceneName(i), slot: state.slots.scenes[i], fp: fp(s) })),
     view: state.view, fh2: state.fh2Settings, held: state.held,
-    ec4: { pages: model.pages.length, fp: model.pages.length ? pagesFingerprint(model.pages, state.view, model.channel, sync) : null,
-      synced: model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0), max: SYNC_MAX },
-  }).filter((g) => g.id !== 'ec4' || hasController(state.hardware, 'ec4'));
+    ec4: hasController(state.hardware, 'ec4') ? { pages: model.pages.length, fp: model.pages.length ? pagesFingerprint(model.pages, state.view, model.channel, sync) : null,
+      synced: model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0), max: SYNC_MAX } : null,
+    bcr32: hasController(state.hardware, 'bcr32') ? bcr32Gig() : null,
+  });
+}
+
+// The BCR32's line on the Gig tab: Night Shift's knobs as they would be sent now, and the pages
+// holding some that don't send on USB (as the BCR32 was last read).
+function bcr32Gig() {
+  const bcr = state.bcrModel;
+  const noUsb = state.bcrDevice ? bcr.pages.filter((pg, p) => state.bcrDevice.pages[p] && !state.bcrDevice.pages[p].usb && [...pg.cells, ...pg.pushes].some(Boolean)).map((pg) => pg.index) : [];
+  return { knobs: bcr.count, fp: bcr.count ? wantedFingerprint(wanted(bcr, state.view, bcrSync())) : null, noUsb };
 }
 
 async function sendEc4() {
@@ -1218,7 +1233,7 @@ async function sendEc4() {
         buttons: [{ label: 'Cancel', value: false }, { label: 'Write', value: true, primary: true }],
       });
       if (!ok) return status('');
-      await writeSetup(device, img, base, (k, n) => status(`Writing the EC4… ${k}/${n}`));
+      await writeSetup(device, img, base, (k, n) => status(`Writing the EC4… ${k}/${n}`), link?.ours ? link.group : 0);
       sent();
       status(`Pages on the EC4, setup ${SETUP + 1}`);
     });
@@ -1500,11 +1515,14 @@ const sameHeld = (a, b) => a.knobs.size === b.knobs.size && [...a.knobs].every((
   && a.names.size === b.names.size && [...a.names].every(([p, n]) => b.names.get(p) === n);
 
 // Whether the BCR32 lacks some of Night Shift's knobs as you see them (as its image was last read).
+let unstoredFor = null; // [model, image, held, answer]: one plan per change, not per redraw
 function bcr32Unstored() {
   const img = state.bcr32.image;
   if (!img || !state.bcrModel) return false;
+  if (unstoredFor?.[0] === state.bcrModel && unstoredFor[1] === img && unstoredFor[2] === state.bcr32.held) return unstoredFor[3];
   const pl = plan(img, wanted(state.bcrModel, state.view, bcrSync()), state.bcr32.held);
-  return pl.writes.length > 0 || pl.conflicts.length > 0;
+  unstoredFor = [state.bcrModel, img, state.bcr32.held, pl.writes.length > 0 || pl.conflicts.length > 0];
+  return unstoredFor[3];
 }
 
 // Reads the BCR32's image and writes Night Shift's knobs into it: only its own, and another app's
@@ -1530,7 +1548,7 @@ async function sendBcr32() {
       if (asked) {
         const list = pl.conflicts.map((c) => (c.i != null ? `page ${c.p + 1} knob ${c.i + 1}: ${c.now.name || '····'} (${c.now.sends})` : `page ${c.p + 1}’s name ${c.name}`));
         const answer = await modal($('dialog'), {
-          title: `${asked} place${asked === 1 ? '' : 's'} hold another app’s`,
+          title: `${asked} place${asked === 1 ? '' : 's'} hold knobs not written from this browser`,
           body: h('p', { class: 'note' }, `${list.slice(0, 8).join('; ')}${list.length > 8 ? ` and ${list.length - 8} more` : ''}.`),
           buttons: [{ label: 'Cancel', value: false }, { label: 'Leave them', value: 'keep' }, { label: 'Write over', value: 'over', primary: true }],
         });
@@ -1543,6 +1561,8 @@ async function sendBcr32() {
       else await device.reload(); // the image has them already: stored
       state.bcr32.held = pl.held;
       saveHeld();
+      state.held = { ...state.held, bcr32: { at: new Date().toISOString(), fp: wantedFingerprint(want) } }; // for the Gig tab
+      store();
       sawBcr32(pl.next);
       state.bcr32.link?.forget();
       status(`Knobs on the BCR32${left ? ` · ${left} left as they were` : ''}`);
@@ -1785,6 +1805,9 @@ function select(sel) {
   render();
   followOnEc4();
   followOnBcr32();
+  // below the stage (a narrow window), the inspector would open out of sight
+  const panel = state.selected && document.querySelector('aside.inspector');
+  if (panel && panel.getBoundingClientRect().top > innerHeight * 0.7) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
   // a free jack shows its own level, LFO and smoothing; "Add a source…" there adds a driver
 }
 
@@ -1800,14 +1823,18 @@ function openTab(id) {
   render();
 }
 
+const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
+const KEYS = MAC ? { undo: '⌘Z', redo: '⇧⌘Z' } : { undo: 'Ctrl+Z', redo: 'Ctrl+Shift+Z' };
+
 function bar() {
   const v = state.view;
-  const tab = (id, label) => h('button', { type: 'button', 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => openTab(id) }, label);
+  const tab = (id, label) => h('button', { type: 'button', 'data-key': `tab:${id}`, 'aria-pressed': state.tab === id ? 'true' : 'false', onclick: () => openTab(id) }, label);
   const k = state.sync?.kind;
   const mark = state.link === 'connecting' ? 'reading the FH-2…'
       : k === 'same' ? 'same as the FH-2'
       : k === 'scene' ? `scene ${sceneName(state.sync.scene)} is on the FH-2`
       : k === 'differs' ? 'differs from the FH-2'
+      : state.link === 'ask' ? 'not connected'
       : state.link === 'no-midi' ? 'no MIDI in this browser'
       : state.link === 'blocked' ? 'MIDI access blocked'
       : state.link === 'silent' ? `FH-2 on “${state.port}” didn’t answer`
@@ -1833,14 +1860,15 @@ function bar() {
     sync,
     v && h('nav', { class: 'tabs', 'aria-label': 'Views' }, tab('patch', 'Patch'), tab('scenes', 'Scenes'), tab('steps', 'Steps'), tab('settings', 'Settings'), tab('midi', 'MIDI map'), hasController(state.hardware, 'ec4') && tab('ec4', 'EC4'), hasController(state.hardware, 'bcr32') && tab('bcr32', 'BCR32'), tab('gig', 'Gig')),
     v && h('div', { class: 'undo' },
-      h('button', { type: 'button', class: 'btn', disabled: !state.history.canUndo, onclick: undo, title: 'Undo (⌘Z)', 'aria-label': 'Undo' }, '↶'),
-      h('button', { type: 'button', class: 'btn', disabled: !state.history.canRedo, onclick: redo, title: 'Redo (⇧⌘Z)', 'aria-label': 'Redo' }, '↷')),
+      h('button', { type: 'button', class: 'btn', 'data-key': 'undo', disabled: !state.history.canUndo, onclick: undo, title: `Undo (${KEYS.undo})`, 'aria-label': 'Undo' }, '↶'),
+      h('button', { type: 'button', class: 'btn', 'data-key': 'redo', disabled: !state.history.canRedo, onclick: redo, title: `Redo (${KEYS.redo})`, 'aria-label': 'Redo' }, '↷')),
     h('div', { class: 'grow' }),
-    state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), role: 'status', title: state.status }, state.status),
+    state.status && h('span', { class: 'status' + (state.warn ? ' warn' : ''), title: state.status }, state.status),
     fileMenu(v),
     h('div', { class: 'fh2-group', role: 'group', 'aria-label': 'FH-2' }, h('span', { class: 'lbl' }, 'FH-2'),
-      h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, title: 'Get from the FH-2: its config and preset become what you see (undoable)' }, 'Get'),
-      v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send, title: 'Send to the FH-2: what you see goes into its memory' }, 'Send'),
+      v && state.link === 'ask' && h('button', { type: 'button', class: 'btn primary', 'data-key': 'connect', onclick: start, title: 'The browser asks to allow MIDI, then Night Shift reads the FH-2' }, 'Connect'),
+      h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, 'data-key': 'get', title: 'Get from the FH-2: its config and preset become what you see (undoable)' }, 'Get'),
+      v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send, 'data-key': 'send', title: 'Send to the FH-2: what you see goes into its memory' }, 'Send'),
       v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
         title: state.unsent ? 'Send to the FH-2 first: saving stores what the module holds' : 'Save to flash: store what the FH-2 holds' }, 'Save')));
 }
@@ -1881,7 +1909,9 @@ function saveSyx() {
     all.set(p, o);
     o += p.length;
   }
-  download(all, `${(state.view.globals.name || 'fh2').replace(/[^\w.-]+/g, '_')}.syx`);
+  const name = `${(state.view.globals.name || 'fh2').replace(/[^\w.-]+/g, '_')}.syx`;
+  download(all, name);
+  status(`Saved ${name}`);
 }
 
 function jackIcon() {
@@ -1897,6 +1927,7 @@ function jackIcon() {
 // Nothing to show: no patch kept in this browser, and no FH-2 (yet).
 function empty() {
   const why = state.link === 'connecting' ? 'Reading the FH-2…'
+    : state.link === 'ask' ? 'Connect the FH-2 over USB C.'
     : state.link === 'no-midi' ? 'No MIDI in this browser (use Chrome or Edge).'
     : state.link === 'blocked' ? 'MIDI access is blocked for this site: allow it in the browser.'
     : state.link === 'silent' ? `The FH-2 on “${state.port}” didn’t answer. Is another app using it?`
@@ -1904,6 +1935,7 @@ function empty() {
   return h('section', { class: 'empty' }, h('p', {}, why),
     h('p', { class: 'note' }, 'Unofficial: not made or supported by Expert Sleepers.'),
     h('div', { class: 'actions' },
+      state.link === 'ask' && h('button', { type: 'button', class: 'btn primary', onclick: start, title: 'The browser asks to allow MIDI, then Night Shift reads the FH-2' }, 'Connect'),
       h('button', { type: 'button', class: 'btn', onclick: pickFiles }, 'Open…'),
       h('button', { type: 'button', class: 'btn', onclick: loadExample }, 'Example patch')));
 }
@@ -1944,7 +1976,7 @@ function render() {
     pick: pickBcr32, takeOff: takeOffBcr32, move: moveBcr32, toPage: toPageBcr32, putHalf: putHalfBcr32, halves: halfChoices(state.ec4Model),
     clear: (p) => edit(`Night Shift’s knobs off page ${p + 1}`, bcrClear(state.names, ec4Model(), p)), rename: renameBcr32Page, map: mapBcr32, send: sendBcr32,
     busy: state.busy, note: state.bcr32.note, link: state.bcr32.link && { page: state.bcr32.link.page, controller: state.bcr32.link.controller },
-    unstored: !!state.bcr32.link && bcr32Unstored(), thru: state.bcr32.thru, toggleThru: toggleBcr32Thru,
+    unstored: !!state.bcr32.link && bcr32Unstored(), thru: state.bcr32.thru, toggleThru: toggleBcr32Thru, held: state.bcr32.held.knobs.size > 0,
     speed: speedOf(state.names), setSpeed: (s) => edit(`Knob speed ${s}`, [speedChange(s)]),
     setFeel: (key, mode) => edit(mode ? `Knob feel ${mode}` : 'Knob feel back to its default', [feelChange(key, mode)]), device: state.bcrDevice });
   else if (state.tab === 'steps') content = renderSteps(v, values(), state.steps, { edit, busy: state.busy,
@@ -1953,7 +1985,7 @@ function render() {
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4: labels(), removeMapping: removeMappingOf,
       names: state.names, scala: { install: installScala, resend: resendScala, forget: forgetScala } });
-  else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4,
+  else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4, sendBcr32,
     scenes: () => { state.tab = 'scenes'; render(); }, checks: () => open('checks.html', '_blank'), busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
     setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
@@ -1967,6 +1999,9 @@ function render() {
   }
   document.body.classList.toggle('scenes-only', !!(v && state.scenesOnly));
   replace($('#app'), bar(), h('main', {}, content));
+  // the status for screen readers: one region outside the redrawn app, told only what's new
+  const said = document.getElementById('announce');
+  if (said && state.status && said.textContent !== state.status) said.textContent = state.status;
   drawLines();
 }
 
@@ -2010,13 +2045,27 @@ document.addEventListener('keydown', (e) => {
 const kept = stored();
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');
 else if (kept) {
-  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly, held: kept.held }, 'browser');
+  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly, held: kept.held, whole: true }, 'browser');
   state.status = 'Last patch restored';
 }
 render();
-connect().then(watch).then(() => {
-  linkEc4();
-  watchEc4((portState) => (portState === 'connected' ? setTimeout(linkEc4, 600) : unlinkEc4())).catch(() => {});
-  linkBcr32();
-  watchBcr32((portState) => (portState === 'connected' ? setTimeout(linkBcr32, 600) : unlinkBcr32())).catch(() => {});
+// the browser would ask for MIDI access before you did anything: then a button asks first
+function start() {
+  state.link = 'unknown';
+  return connect().then(watch).then(() => {
+    linkEc4();
+    watchEc4((portState) => (portState === 'connected' ? setTimeout(linkEc4, 600) : unlinkEc4())).catch(() => {});
+    linkBcr32();
+    watchBcr32((portState) => (portState === 'connected' ? setTimeout(linkBcr32, 600) : unlinkBcr32())).catch(() => {});
+  });
+}
+midiPermission().then((p) => {
+  if (p === 'prompt') {
+    state.link = 'ask';
+    render();
+  } else start();
+});
+// another Night Shift tab keeps its patch in the same place: the last one changed wins
+addEventListener('storage', (e) => {
+  if (e.key === PATCH_KEY && e.newValue) status('Night Shift is open in another tab too: the patch changed last is kept', true);
 });

@@ -75,7 +75,7 @@ export const PARAM_NAMES = {
   envDepth: 'envelope depth', envVelocityDepth: 'velocity depth', randomDepth: 'random depth', envAttackShape: 'attack shape',
   envDecayShape: 'decay shape', envReleaseShape: 'release shape', pulses: 'pulses', steps: 'steps', rotation: 'rotation',
   rate: 'rate', gate: 'gate', accent: 'accent', reset: 'reset', direction: 'direction', length: 'length', randomness: 'randomness',
-  attenuator: 'attenuator', scale: 'scale', key: 'key', gateLength: 'gate length', position: 'position', tempo: 'tempo',
+  attenuator: 'depth', scale: 'scale', key: 'key', gateLength: 'gate length', position: 'position', tempo: 'tempo',
   displayMode: 'display mode', displayItem: 'display item', swingType: 'swing type', swingAmount: 'swing amount',
   nudgeFaster: 'nudge faster', nudgeSlower: 'nudge slower', tempoUp: 'tempo +0.1', tempoDown: 'tempo −0.1',
 };

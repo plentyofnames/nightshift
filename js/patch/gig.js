@@ -5,8 +5,8 @@
 //
 // Night Shift can't read the FH-2's flash slots or the EC4 without loading or reading them, so
 // `held` is what it wrote there itself: { flash: { at, configs: { slot: fp }, presets: { slot: fp } },
-// ec4: { at, fp, fw: [major, minor] } }, kept with the patch. A line compares that with the
-// fingerprints of what you see now.
+// ec4: { at, fp, fw: [major, minor] }, bcr32: { at, fp } }, kept with the patch. A line compares
+// that with the fingerprints of what you see now.
 
 import { settingsByName, settingsWarnings } from '../fh2/menu.js';
 
@@ -20,13 +20,26 @@ const fwAtLeast = (fw, major, minor) => !!fw && (fw[0] > major || (fw[0] === maj
 
 // `config`: { slot, fp, values }; `scenes`: [{ name, slot, fp }]; `view`: derive's; `fh2`: the
 // FH-2's settings as last read ({ at, pages }) or null; `ec4`: { pages (how many), fp (of the pages
-// as they would be written now, in the format `held.ec4.fw` takes), synced, max }.
-export function checklist({ config, scenes, view, fh2, held = {}, ec4 }) {
+// as they would be written now, in the format `held.ec4.fw` takes), synced, max }; `bcr32`: { knobs
+// (how many), fp (of Night Shift's knobs as they would be written now), noUsb (pages with its knobs
+// that don't send on USB, as the BCR32 was last read) }. A controller left out (Rack…) gets no group.
+export function checklist({ config, scenes, view, fh2, held = {}, ec4, bcr32 }) {
   return [
     { id: 'scenes', title: 'Scenes and flash', items: scenesItems(config, scenes, held.flash) },
     { id: 'fh2', title: 'FH-2 settings', note: fh2 ? `read ${date(fh2.at)}` : null, items: fh2Items(config, scenes, view, fh2) },
-    { id: 'ec4', title: 'EC4', items: ec4Items(ec4, held.ec4) },
-  ];
+    ec4 && { id: 'ec4', title: 'EC4', items: ec4Items(ec4, held.ec4) },
+    bcr32 && { id: 'bcr32', title: 'BCR32', items: bcr32Items(bcr32, held.bcr32) },
+  ].filter(Boolean);
+}
+
+function bcr32Items(b, sent) {
+  if (!b.knobs) return [{ id: 'knobs', level: 'note', text: 'No BCR32 knobs in this patch' }];
+  const out = [];
+  if (!sent) out.push({ id: 'knobs', level: 'todo', action: 'sendBcr32', text: 'Knobs not sent to the BCR32 from this patch yet' });
+  else if (sent.fp !== b.fp) out.push({ id: 'knobs', level: 'warn', action: 'sendBcr32', text: `Knobs changed since Send to BCR32 (${date(sent.at)})` });
+  else out.push({ id: 'knobs', level: 'ok', text: `Knobs and sync table on the BCR32 (${date(sent.at)})` });
+  for (const p of b.noUsb ?? []) out.push({ id: `usb${p}`, level: 'warn', text: `Page ${p + 1} doesn’t send on USB: its knobs don’t reach the FH-2` });
+  return out;
 }
 
 function scenesItems(config, scenes, flash) {

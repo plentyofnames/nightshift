@@ -52,7 +52,7 @@ export function bcrPagesOf(ec4, names = {}) {
   let count = 0;
   const pages = Array.from({ length: PAGES }, (_, p) => {
     const own = names[pageNameKey(p)];
-    const pg = { index: p, name: own ? fourChars(own) : null,
+    const pg = { index: p, name: (own && fourChars(own)) || null,
       cells: knobKeys(names, p).map((k) => (k ? placed(k) : null)), pushes: pushKeys(names, p).map((k) => (k ? placed(k) : null)) };
     for (const [list, push] of [[pg.cells, false], [pg.pushes, true]]) {
       list.forEach((c, i) => {

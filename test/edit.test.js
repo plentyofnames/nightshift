@@ -599,15 +599,7 @@ test('removing a jack’s knob, level or LFO clears its whole layer, CCs and all
   eq([mapped(2), v().outputs[2].ports], [[], []]);
 });
 
-test('changes taken from the FH-2 in a row are one undo step; the shared rule for what replaces a level', () => {
-  const p = patch();
-  const h = new History();
-  h.do(p, 'yours', setDirectLevel(1, 100), { scene: 0 });
-  h.do(p, 'From the FH-2', setDirectLevel(2, 200), { scene: 0, fold: 'fh2' });
-  h.do(p, 'From the FH-2', setDirectLevel(3, 300), { scene: 0, fold: 'fh2' });
-  eq(h.done.map((s) => s.label), ['yours', 'From the FH-2'], 'folded into one');
-  h.undo(p);
-  eq([1, 2, 3].map((o) => p.preset.values.output[o].directLevel), [100, 0, 0], 'and undone together');
+test('the shared rule for what replaces a level', () => {
   // a voice's pitch and gate-type outputs replace a jack's level; the rest add to it
   const voice = { kind: 'voice' };
   eq(['Pitch', 'Pitch 2', 'Gate', 'Velocity gate', 'Velocity', 'Envelope'].map((n) => replacesLevel(voice, n)), [true, true, true, true, false, false]);

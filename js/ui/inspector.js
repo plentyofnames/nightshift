@@ -52,7 +52,7 @@ function overview(view) {
       row('Tempo', g.tempo ? `${g.tempo.toFixed(1)} BPM` : '—'),
       row('Trigger length', `${g.triggerLength} ms`),
       row('Soft takeover', yes(g.softTakeover)),
-      row('Preset program change', g.presetProgramChannel ? `ch ${g.presetProgramChannel}` : 'off')),
+      row('Scenes by program change', g.presetProgramChannel ? `ch ${g.presetProgramChannel}` : 'off')),
     view.problems.length
       ? section(`Problems (${view.problems.length})`, view.problems.map((p) => h('p', { class: 'problem' }, p.message)))
       : h('p', { class: 'note' }, 'No problems found: no two sources share a jack.'),

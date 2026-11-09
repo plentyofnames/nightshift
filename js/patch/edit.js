@@ -87,18 +87,10 @@ export class History {
     this.undone = [];
   }
 
-  // `meta` travels with the step (app.js keeps the scene it was made in there). Steps with the
-  // same `meta.fold` in a row become one, so something that keeps happening by itself (values
-  // the FH-2 changes on its own, taken in before each live send) doesn't fill the list.
+  // `meta` travels with the step (app.js keeps the scene it was made in there).
   do(patch, label, changes, meta = {}) {
     const undo = apply(patch, changes);
     if (!undo.length) return false;
-    const last = this.done.at(-1);
-    if (meta.fold && last?.meta.fold === meta.fold && last.meta.scene === meta.scene && !this.undone.length) {
-      last.changes.push(...changes);
-      last.undo = [...undo, ...last.undo];
-      return true;
-    }
     this.done.push({ label, changes, undo, meta });
     this.undone = [];
     return true;
@@ -121,6 +113,25 @@ export class History {
     apply(patch, step.changes);
     this.done.push(step);
     return step.label;
+  }
+
+  // Scene `i` removed (app.js): its steps keep only what isn't the scene's own (the config, the
+  // names) and stay in their place; a step with nothing else goes. Later scenes move down one.
+  dropScene(i) {
+    const own = (c) => c.dump === 'preset' || c.dump === 'marks';
+    for (const list of ['done', 'undone']) {
+      this[list] = this[list].flatMap((s) => {
+        if (s.meta?.scene !== i) return [s];
+        const changes = s.changes.filter((c) => !own(c));
+        return changes.length ? [{ ...s, changes, undo: s.undo.filter((c) => !own(c)), meta: { ...s.meta, scene: null } }] : [];
+      });
+    }
+    this.shiftScenes(i + 1, -1);
+  }
+
+  // Steps remember their scene by number; inserting or removing a scene renumbers them.
+  shiftScenes(from, by) {
+    for (const s of [...this.done, ...this.undone]) if (typeof s.meta?.scene === 'number' && s.meta.scene >= from) s.meta.scene += by;
   }
 
   get canUndo() { return this.done.length > 0; }
@@ -337,7 +348,9 @@ export function removePort(values, source, port) {
 // A whole source. A Euclid pattern loses its jacks and its links too (what it clocks goes back
 // to the external clock), and stops in the scene in view, else it would stay without a jack.
 export function removeSource(values, source) {
-  if (source.kind === 'voice') return setConverter(source.index, { enable: 0 }); // its settings stay, for when it comes back
+  // its settings stay, for when it comes back, but not its arp's clock: that Euclid is free now and may
+  // be handed out again (review 2026-11-08)
+  if (source.kind === 'voice') return setConverter(source.index, { enable: 0, arpClock: 0 });
   if (source.kind === 'euclid') {
     const i = source.index;
     return [config(['euclid', i, 'output'], 127), config(['euclid', i, 'outputHigh'], 1),
@@ -497,7 +510,8 @@ export function useInput(values, view, i, use) {
   if (use === 'off') return [config(['cvMidi', i, 'enable'], 0), ...drop];
   const type = INPUT_USES.indexOf(use);
   if (type < 0) throw new Error(`no such use: ${use}`);
-  if (p?.typeIndex === type) return [];
+  // the same use: nothing to do, unless it doesn't send inside the FH-2 (then nothing in it would hear it)
+  if (p?.typeIndex === type) return p.internal ? [] : [config(['cvMidi', i, 'toInternal'], 1)];
   const obj = { enable: 1, type, toInternal: 1 };
   if (!p) Object.assign(obj, { toUsbA: 0, toUsbC: 0, toDin: 0, toSelect: 0 });
   const quiet = quietChannel(view);
@@ -532,9 +546,17 @@ export const setLaneNote = (lane, note) => [config(['drumSequencer', 0, 'laneNot
 
 // Moves a voice or trigger kit (`source` from derive) and the players playing it to `channel`,
 // e.g. one nothing outside uses, so only the FH-2's own players reach it.
+// A voice's new channel; an MPE voice's zone moves with it, keeping its size (its member
+// channels above the global one, or below it when that is 16).
+export function voiceChannel(cv, channel) {
+  if (cv?.type !== 2) return { channel };
+  const size = cv.channel === 15 ? Math.max(0, 15 - cv.lastMpeChannel) : Math.max(0, cv.lastMpeChannel - cv.channel);
+  return { channel, lastMpeChannel: channel === 15 ? Math.max(0, 15 - size) : Math.min(15, channel + size) };
+}
+
 export function moveToChannel(source, channel) {
   const changes = source.kind === 'voice'
-    ? setConverter(source.index, { channel })
+    ? setConverter(source.index, voiceChannel(source.raw, channel))
     : source.ports.filter((p) => !p.accent).flatMap((p) => setTrigger(p.trigger, { channel }));
   for (const p of source.players ?? []) changes.push(...setPlayer(p.id, { channel }));
   return changes;

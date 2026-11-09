@@ -6,6 +6,10 @@
 import { CMD, DUMPS, message, commandOf, parseDump, buildDump, textOf, screenTextOf, itemValueOf, remote, textEntry, sclMessage, kbmMessage, saveConfig, savePreset, displayMessage , screenshotOf } from './sysex.js';
 import { diff } from './layout.js';
 
+// Per port and reply command: until when a late reply to a request that timed out may still come.
+// Kept beyond one client, as each Get or Send opens its own on the same port.
+const late = new Map();
+
 export class TimeoutError extends Error {
   name = 'TimeoutError';
 }
@@ -37,7 +41,21 @@ export class Fh2 extends EventTarget {
 
   // Queues `bytes`; resolves with the next message with command `reply`, or right away if none is expected.
   _request(bytes, reply = null) {
-    const run = () => new Promise((resolve, reject) => {
+    // after a request timed out, the next one waiting for the same reply waits as long again first:
+    // the FH-2's late answer then arrives with nothing pending (replies carry no request id)
+    const key = `${this.transport.name ?? ''}|${reply}`;
+    const run = async () => {
+      const until = reply === null ? 0 : late.get(key) ?? 0;
+      if (until > Date.now()) await new Promise((r) => setTimeout(r, until - Date.now()));
+      return this._send(bytes, reply);
+    };
+    const p = this.chain.then(run, run);
+    this.chain = p.catch(() => {});
+    return p;
+  }
+
+  _send(bytes, reply) {
+    return new Promise((resolve, reject) => {
       this.log('tx', bytes);
       if (reply === null) {
         this.transport.send(bytes);
@@ -45,6 +63,7 @@ export class Fh2 extends EventTarget {
       }
       const timer = setTimeout(() => {
         if (this.pending?.timer === timer) this.pending = null; // not a later request's
+        late.set(`${this.transport.name ?? ''}|${reply}`, Date.now() + this.timeout);
         reject(new TimeoutError(`no reply to FH-2 command ${commandOf(bytes).toString(16).toUpperCase()}H`));
       }, this.timeout);
       this.pending = { reply, resolve, timer };
@@ -56,9 +75,6 @@ export class Fh2 extends EventTarget {
         reject(e);
       }
     });
-    const p = this.chain.then(run, run);
-    this.chain = p.catch(() => {});
-    return p;
   }
 
   async version() {
@@ -71,14 +87,6 @@ export class Fh2 extends EventTarget {
 
   async pullPreset() {
     return parseDump(await this._request(message(CMD.REQUEST_PRESET), CMD.INSTALL_PRESET));
-  }
-
-  async configName() {
-    return textOf(await this._request(message(CMD.REQUEST_CONFIG_NAME), CMD.REQUEST_CONFIG_NAME));
-  }
-
-  async presetName() {
-    return textOf(await this._request(message(CMD.REQUEST_PRESET_NAME), CMD.REQUEST_PRESET_NAME));
   }
 
   // A note or drum sequencer bank as the whole SysEx message (15H or 17H, ready to install again):

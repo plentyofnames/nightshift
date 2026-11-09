@@ -50,7 +50,8 @@ export function playerSends(view, colors, p, onSelect, act) {
     onchange: (e) => act.edit(`Gear on ${DEST_NAMES[d]} ch ${p.channel + 1}: ${e.target.value.trim() || 'none'}`, setName(deviceKey(d, p.channel), e.target.value)),
   })));
   parts.push(section('Sends',
-    h('div', { class: 'erows' }, field('MIDI channel', selectInput(`Channel of ${p.name}`, p.channel, CHANNELS, (v) => set('Channel', { channel: v })))),
+    // a shift register's notes have their channel on its own panel already ("Notes out")
+    p.id.startsWith('srrNotes:') ? null : h('div', { class: 'erows' }, field('MIDI channel', selectInput(`Channel of ${p.name}`, p.channel, CHANNELS, (v) => set('Channel', { channel: v })))),
     h('div', { class: 'checks' }, Object.keys(f.dests).map(box)),
     gear.length ? h('div', { class: 'erows' }, gear) : null));
 
@@ -277,5 +278,6 @@ export async function setUpPlayerDialog(view, values) {
   }
   const p = free.find((x) => x.id === f.id);
   const dests = Object.fromEntries(Object.keys(playerFields(f.id).dests).map((d) => [d, !!f.dests[d]]));
+  if (!Object.values(dests).some(Boolean)) throw new Error('tick where it sends');
   return { id: f.id, label: `${p.name} sends on ch ${f.channel + 1}`, changes: setPlayer(f.id, { channel: f.channel, dests }) };
 }

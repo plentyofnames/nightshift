@@ -35,6 +35,10 @@ export class Bcr32Link extends EventTarget {
       this._state(e.detail);
     });
     device.addEventListener('touch', (e) => this._emit('touch', { kind: e.detail.kind, index: e.detail.index, page: e.detail.page }));
+    // an EDIT for a page no longer in view (Rotary Club 0.27 answers 7F 2C 06; before, 01): ask where it is
+    device.addEventListener('deviceerror', (e) => {
+      if (e.detail.cmd === 0x2c && !this.closed) this.device.getState().then((s) => this._state(s)).catch(() => {});
+    });
   }
 
   get controller() {
@@ -144,6 +148,7 @@ export class Bcr32Link extends EventTarget {
   }
 
   close() {
+    this.closed = true;
     this.device.close();
   }
 }

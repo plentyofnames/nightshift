@@ -70,6 +70,7 @@ export function isPresent(hardware, output) {
 export function validHardware(hw) {
   const ok = hw && hw.version === HARDWARE_VERSION && Array.isArray(hw.cv) && Array.isArray(hw.gt)
     && hw.cv.every((a) => Number.isInteger(a) && a >= 1 && a <= 7) && hw.gt.every((b) => Number.isInteger(b) && b >= 0 && b <= 7)
+    && new Set(hw.cv).size === hw.cv.length && new Set(hw.gt).size === hw.gt.length // one module per address
     && (hw.controllers === undefined || (Array.isArray(hw.controllers) && hw.controllers.every((c) => CONTROLLERS.some(([id]) => id === c))));
   return ok ? hw : null;
 }

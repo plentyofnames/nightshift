@@ -149,6 +149,12 @@ export function setFh2StartupCalibration(pair, output, slot, log) {
   return withClient(pair, log, (client) => setStartupCalibration(client, { output, slot }));
 }
 
+// Night Shift speaks protocol 1 with controlfrog and Rotary Club; another one would read its bytes wrong.
+function protocolOne(info, who) {
+  if (info.proto !== 1) throw new Error(`${who} speaks protocol ${info.proto}; Night Shift knows 1`);
+  return info;
+}
+
 // ---- the EC4, through controlfrog's protocol (Lilypad's device.js)
 
 export async function ec4Port() {
@@ -165,6 +171,7 @@ export async function withEc4(pair, work, log) {
     } catch (e) {
       throw new Error(e.name === 'TimeoutError' ? 'no answer (controlfrog on it? Lilypad closed?)' : e.message);
     }
+    protocolOne(info, 'controlfrog');
     return await work(device, info);
   } finally {
     device.close();
@@ -182,7 +189,7 @@ export async function openEc4(pair, onMidi, log) {
     if (bytes[0] !== 0xf0) onMidi(bytes);
   };
   try {
-    return { device, info: await device.identify({ busyMs: 3000 }) };
+    return { device, info: protocolOne(await device.identify({ busyMs: 3000 }), 'controlfrog') };
   } catch (e) {
     device.close();
     throw new Error(e.name === 'TimeoutError' ? 'no answer (controlfrog on it? Lilypad closed?)' : e.message);
@@ -227,7 +234,7 @@ const rcAnswer = async (device) => {
     throw new Error(e.name === 'TimeoutError' ? 'no answer (Rotary Club on it?)' : e.message);
   }
   if (!rcOk(info)) throw new Error(`Rotary Club ${info.fwMajor}.${info.fwMinor}: the controller needs 0.23`);
-  return info;
+  return protocolOne(info, 'Rotary Club');
 };
 
 export async function bcr32Port() {
