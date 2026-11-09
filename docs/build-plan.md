@@ -449,6 +449,60 @@ Hardware results: learning a knob works (2026-11-03).
   - LFO: one cycle of the shape mix (sine, square with its pulse width, triangle, saw, random, noise), with level, phase and fade-in.
   - Envelope: the ADSR curve with its shapes, range and depth.
 
+## The BCR32's tracks on the FH-2 (plan, 2026-11-09)
+
+Your ask (2026-11-09): the gear the BCR32 drives through the FH-2 assignable to outputs directly; the knobs assigned automatically and kept on the BCR32, which asks for the values and updates them now and then. Your corrections the same day:
+- **The FH-2 drives only Eurorack gear:** the M303, Plaits, the DFAM (no machine for it yet) and Generic (the Shapeshifter goes under Generic for now). The K-2, Syncussion, TX81Z, Proteus 2000 and PCM70 are played by the BCR32 over MIDI directly (maybe by its own CV outputs later): not part of this plan.
+- **Each BCR32 track becomes a source on the FH-2,** and its values are put on jacks one by one; not every value needs a jack.
+- **CTRL α and β are always there as stepped CV;** the values special to one piece of gear come on top.
+- **The two modes stay apart for now** (your answer, 2026-11-09): in the sequencer mode everything follows from the track's machine (the track sources below); the controller mode keeps the assignable CCs for the FH-2's parameters (a Euclid's pulses, a level, what the EC4 did), as Night Shift's BCR32 pages do now. Mixing them, half pages with both, once this works well.
+- **"Requesting the info and updating it":** the BCR32 asking the FH-2 for the values, which it does already. **Storing stays a button**, as for the EC4. **Velocity comes from the voice;** the M303 has none, only its accent and slide gates.
+
+### What works already
+
+- **Rotary Club (0.28 on the unit since 2026-11-09):** 16 tracks, each with a machine (Generic, M303, Plaits, TD-3), a MIDI channel and an output (USB, DIN A, DIN B), and CTRL α / β per step (off, PC, aftertouch, pitch bend, or CC n). On the FH-2's USB A a track plays on the FH-2's 16 channels like any MIDI in. The Plaits machine already does its half: the root as the note, the chord as CC 20 (the middle of Plaits' own zone at 0–5 V), the inversion for TIMBRE as a CC of its own (21 unless set otherwise). The M303 machine sends the Acidlab gate notes (slide C-2 = note 0, accent D-2 = note 2) and never plays notes 0–2 as pitches.
+- **The controller:** four pages of 32 knobs and 16 keys, stored on the unit (RELOAD writes its store). With Night Shift's tables it asks the FH-2 for the values itself: at power-on, every 10 s, after a scene's program change, and on LD/LRN; its screen shows them in FH-2 units.
+- **Night Shift's BCR32 tab** (none of it tried on the unit yet, B9–B14): its own four pages, only its own knobs written (another app's asked about first); FH-2 settings put on knobs from the Patch tab's names or "+ Half for…", one CC shared with the EC4; Send writes the knobs with their FH-2 sync entries and stores them; the live link; the Gig tab's line; the controller switched on in Rack….
+- **On the FH-2 side, by hand only:** a voice on a track's channel (pitch, gate, trigger, velocity…), triggers for single notes, MIDI knobs (CC → CV) for CCs. Nothing ties them to the track that plays them.
+
+### What is missing
+
+1. **Night Shift doesn't know the BCR32's tracks** (channel, machine, α / β types and CC numbers). Rotary Club has no message for that yet; only the controller image is readable.
+2. **No track as a source:** a Plaits is a voice and two MIDI knobs set up one by one, on the right channel, notes and ranges.
+3. **Channels can collide:** Night Shift's knob CCs go on the pages channel (ch 2 unless the FH-2 uses it). A track on that channel sending α / β as CCs would move FH-2 settings mapped there.
+4. **Knobs are placed by hand,** and **storing is a button:** the values update themselves (the FH-2 sync), the knobs don't.
+
+### The plan
+
+1. **The tracks known** (Rotary Club and Night Shift):
+   - Rotary Club: the 16 tracks' setup readable. **Asked of the firmware session 2026-11-09** (your call: start with this): a read-only space 3 of 272 bytes (a header with a version and a change counter; per track its channel, machine, output, α / β types and CC numbers, mute, the Plaits chord and inversion CCs and trims, the M303's gate notes), the working values; an event `35 counter` when they change; neither switching the BCR32's FH-2 sync off; space 3 in sim_ctl for the tests. The final layout goes in its docs/controller-protocol.md.
+     **Built as Rotary Club 0.29 (2026-11-09; not flashed yet):** bcr32-fw docs/controller-protocol.md, "The tracks (space 3, 272 bytes, read-only; 0.29 on)": two READs (0 +256, 256 +16); per track channel, machine (0 M303, 1 TD-3, 2 Generic, 3 Plaits), output, CTRL A and B (sender 0 off, 1 CC, 2 PC, 3 AT, 4 PB, and the CC), muted, a Plaits' chord CC and trim and its TIMBRE CC (128: none) and trim, an M303's slide and accent notes; `35 counter` at most once a second after a change (read both parts again if one comes between them). Checked from here against its sim_ctl: IDENTIFY 0.29, the fresh unit's tracks (track n on channel n, M303, CC 74 and 71), a `TRACK` change raising the counter with one `35`, a WRITE refused; Night Shift's check_bcr32_sim still 21/21. Eye of Providence's proto.js decodes `35` from its next version (Night Shift's copy, 7f4936c, doesn't yet).
+   - Night Shift: read it at link-up and on that event, and keep the last copy with the project, so everything below works without the unit.
+2. **Channels kept apart:** the pages channel picked away from every channel a track plays on; the MIDI map shows the tracks as senders, with their machines, and warns when a track's α / β CC lands on a mapping that isn't the track's own.
+3. **A track as a source:** each track that sends to the FH-2 is a source in the Sources list ("TR3 · Plaits", in a BCR32 group), standing for the FH-2 parts on its channel: Night Shift groups the voice, the triggers and the MIDI knobs it finds there under the track (the dumps stay the truth; the track is a view of them, as the other sources are). Its panel lists its values, each with a jack picker, or none:
+   - **every track:** Pitch, Gate, α, β;
+   - **M303:** + Accent and Slide (its gate notes); no velocity, its accent is the gate note;
+   - **Plaits:** + Velocity (into LEVEL, if wanted), Trigger (into TRIG), Chord (into HARMONICS) and Inversion (into TIMBRE);
+   - **Generic:** + Velocity (the Shapeshifter through α and β); several pitches for its chords later;
+   - **DFAM:** when Rotary Club has its machine.
+   How each value is made on the FH-2, and so where it can go:
+   - **Pitch, Gate, Trigger, Velocity** (and aftertouch or bend, below) come from one FH-2 voice (your call: velocity from the voice too) on the track's channel: the pitch on the CV jack you pick, the others after it in the FH-2's fixed order, the gate and trigger either there or on a gate expander (Night Shift plans it as it plans a voice now, and shows where each lands). For the M303 the voice ignores notes 0–2.
+   - **α and β,** by their type on the BCR32: CC n → a MIDI knob (CC → CV, no smoothing, so stepped) on any CV jack, its range per jack; aftertouch or pitch bend → the voice's aftertouch or bend output; a program change can't become CV on the FH-2 (the panel says so).
+   - **Accent and Slide** (M303): triggers of the gate type on notes 2 and 0, on any jack.
+   - **Chord and Inversion** (Plaits): MIDI knobs on CC 20 and the inversion's CC (21) at 0–5 V, on any CV jack (HARMONICS and TIMBRE fully left).
+   Assigning: in the track's panel, a jack per value (free jacks first); or from a free jack, "+ add" → BCR32 → the track and one of its values. One undoable edit each; a value without a jack costs nothing on the FH-2; taking the last one off removes the track's FH-2 parts.
+4. **The controller mode's knobs, placed without effort** (the FH-2's parameters, as the EC4's): clicking a setting's name already places it with its object's others and gives it a CC, and "+ Half for…" fills a half page; still to come, "Arrange", which lays the pages out again from what is switched on and keeps what you moved by hand. A CV jack that a track drives by CC (Chord, α, β) is offered no knob: it would fight the track. No track knobs in the controller mode for now.
+5. **Stored with the button, as now;** the values keep coming from the FH-2 by themselves, every 10 s.
+
+**Order (your call, 2026-11-09):** first the firmware's half of step 1 (the tracks readable); then the hardware try of what exists (B9–B14), with that firmware on the unit; then building: 2 (a safety fix, quick), Night Shift's half of 1, 3 with Plaits and the M303, 4.
+
+### Your calls (2026-11-09)
+
+- **Updating:** the values from the FH-2 (the BCR32 asks for them itself; done).
+- **Layout:** not mixed for now: the sequencer mode follows the track's machine, the controller mode holds the FH-2's parameters; half pages with both later.
+- **Storing:** the button.
+- **Velocity:** from the voice; none for the M303.
+
 ## What has to be tested on hardware
 
 Each item is listed with the milestone that needs it.
