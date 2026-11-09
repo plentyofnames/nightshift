@@ -4,7 +4,7 @@ import { h } from '../../vendor/lilypad/js/dom.js';
 import { PARAM_NAMES } from '../patch/tables.js';
 
 export function renderMidiMap(view, colors) {
-  const rows = [h('div', { class: 'mrow head' }, h('span', {}, 'CH'), h('span', {}, 'SENT INSIDE THE FH-2'), h('span', {}, 'LISTENING'))];
+  const rows = [h('div', { class: 'mrow head' }, h('span', {}, 'CH'), h('span', {}, 'SENDS'), h('span', {}, 'LISTENING'))];
   let free = [];
   const flushFree = () => {
     if (!free.length) return;
@@ -13,14 +13,15 @@ export function renderMidiMap(view, colors) {
     free = [];
   };
   for (const c of view.channels) {
-    if (!c.senders.length && !c.listeners.length) {
+    if (!c.senders.length && !c.listeners.length && !c.tracks?.length) {
       free.push(c.channel);
       continue;
     }
     flushFree();
     rows.push(h('div', { class: 'mrow' },
       h('span', { class: 'ch' }, String(c.channel + 1)),
-      h('span', { class: 'list' }, c.senders.length ? c.senders.map((s) => h('span', { class: 'tag' }, s.name)) : h('span', { class: 'note' }, 'only from outside')),
+      h('span', { class: 'list' }, c.senders.length || c.tracks?.length ? [...c.senders.map((s) => h('span', { class: 'tag' }, s.name)), ...(c.tracks ?? []).map((t) => h('span', { class: 'tag', title: 'From the BCR32, on USB A' }, `BCR32 ${t.name}`))]
+        : h('span', { class: 'note' }, 'only from outside')),
       h('span', { class: 'list' }, groupListeners(c.listeners).map((l) =>
         h('span', { class: 'tag', style: l.source ? `--src:${colors.get(l.source)}` : undefined }, h('i'), l.text)))));
   }

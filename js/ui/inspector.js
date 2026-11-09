@@ -11,6 +11,7 @@ import { setRange, setDirectLevel, setSmoothing, setGateLevels, addLfo, keep } f
 import { numberInput, voltsInput, perScene, ec4Label } from './controls.js';
 import { lfoEditor, euclidEditor, clockEditor, knobEditor, levelEditor, voiceEditor, triggerEditor, srrEditor } from './editors.js';
 import { playerInspector, playedBy, euclidClocks, randomClock, playerSends } from './players.js';
+import { trackEditor } from './tracks.js';
 import { calibrationOf } from '../fh2/menu.js';
 import { calibrationText } from './settings.js';
 
@@ -68,6 +69,7 @@ function header(s, color, act) {
 }
 
 function kindLine(s) {
+  if (s.track) return `BCR32 track ${s.track.index + 1} · ${s.track.machine}`;
   if (s.kind === 'voice') return `Voice · ${s.mode}${s.voices > 1 ? `, ${s.voices} voices` : ''}`;
   if (s.kind === 'lfo') return `LFO · lives on jack ${s.ports[0].jack}`;
   return KIND_NAMES[s.kind] ?? s.kind;
@@ -82,7 +84,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
       ? `Its arp follows ${s.arpWaits.clock}, which has no pulses: it plays nothing.`
       : `Its arp is on at rate Ext: it plays only while ${s.arpWaits.clock} runs.`));
   }
-  if (s.kind === 'voice' || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors));
+  if ((s.kind === 'voice' && !s.track) || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors)); // a track is played by the BCR32
 
   parts.push(section('Comes out of', s.ports.length ? s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))
     : h('p', { class: 'note' }, s.kind === 'random' ? 'No jack: it plays its notes only.' : 'No jack: it runs as long as it has pulses.')));
@@ -106,7 +108,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
   }
   if (REMOVABLE.has(s.kind)) {
     parts.push(h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.remove(s) },
-      s.kind === 'voice' ? 'Remove this voice' : s.kind === 'hid' ? `Switch all ${s.ports.length} off` : s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
+      s.track ? 'Remove from the FH-2' : s.kind === 'voice' ? 'Remove this voice' : s.kind === 'hid' ? `Switch all ${s.ports.length} off` : s.ports.length > 1 ? `Remove from all ${s.ports.length} jacks` : 'Remove')));
   }
   return parts;
 }
@@ -114,7 +116,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
 // The editable sources (M2a); the others keep the read-only settings below.
 function editorOf(view, s, act, color) {
   switch (s.kind) {
-    case 'voice': return voiceEditor(view, s, act, color);
+    case 'voice': return s.track ? [trackEditor(view, s, act), voiceEditor(view, s, act, color, { track: true })] : voiceEditor(view, s, act, color);
     case 'triggers': return triggerEditor(view, s, act);
     case 'lfo': return lfoEditor(view, view.outputs[s.index], act, color);
     case 'euclid': return euclidEditor(s, act, color);
@@ -246,7 +248,7 @@ function jackInspector(view, colors, o, onSelect, act) {
     const port = s.ports.find((x) => x.output === o.index && x.name === p.name);
     const remove = REMOVABLE.has(s.kind) && port
       && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${p.name} from jack ${o.jack}`,
-        title: s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up'
+        title: s.track ? 'Turn this output off; the row closes up' : s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up'
           : s.kind === 'hid' ? 'Switch this entry off'
           : ['level', 'knobs', 'lfo'].includes(s.kind) ? 'Clear the jack: level, LFO, smoothing and their CCs' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
     return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), [chip(p.name, colors.get(s.id)), remove]);
@@ -255,7 +257,7 @@ function jackInspector(view, colors, o, onSelect, act) {
   const standby = o.ports.filter((p) => p.standby);
   // what drives the jack besides its own level, LFO and smoothing (a knob or an LFO on its own uses
   // the level), and whether it replaces the level: a voice's pitch does, gate-type outputs have their gate levels
-  const d = active.map((p) => ({ p, s: view.sources.find((x) => x.id === p.source) })).find(({ s }) => s && !['level', 'knobs', 'lfo'].includes(s.kind));
+  const d = active.map((p) => ({ p, s: view.sources.find((x) => x.id === p.source) })).find(({ p, s }) => s && !p.knob && !['level', 'knobs', 'lfo'].includes(s.kind));
   const replaces = !!d && replacesLevel(d.s, d.p.name);
   parts.push(section('Comes out of', active.length ? active.map(portRow) : h('p', { class: 'note' }, 'Nothing: this jack is free.'),
     !d && o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn' + (active.length ? '' : ' primary'), onclick: () => act.add(o.index) }, 'Add a source…'))));
@@ -265,7 +267,12 @@ function jackInspector(view, colors, o, onSelect, act) {
   const dc = o.controls.find((m) => m.target.param === 'directLevel');
   const knobs = view.sources.find((x) => x.kind === 'knobs' && x.ports.some((p) => p.output === o.index))
     ?? (dc && { kind: 'knobs', ports: [{ name: `CC ${dc.cc}`, output: o.index, jack: o.jack, cc: dc.cc, channel: dc.channel, relative: dc.relative, slot: dc.slot }] });
-  if (knobs) parts.push(h('section', { class: 'section' }, h('h3', {}, 'MIDI knob'), knobEditor(view, knobs, act, o.index)));
+  // a BCR32 track's CC → CV output: its CC is the track's, set on the BCR32
+  const tk = active.find((p) => p.knob);
+  const track = tk && view.sources.find((x) => x.id === tk.source);
+  const tp = track?.ports.find((p) => p.output === o.index && p.knob);
+  if (tp) parts.push(section('MIDI knob', row(tp.name, `← ch ${tp.channel + 1} · CC ${tp.cc}`), h('p', { class: 'note' }, `${track.name} sends it; set on the BCR32.`)));
+  else if (knobs) parts.push(h('section', { class: 'section' }, h('h3', {}, 'MIDI knob'), knobEditor(view, knobs, act, o.index)));
   // every CV jack has an LFO: its editor while it's on, else a way to turn it on
   if (o.lfo) {
     parts.push(h('section', { class: 'section' }, h('h3', {}, o.lfo.alone ? 'LFO' : 'LFO on top'), lfoEditor(view, o, act, o.lfo.alone ? colors.get(`lfo:${o.index}`) ?? '#3DD6C6' : '#3DD6C6'),

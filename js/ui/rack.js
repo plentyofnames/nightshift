@@ -18,12 +18,15 @@ const RY = 40;
 const PANEL_H = 707;
 const W = { fh2: 224, cv: 112, gt: 112 };
 
+// A BCR32 track (a voice with its extras, patch/bcrtracks.js) has a group of its own.
+const of = (...kinds) => (s) => !s.track && kinds.includes(s.kind);
 const GROUPS = [
-  ['Notes', ['voice', 'triggers']],
-  ['Modulation', ['lfo', 'random']],
-  ['Control', ['knobs', 'level']],
-  ['Timing', ['clock', 'euclid']],
-  ['USB devices', ['hid']],
+  ['BCR32 tracks', (s) => !!s.track],
+  ['Notes', of('voice', 'triggers')],
+  ['Modulation', of('lfo', 'random')],
+  ['Control', of('knobs', 'level')],
+  ['Timing', of('clock', 'euclid')],
+  ['USB devices', of('hid')],
 ];
 
 // A small arp symbol after a voice's name while its arp is on; orange while it waits for a clock.
@@ -53,8 +56,8 @@ export function renderStage(view, colors, selected, onSelect) {
   // ---- source cards
   let y = 40;
   nodes.push(h('div', { class: 'stage-title', style: `left:${GX}px;width:${CARD_W}px` }, h('span', {}, 'Sources')));
-  for (const [title, kinds] of GROUPS) {
-    const list = view.sources.filter((s) => kinds.includes(s.kind) && !s.parked && !s.jackless);
+  for (const [title, inGroup] of GROUPS) {
+    const list = view.sources.filter((s) => inGroup(s) && !s.parked && !s.jackless);
     if (!list.length) continue;
     nodes.push(h('div', { class: 'group-title', style: `top:${y}px;left:${GX}px` }, title));
     y += HEAD;

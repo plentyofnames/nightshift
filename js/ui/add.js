@@ -8,8 +8,11 @@ import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, TRIGGER_TYPES, voltsToLevel, noteN
 import { freeCcs, suggestCc, suggestChannel, suggestBaseGate, suggestStart, voicePlan, suggestTriggerChannel, suggestNote, jacksInTheWay } from '../patch/alloc.js';
 import { pagesChannels } from '../ec4/pages.js';
 import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, addTrigger, addRandom, VOICE_OUTPUTS, SHARED_OUTPUTS, LEVEL_TRIGGER_TYPES, isAccentType } from '../patch/edit.js';
+import { reachesFh2, trackName, trackValues, firstValues, trackPlan, trackEdits, trackStart, trackGateStart } from '../patch/bcrtracks.js';
+import { hasController } from '../patch/hardware.js';
 
 const KINDS = [
+  { id: 'track', group: 'BCR32', title: 'BCR32 track', desc: 'Its pitch, gate and more, in a row', icon: 'voice', cv: true },
   { id: 'voice', group: 'Notes', title: 'Pitch & gate', desc: 'A voice: mono or poly', icon: 'voice', cv: true },
   { id: 'trigger', group: 'Notes', title: 'Trigger', desc: 'A MIDI note fires a trigger, gate or level', icon: 'triggers' },
   { id: 'fixed', group: 'Control', title: 'Fixed voltage', desc: 'Stored in the preset', icon: 'level', cv: true, preset: true },
@@ -27,10 +30,15 @@ const SHAPES = ['sine', 'triangle', 'square', 'saw up', 'saw down', 'random', 'n
 export async function addToJack(view, values, o) {
   const hardware = view.hardware;
   const knobChannel = pagesChannels(view)[0] ?? 1; // the controllers' pages channel, as their knobs get
+  // the BCR32's tracks that reach the FH-2 and aren't on it yet (patch/bcrtracks.js)
+  const bcr32 = hasController(hardware, 'bcr32');
+  const offered = (view.tracks ?? []).filter((t) => reachesFh2(t) && !view.sources.some((s) => s.track?.index === t.index));
   const why = (k) => (k.cv && o.gate ? 'CV jacks only: gate outputs are always 10 V'
-    : k.preset && !values.preset ? 'needs a preset: pull or open one' : null);
+    : k.preset && !values.preset ? 'needs a preset: pull or open one'
+    : k.id === 'track' && !view.tracks ? 'Get reads the BCR32’s tracks'
+    : k.id === 'track' && !offered.length ? 'every track that reaches the FH-2 is on it' : null);
   const f = {
-    kind: KINDS.find((k) => !why(k))?.id,
+    kind: KINDS.find((k) => k.id !== 'track' && !why(k))?.id,
     volts: Math.max(0, RANGE_VOLTS[o.rangeIndex ?? 0][0]), channel: knobChannel, cc: suggestCc(values.config, knobChannel), relative: false,
     shape: 'sine', synced: false, hz: 1, lfoPulses: 96, depth: 100,
     base: 24, multiplier: 1, length: 0, transport: 2,
@@ -38,13 +46,14 @@ export async function addToJack(view, values, o) {
     srrPort: o.gate ? 'Trigger' : 'CV', srrRate: 12, srrLength: 8, srrRandomness: 96, srrScale: 0,
     trigChannel: suggestTriggerChannel(values.config), trigType: 1, envSet: 0,
     voiceType: 0, voices: 2, voiceChannel: suggestChannel(values.config), outs: { cvOut: 1, gateOut: 1 }, gatesOnExpander: false, start: o.index,
+    track: offered[0] ?? null, trackOn: offered[0] ? firstValues(offered[0]) : new Set(), offered,
   };
 
   f.trigNote = suggestNote(values.config, f.trigChannel);
   const tiles = h('div', { class: 'tiles' });
   const details = h('div', { class: 'fields' });
   const draw = () => {
-    replace(tiles, ['Notes', 'Control', 'Modulation', 'Timing'].map((g) => h('div', { class: 'tile-group' },
+    replace(tiles, [...(bcr32 ? ['BCR32'] : []), 'Notes', 'Control', 'Modulation', 'Timing'].map((g) => h('div', { class: 'tile-group' },
       h('span', { class: 'tile-head' }, g),
       KINDS.filter((k) => k.group === g).map((k) => h('button', {
         type: 'button', class: 'tile', 'aria-pressed': f.kind === k.id ? 'true' : 'false', disabled: !!why(k),
@@ -53,7 +62,8 @@ export async function addToJack(view, values, o) {
     replace(details, fieldsFor(f, values, o, draw, view));
     // nothing is added on top of another source: Add waits until the voice fits
     const add = $('dialog').querySelector('button.primary');
-    if (add) add.disabled = (f.kind === 'voice' && !voiceFits(f, o, view)) || (f.kind === 'trigger' && triggerProblems(f, o, view).length > 0);
+    if (add) add.disabled = (f.kind === 'voice' && !voiceFits(f, o, view)) || (f.kind === 'trigger' && triggerProblems(f, o, view).length > 0)
+      || (f.kind === 'track' && !trackFits(f, view));
   };
   draw();
 
@@ -87,9 +97,45 @@ function gateStart(f, o, view) {
   return gates ? suggestBaseGate(view, gates) : null;
 }
 
+// ---- a BCR32 track: its outputs in a row from the jack, its gates on CV jacks or a gate expander
+
+const GATE_VALUES = new Set(['Gate', 'Trigger', 'Accent', 'Slide']);
+const trackGates = (f) => [...f.trackOn].filter((v) => GATE_VALUES.has(v)).length;
+const trackLayoutOf = (f, view) => ({ on: f.trackOn, start: f.start, gatesFrom: f.gatesOnExpander ? trackGateStart(view, trackGates(f)) ?? 0 : 0 });
+const trackFits = (f, view) => !!f.track && f.trackOn.size > 0 && !trackPlan(view, f.track, trackLayoutOf(f, view)).problems.length;
+
+function trackFields(f, values, o, redraw, view) {
+  if (!f.track) return [];
+  const t = f.track;
+  const box = (v) => h('label', { class: 'check', title: v.how ? '' : v.why }, h('input', {
+    type: 'checkbox', checked: f.trackOn.has(v.value), disabled: !v.how,
+    onchange: (e) => { f.trackOn = new Set(f.trackOn); if (e.target.checked) f.trackOn.add(v.value); else f.trackOn.delete(v.value); redraw(); },
+  }), v.value);
+  const layout = trackLayoutOf(f, view);
+  const plan = trackPlan(view, t, layout);
+  const elsewhere = plan.problems.length ? trackStart(view, t, layout) : null;
+  const gateAt = trackGates(f) ? trackGateStart(view, trackGates(f)) : null;
+  return [
+    field('Track', h('select', {
+      onchange: (e) => { f.track = f.offered[+e.target.value]; f.trackOn = firstValues(f.track); redraw(); },
+    }, f.offered.map((x, k) => h('option', { value: String(k), selected: x === t }, `${trackName(x)} · ch ${x.channel + 1}${x.muted ? ' · muted' : ''}`))), 'As the BCR32 has it.'),
+    h('div', { class: 'field wide' }, h('span', {}, 'Outputs'), h('div', { class: 'checks' }, trackValues(t).map(box))),
+    field('Gates', pick(f, 'gatesOnExpander', [[false, 'On CV jacks, after the rest'], [true, gateAt != null ? `On the gate expander, from ${view.outputs[gateAt].jack}` : 'On the gate expander (no free run)']], redraw)),
+    h('div', { class: 'field wide plan' }, h('span', {}, 'Will use'),
+      h('div', { class: 'checks' }, plan.ports.map((p) => h('span', { class: 'chip' + (plan.problems.some((x) => x.output === p.output) ? ' clash' : '') }, `${p.jack} · ${p.value}`))),
+      plan.problems.map((x) => h('small', { class: 'warn' }, x.message)),
+      f.trackOn.size ? null : h('small', { class: 'warn' }, 'Tick at least one output.'),
+      elsewhere != null && elsewhere !== f.start ? h('button', { type: 'button', class: 'btn', onclick: () => { f.start = elsewhere; redraw(); } },
+        `Start at ${view.outputs[elsewhere].jack} instead: it fits there`) : null,
+      f.start !== o.index ? h('button', { type: 'button', class: 'btn', onclick: () => { f.start = o.index; redraw(); } }, `Back to jack ${o.jack}`) : null),
+  ];
+}
+
 function build(f, values, hardware, o, where, view) {
   const division = (p) => DIVISIONS.find(([n]) => n === p)?.[1] ?? `${p}/24`;
   switch (f.kind) {
+    case 'track':
+      return { label: `${trackName(f.track)} from jack ${view.outputs[f.start].jack}`, changes: trackEdits(values, view, f.track, null, trackLayoutOf(f, view)) };
     case 'trigger': {
       const note = f.trigNote < 0 ? null : f.trigNote;
       return { label: `${TRIGGER_TYPES[f.trigType]} for ${note == null ? 'any note' : noteName(note)} on ch ${f.trigChannel + 1} at ${where}`,
@@ -165,6 +211,8 @@ async function learnInto(f, values, redraw) {
 
 function fieldsFor(f, values, o, redraw, view) {
   switch (f.kind) {
+    case 'track':
+      return trackFields(f, values, o, redraw, view);
     case 'voice':
       return voiceFields(f, values, o, redraw, view);
     case 'trigger':

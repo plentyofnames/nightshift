@@ -68,6 +68,7 @@ export function playerLine(p) {
 export function subline(s) {
   switch (s.kind) {
     case 'voice': {
+      if (s.track) return `ch ${s.channel + 1}${s.track.muted ? ' · muted' : ''} · ${s.ports.map((p) => p.name).join(', ') || 'no outputs'}`;
       const who = s.players[0]?.name ?? `ch ${s.channel + 1}`;
       const voices = s.voices > 1 ? ` ${s.voices}` : '';
       return `${s.mode}${voices} · ${who} · ${noteName(s.notes[0])}–${noteName(s.notes[1])}`;
@@ -112,7 +113,7 @@ function ranges(nums) {
 // A short label for a port, for the jack it comes out of.
 export function shortLabel(s, port) {
   switch (s.kind) {
-    case 'voice': return `V${s.index + 1} ${port.name}`;
+    case 'voice': return s.track ? `TR${s.track.index + 1} ${port.name}` : `V${s.index + 1} ${port.name}`;
     case 'euclid': return `E${s.index + 1} ${port.name}`;
     case 'random': return `R${s.index + 1} ${port.name}`;
     case 'lfo': return 'LFO';

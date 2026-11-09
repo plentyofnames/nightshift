@@ -377,7 +377,8 @@ function tuningRows(s, act) {
   ].filter(Boolean);
 }
 
-export function voiceEditor(view, s, act, color) {
+// `track`: a BCR32 track's voice: its mode, channel and outputs are the track's (ui/tracks.js).
+export function voiceEditor(view, s, act, color, { track = false } = {}) {
   const cv = s.raw;
   const set = (what, obj) => act.edit(`${what} of ${s.name}`, setConverter(s.index, obj));
   const parts = [];
@@ -388,60 +389,62 @@ export function voiceEditor(view, s, act, color) {
     return autoStride ? { ...obj, stride: cvPerVoice(next) } : obj; // kept up to date in mono too, for when it turns poly
   };
 
-  // mode and voices
-  const mode = [field('Mode', selectInput(`Mode of ${s.name}`, cv.type, [[0, 'Mono'], [1, 'Poly'], [2, 'MPE']], (v) => set('Mode', relayout({ type: v, voices: v ? Math.max(2, cv.voices) : cv.voices }))))];
-  if (cv.type) {
-    mode.push(
-      field('Voices', numberInput(`Voices of ${s.name}`, cv.voices, { min: 1, max: 16 }, (v) => set('Voices', { voices: v }))),
-      field('Allocation', selectInput(`Allocation of ${s.name}`, cv.allocation, ALLOCATIONS.map((n, i) => [i, n]), (v) => set('Allocation', { allocation: v }))),
-      field('Steal voices', selectInput(`Voice stealing of ${s.name}`, cv.noStealing, [[0, 'Yes'], [1, 'No: ignore extra notes']], (v) => set('Voice stealing', { noStealing: v }))));
-  }
-  parts.push(h('div', { class: 'erows' }, mode));
+  if (!track) {
+    // mode and voices
+    const mode = [field('Mode', selectInput(`Mode of ${s.name}`, cv.type, [[0, 'Mono'], [1, 'Poly'], [2, 'MPE']], (v) => set('Mode', relayout({ type: v, voices: v ? Math.max(2, cv.voices) : cv.voices }))))];
+    if (cv.type) {
+      mode.push(
+        field('Voices', numberInput(`Voices of ${s.name}`, cv.voices, { min: 1, max: 16 }, (v) => set('Voices', { voices: v }))),
+        field('Allocation', selectInput(`Allocation of ${s.name}`, cv.allocation, ALLOCATIONS.map((n, i) => [i, n]), (v) => set('Allocation', { allocation: v }))),
+        field('Steal voices', selectInput(`Voice stealing of ${s.name}`, cv.noStealing, [[0, 'Yes'], [1, 'No: ignore extra notes']], (v) => set('Voice stealing', { noStealing: v }))));
+    }
+    parts.push(h('div', { class: 'erows' }, mode));
 
-  // what it listens to
-  const listens = [
-    // its players (sequencers wired to it) move with it, else they would play into silence
-    field(cv.type === 2 ? 'Global channel' : 'MIDI channel', selectInput(`Channel of ${s.name}`, cv.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]),
-      (v) => (s.players?.length ? act.edit(`${s.name} and its players moved to ch ${v + 1}`, moveToChannel(s, v)) : set('Channel', voiceChannel(cv, v))))),
-  ];
-  if (cv.type === 2) listens.push(field('Last channel', selectInput(`Last MPE channel of ${s.name}`, cv.lastMpeChannel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => set('Last MPE channel', { lastMpeChannel: v }))));
-  listens.push(
-    field('Lowest note', selectInput(`Lowest note of ${s.name}`, cv.minNote, NOTES, (v) => set('Lowest note', { minNote: v }))),
-    field('Highest note', selectInput(`Highest note of ${s.name}`, cv.maxNote, NOTES, (v) => set('Highest note', { maxNote: v }))));
-  // the sources that play these notes too (not the CC mappings on the channel)
-  const others = (view.channels[cv.channel]?.listeners ?? []).filter((l) => l.source && l.source !== s.id).map((l) => l.name);
-  parts.push(h('h4', {}, 'Listens to'), h('div', { class: 'erows' }, listens),
-    others.length ? h('p', { class: 'note' }, `Also on this channel: ${[...new Set(others)].join(', ')}. Different note ranges make a keyboard split.`) : null);
+    // what it listens to
+    const listens = [
+      // its players (sequencers wired to it) move with it, else they would play into silence
+      field(cv.type === 2 ? 'Global channel' : 'MIDI channel', selectInput(`Channel of ${s.name}`, cv.channel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]),
+        (v) => (s.players?.length ? act.edit(`${s.name} and its players moved to ch ${v + 1}`, moveToChannel(s, v)) : set('Channel', voiceChannel(cv, v))))),
+    ];
+    if (cv.type === 2) listens.push(field('Last channel', selectInput(`Last MPE channel of ${s.name}`, cv.lastMpeChannel, Array.from({ length: 16 }, (_, c) => [c, String(c + 1)]), (v) => set('Last MPE channel', { lastMpeChannel: v }))));
+    listens.push(
+      field('Lowest note', selectInput(`Lowest note of ${s.name}`, cv.minNote, NOTES, (v) => set('Lowest note', { minNote: v }))),
+      field('Highest note', selectInput(`Highest note of ${s.name}`, cv.maxNote, NOTES, (v) => set('Highest note', { maxNote: v }))));
+    // the sources that play these notes too (not the CC mappings on the channel)
+    const others = (view.channels[cv.channel]?.listeners ?? []).filter((l) => l.source && l.source !== s.id).map((l) => l.name);
+    parts.push(h('h4', {}, 'Listens to'), h('div', { class: 'erows' }, listens),
+      others.length ? h('p', { class: 'note' }, `Also on this channel: ${[...new Set(others)].join(', ')}. Different note ranges make a keyboard split.`) : null);
 
-  // outputs and where they go
-  const toggle = (k, name) => h('label', { class: 'check' }, h('input', {
-    type: 'checkbox', checked: !!cv[k], 'data-key': `${s.name} ${k}`,
-    onchange: (e) => set(`${name} output`, relayout({ [k]: e.target.checked ? 1 : 0 })),
-  }), name);
-  const triple = (k, name) => selectInput(`${name} output of ${s.name}`, cv[k], [[0, `${name}: off`], [1, name], [2, `${name}, inverted`]], (v) => set(`${name} output`, relayout({ [k]: v })));
-  const cvJacks = view.outputs.slice(0, 64).filter((o) => o.present).map((o) => [o.index, o.jack]);
-  const gateJacks = view.outputs.slice(64).filter((o) => o.present).map((o) => [o.index, `gate expander, from ${o.jack}`]);
-  parts.push(h('h4', {}, 'Outputs'),
-    h('div', { class: 'checks' }, VOICE_OUTPUTS.filter(([k]) => k !== 'velocityOut' && k !== 'releaseVelocityOut').map(([k, n]) => toggle(k, n))),
-    h('div', { class: 'checks' }, triple('velocityOut', 'Velocity'), triple('releaseVelocityOut', 'Release velocity')),
-    h('div', { class: 'checks' }, toggle('aftertouchOut', 'Aftertouch'), toggle('paraGateOut', 'Para gate'),
-      selectInput(`Bend output of ${s.name}`, cv.bendOut, [[0, 'Bend: off'], [1, 'Bend'], [2, 'Bend up and down']], (v) => set('Bend output', { bendOut: v }))),
-    h('div', { class: 'erows' },
-      field('Starts at', selectInput(`Start jack of ${s.name}`, cv.baseOutput, cvJacks, (v) => set('Start jack', { baseOutput: v }))),
-      field('Gates go to', selectInput(`Gates of ${s.name}`, cv.baseGate >= 64 ? cv.baseGate : 0, [[0, 'CV jacks, after the pitch'], ...gateJacks],
-        (v) => set('Gates', relayout({ baseGate: v })))),
-      cv.type ? field('Gap', selectInput(`Gap between voices of ${s.name}`, autoStride ? 0 : cv.stride, [[0, `Back to back (${cvPerVoice(cv)})`], ...Array.from({ length: 16 }, (_, i) => [i + 1, `${i + 1} jacks`])],
-        (v) => set('Gap between voices', { stride: v || cvPerVoice(cv) }))) : null));
-  const plan = voicePlan(view, cv, s.index);
-  const byVoice = new Map();
-  for (const p of plan.ports) {
-    const k = p.voice == null ? 'Shared' : `Voice ${p.voice + 1}`;
-    if (!byVoice.has(k)) byVoice.set(k, []);
-    byVoice.get(k).push(p);
+    // outputs and where they go
+    const toggle = (k, name) => h('label', { class: 'check' }, h('input', {
+      type: 'checkbox', checked: !!cv[k], 'data-key': `${s.name} ${k}`,
+      onchange: (e) => set(`${name} output`, relayout({ [k]: e.target.checked ? 1 : 0 })),
+    }), name);
+    const triple = (k, name) => selectInput(`${name} output of ${s.name}`, cv[k], [[0, `${name}: off`], [1, name], [2, `${name}, inverted`]], (v) => set(`${name} output`, relayout({ [k]: v })));
+    const cvJacks = view.outputs.slice(0, 64).filter((o) => o.present).map((o) => [o.index, o.jack]);
+    const gateJacks = view.outputs.slice(64).filter((o) => o.present).map((o) => [o.index, `gate expander, from ${o.jack}`]);
+    parts.push(h('h4', {}, 'Outputs'),
+      h('div', { class: 'checks' }, VOICE_OUTPUTS.filter(([k]) => k !== 'velocityOut' && k !== 'releaseVelocityOut').map(([k, n]) => toggle(k, n))),
+      h('div', { class: 'checks' }, triple('velocityOut', 'Velocity'), triple('releaseVelocityOut', 'Release velocity')),
+      h('div', { class: 'checks' }, toggle('aftertouchOut', 'Aftertouch'), toggle('paraGateOut', 'Para gate'),
+        selectInput(`Bend output of ${s.name}`, cv.bendOut, [[0, 'Bend: off'], [1, 'Bend'], [2, 'Bend up and down']], (v) => set('Bend output', { bendOut: v }))),
+      h('div', { class: 'erows' },
+        field('Starts at', selectInput(`Start jack of ${s.name}`, cv.baseOutput, cvJacks, (v) => set('Start jack', { baseOutput: v }))),
+        field('Gates go to', selectInput(`Gates of ${s.name}`, cv.baseGate >= 64 ? cv.baseGate : 0, [[0, 'CV jacks, after the pitch'], ...gateJacks],
+          (v) => set('Gates', relayout({ baseGate: v })))),
+        cv.type ? field('Gap', selectInput(`Gap between voices of ${s.name}`, autoStride ? 0 : cv.stride, [[0, `Back to back (${cvPerVoice(cv)})`], ...Array.from({ length: 16 }, (_, i) => [i + 1, `${i + 1} jacks`])],
+          (v) => set('Gap between voices', { stride: v || cvPerVoice(cv) }))) : null));
+    const plan = voicePlan(view, cv, s.index);
+    const byVoice = new Map();
+    for (const p of plan.ports) {
+      const k = p.voice == null ? 'Shared' : `Voice ${p.voice + 1}`;
+      if (!byVoice.has(k)) byVoice.set(k, []);
+      byVoice.get(k).push(p);
+    }
+    parts.push(h('div', { class: 'layout' }, [...byVoice].map(([k, ps]) => h('div', { class: 'layout-row' }, h('span', { class: 'k' }, cv.type ? k : ''),
+      h('span', { class: 'checks' }, ps.map((p) => h('span', { class: 'chip' + (p.taken.length || !p.present ? ' clash' : ''), style: `--src:${color}` }, `${p.jack} ${p.role.replace(/ \(inverted\)$/, ' inv.')}`)))))),
+    plan.problems.map((x) => h('p', { class: 'problem' }, x.message)));
   }
-  parts.push(h('div', { class: 'layout' }, [...byVoice].map(([k, ps]) => h('div', { class: 'layout-row' }, h('span', { class: 'k' }, cv.type ? k : ''),
-    h('span', { class: 'checks' }, ps.map((p) => h('span', { class: 'chip' + (p.taken.length || !p.present ? ' clash' : ''), style: `--src:${color}` }, `${p.jack} ${p.role.replace(/ \(inverted\)$/, ' inv.')}`)))))),
-  plan.problems.map((x) => h('p', { class: 'problem' }, x.message)));
 
   // pitch and switches (config), performance (preset)
   const pf = s.performance;

@@ -253,13 +253,14 @@ export async function withBcr32(pair, work, log) {
 
 // Opens the BCR32 and keeps it open (for the live link): { device, info }. Its channel messages
 // (its knobs, keys and sequencer tracks) go to `onMidi`; Rotary Club's replies and events to the device.
-export async function openBcr32(pair, onMidi, log) {
+export async function openBcr32(pair, onMidi, log, onSysex = null) { // onSysex: every SysEx too (Rotary Club's events, 35 say)
   const transport = midiTransport(pair.in, pair.out);
   const device = new RcDevice(transport, { log });
   const forDevice = transport.onmessage;
   transport.onmessage = (bytes) => {
     forDevice(bytes);
     if (bytes[0] !== 0xf0) onMidi(bytes);
+    else onSysex?.(bytes);
   };
   try {
     return { device, info: await rcAnswer(device) };

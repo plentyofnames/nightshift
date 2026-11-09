@@ -236,7 +236,7 @@ if (hasTracks(info)) {
   const second = await read();
   transport.onmessage = was;
   check(events.length === 1 && second.counter === first.counter + 1, 'a track changed: one 35, the counter up', [events, second.counter]);
-  check(trackLine(second.tracks[2]) === 'TR3 ch 8 Plaits → USB · α CC 30 · β PB' && second.tracks[2].plaits.timbreCc === null, 'it reads back: Plaits on ch 8, no TIMBRE CC', trackLine(second.tracks[2]));
+  check(trackLine(second.tracks[2]) === 'TR3 ch 8 Plaits Chords → USB · α CC 30 · β PB' && second.tracks[2].plaits.timbreCc === null, 'it reads back: Plaits on ch 8, no TIMBRE CC', trackLine(second.tracks[2]));
 }
 
 await writer.close();

@@ -6,13 +6,16 @@
 // change. Where the manual leaves the output order open, the choice is marked "assumed".
 
 import { mappingsOf } from './mappings.js';
+import { claimsOf, reachesFh2, trackName, trackValues, trackCcs, movesText } from './bcrtracks.js';
 import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
   CVMIDI_TYPES, LEVEL_TRIGGER_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID, SRR_STOP } from './tables.js';
 
 // `names` are Night Shift's own names beside the dumps (edit.js setName): for sources and players
 // by id, and for the gear on a port and channel; with the scene's marks (edit.js keep, withMarks).
-export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names = {}) {
+// `tracks`: the BCR32's sequencer tracks as last read (rotary/tracks.js parseTracks), or null: a
+// track's voice, CC → CV outputs and gate triggers show as one source (patch/bcrtracks.js).
+export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names = {}, tracks = null) {
   const outputs = Array.from({ length: 128 }, (_, i) => ({
     index: i,
     jack: jackName(i, hardware),
@@ -31,6 +34,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   const sources = [];
   const problems = [];
   const mappings = mappingsOf(config);
+  const claims = claimsOf(config, mappings, tracks);
 
   const addSource = (s) => {
     if (names[s.id]) {
@@ -46,9 +50,32 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
       }
       p.jack = jackName(p.output, hardware);
       p.present = outputs[p.output].present;
-      outputs[p.output].ports.push({ source: s.id, name: p.name, layer: !!s.layer, standby: !!s.standby, typeIndex: p.typeIndex });
+      outputs[p.output].ports.push({ source: s.id, name: p.name, layer: !!s.layer, standby: !!s.standby, typeIndex: p.typeIndex, knob: !!p.knob });
     }
     return s;
+  };
+
+  // A BCR32 track's voice (`s`) becomes the track: its name, its outputs named by the track's
+  // values (aftertouch or bend as α or β), and its CC → CV outputs and gate triggers added.
+  const trackSource = (s, t) => {
+    s.track = { index: t.index, machine: t.machine, channel: t.channel, muted: t.muted, data: t };
+    s.name = trackName(t);
+    const values = trackValues(t);
+    const byKey = (k) => values.find((v) => v.how === 'voice' && v.key === k)?.value ?? null;
+    for (const p of s.ports) {
+      p.value = p.role === 'Aftertouch' ? byKey('aftertouchOut') : p.role === 'Bend' ? byKey('bendOut') : values.some((v) => v.value === p.role && v.how === 'voice') ? p.role : null;
+      if (p.value) p.name = p.value;
+    }
+    for (const [slot, c] of claims.knobs) {
+      if (c.track !== t) continue;
+      const m = mappings.find((x) => x.slot === slot);
+      s.ports.push({ name: c.value, value: c.value, output: m.target.index, slot, cc: m.cc, channel: m.channel, knob: true });
+    }
+    for (const [k, c] of claims.triggers) {
+      if (c.track !== t) continue;
+      const x = config.trigger[k];
+      s.ports.push({ name: c.value, value: c.value, output: x.output, trigger: k, typeIndex: x.type, note: x.note });
+    }
   };
 
   // ---- MIDI/CV converters (voices)
@@ -76,6 +103,8 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
       players: [],
       controls: [],
     };
+    const t = claims.voices.get(i);
+    if (t) trackSource(s, t);
     if (cv.minNote > cv.maxNote) problems.push({ kind: 'notes', source: s.id, message: `${s.name}: lowest note is above the highest, so it plays nothing` });
     if (s.arpWaits?.stopped) problems.push({ kind: 'arp-clock', source: s.id, message: `${s.name}’s arp follows ${s.arpWaits.clock}, which has no pulses, so it plays nothing` });
     addSource(s);
@@ -93,7 +122,7 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
   // ---- triggers, one source per MIDI channel
   const byChannel = new Map();
   config.trigger.forEach((t, i) => {
-    if (!t.type) return;
+    if (!t.type || claims.triggers.has(i)) return; // a BCR32 track's Accent or Slide is the track's
     if (!byChannel.has(t.channel)) byChannel.set(t.channel, []);
     const note = t.anyNote ? 'Any note' : `${noteName(t.note)} (${t.note})`;
     const list = byChannel.get(t.channel);
@@ -228,6 +257,15 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     if (!s.channels) continue;
     s.players = players.filter((p) => p.internal && s.channels.includes(p.channel));
   }
+  // a BCR32 track's CCs on its channel move whatever else is mapped there (Night Shift's knobs, say)
+  for (const t of tracks ?? []) {
+    for (const { value, cc } of trackCcs(t)) {
+      for (const m of mappings) {
+        if (m.channel !== t.channel || m.cc !== cc || claims.knobs.get(m.slot)?.track === t) continue;
+        problems.push({ kind: 'track-cc', message: `${trackName(t)} sends ${value} as CC ${cc} on ch ${t.channel + 1}: it also moves ${movesText(m, { outputs, sources }, names)}` });
+      }
+    }
+  }
   for (const p of players) {
     p.plays = p.internal ? sources.filter((s) => s.channels?.includes(p.channel)).map((s) => s.id) : [];
   }
@@ -239,8 +277,8 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
     for (const m of p.targets) m.input = p.index;
   }
   return {
-    hardware, outputs, sources, mappings, players, problems,
-    channels: channelMap(sources, players, mappings),
+    hardware, outputs, sources, mappings, players, problems, tracks,
+    channels: channelMap(sources, players, mappings, tracks),
     inputs: inputsOf(config, players),
     resources: resourcesOf(config, preset, mappings, outputs, sources),
     globals: globalsOf(config, preset),
@@ -346,6 +384,7 @@ function gateFriendly(sources, p) {
   if (s.kind === 'triggers') return p.typeIndex == null || !LEVEL_TRIGGER_TYPES.has(p.typeIndex); // a velocity or envelope trigger is a level
   if (s.kind === 'clock' || s.kind === 'euclid' || s.kind === 'hid') return true;
   if (s.kind === 'random') return p.name !== 'CV';
+  if (s.kind === 'voice' && s.track) return /^(Gate|Trigger|Accent|Slide)$/.test(p.name);
   if (s.kind === 'voice') return /^(Gate|Trigger|Para gate)( \d+)?$/.test(p.name); // not Velocity gate: gate outputs are always 10 V
   return false;
 }
@@ -359,6 +398,7 @@ const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
 export function replacesLevel(s, port) {
   if (['clock', 'triggers', 'euclid', 'hid'].includes(s.kind)) return true;
   if (s.kind === 'random') return port !== 'CV';
+  if (s.kind === 'voice' && s.track) return /^(Pitch|Gate|Trigger|Accent|Slide)$/.test(port); // a track's CC → CV outputs are their jack's level
   if (s.kind === 'voice') return /^(Pitch|Gate|Trigger|Velocity gate|Para gate)( \d+)?$/.test(port);
   return false;
 }
@@ -442,8 +482,10 @@ export function playersOf(config, preset, { all = false, names = {} } = {}) {
 
 // Who sends and who listens on each MIDI channel. Only the FH-2's own players are known
 // as senders; external devices come from the patch's sidecar (later).
-function channelMap(sources, players, mappings) {
-  const ch = Array.from({ length: 16 }, (_, i) => ({ channel: i, senders: [], listeners: [] }));
+function channelMap(sources, players, mappings, tracks) {
+  const ch = Array.from({ length: 16 }, (_, i) => ({ channel: i, senders: [], listeners: [], tracks: [] }));
+  // the BCR32's tracks that reach the FH-2 send on their channels from outside (USB A), with their CCs
+  for (const t of tracks ?? []) if (reachesFh2(t)) ch[t.channel]?.tracks.push({ track: t.index, name: trackName(t), ccs: trackCcs(t).map((x) => x.cc) });
   // a channel past 15 (possible in a hand-edited dump: the fields are 7-bit) is left out, not a crash
   for (const p of players) if (p.internal) ch[p.channel]?.senders.push({ player: p.id, name: p.name });
   for (const s of sources) {

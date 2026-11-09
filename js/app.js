@@ -32,7 +32,9 @@ import { bcrPagesOf, putObject, switchOn as bcrOn, switchOff as bcrOff, placeKno
 import { wanted, plan, writePlan, storeImage, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, pageOnBcr32, editsFor, wantedFingerprint } from './rotary/image.js';
 import { midiPermission } from '../vendor/lilypad/js/midi.js';
 import { mergeFromModule, changedOutside, placesText } from './patch/sync.js';
-import { parseTracks, hasTracks, TRACKS_SPACE } from './rotary/tracks.js';
+import { parseTracks, hasTracks, TRACKS_SPACE, TRACKS_LEN, TRACKS_CHANGED } from './rotary/tracks.js';
+import { trackEdits, trackLayout } from './patch/bcrtracks.js';
+import { unframe } from '../vendor/eyeofprovidence/js/proto.js';
 import { Bcr32Link } from './rotary/link.js';
 import { renderBcr32 } from './ui/bcr32.js';
 import { readRecord } from '../vendor/eyeofprovidence/js/model.js';
@@ -175,7 +177,7 @@ function syncOf() {
 // ---- the patch kept in this browser (not the example, which would replace yours)
 
 const project = () => ({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware, base: state.base,
-  slots: state.slots, scenesOnly: state.scenesOnly, held: state.held });
+  slots: state.slots, scenesOnly: state.scenesOnly, held: state.held, tracks: state.bcr32.tracks?.bytes ?? null });
 const fp = (dump) => fingerprint(buildDump(dump));
 
 // What was just saved to the FH-2's flash: the config into `configSlot`, presets [{ dump, slot }].
@@ -207,8 +209,12 @@ function stored() {
   }
 }
 
+// The BCR32's sequencer tracks as last read (kept with the project), while it is in the rack (Rack…):
+// those that reach the FH-2 show as sources (patch/bcrtracks.js).
+const bcrTracks = () => (hasController(state.hardware, 'bcr32') ? state.bcr32.tracks?.tracks ?? null : null);
+
 function update() {
-  state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware, withMarks(state.names, state.preset)) : null;
+  state.view = state.config ? derive(state.config.values, state.preset?.values ?? null, state.hardware, withMarks(state.names, state.preset), bcrTracks()) : null;
   state.colors = state.view ? colorsFor([...state.view.sources, ...state.view.players], state.colors) : new Map();
   state.sync = state.config ? syncOf() : null;
   state.unsent = state.config ? state.sync.kind !== 'same' : false;
@@ -223,8 +229,9 @@ function update() {
 // `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. A
 // project (`whole`) brings its scenes even when it has none. What the FH-2 holds stays as it is:
 // the mark compares the new patch with it.
-function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly, held, whole = false, base = null }, from) {
+function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly, held, whole = false, base = null, tracks = null }, from) {
   if (config) state.config = config;
+  if (tracks) state.bcr32.tracks = tracks; // the BCR32's tracks as the project last saw them; without, the last read stay
   if (config) state.base = base; // what the FH-2 held for this patch, if it says
   state.held = held ?? (config ? {} : state.held);
   const scenes = whole ? presets ?? [] : presets?.length ? presets : preset ? [preset] : null;
@@ -293,7 +300,7 @@ function leftOnEc4(changes) {
   const p = patch();
   const undo = apply(p, setup);
   try {
-    return leftBehind(before, pagesOf(derive(p.config.values, p.preset?.values ?? null, state.hardware, withMarks(p.names, p.preset)), p.names), p.names);
+    return leftBehind(before, pagesOf(derive(p.config.values, p.preset?.values ?? null, state.hardware, withMarks(p.names, p.preset), bcrTracks()), p.names), p.names);
   } finally {
     apply(p, undo);
   }
@@ -323,6 +330,14 @@ function remove(source, port) {
     const stays = source.kind === 'random' && source.sendsNotes && source.ports.length;
     const keys = [...own.flatMap((o) => jackKeys(o)), ...(!port && !stays ? objectKeys(model, source.id) : [])];
     const ec4Off = keys.length ? switchOffAll(state.names, model, keys, { everywhere: true }) : [];
+    if (source.track) {
+      const layout = trackLayout(source);
+      const on = port ? new Set([...layout.on].filter((v) => v !== port.value)) : new Set();
+      const done = edit(port ? `${source.name}: ${port.name} off` : `Removed ${source.name} from the FH-2`,
+        [...trackEdits(values(), state.view, source.track.data, source, { ...layout, on }), ...(port ? [] : ec4Off)]);
+      if (!port && done) state.selected = null;
+      return render();
+    }
     const done = edit(own.length && port ? `Cleared jack ${port.jack}` : `${source.kind === 'hid' ? 'Switched off' : 'Removed'} ${source.name}${port && source.ports.length > 1 ? ` ${port.name}` : ''}${where}${links}`,
       [...(port ? removePort(values(), source, port) : removeSource(values(), source)), ...ec4Off]);
     if (!port && done) state.selected = null;
@@ -475,7 +490,7 @@ function scenesModel(v) {
     scenes: state.scenes.map((s, i) => ({
       name: sceneName(i), slot: state.slots.scenes[i], current: i === state.scene, onModule: onModule(i),
       differences: i ? sceneDifferences(state.scenes[0].values, s.values, state.hardware) : [],
-      fit: fitProblems(i === state.scene ? v : derive(state.config.values, s.values, state.hardware, withMarks(state.names, s)), state.config.values, s.values),
+      fit: fitProblems(i === state.scene ? v : derive(state.config.values, s.values, state.hardware, withMarks(state.names, s), bcrTracks()), state.config.values, s.values),
     })),
   };
 }
@@ -525,7 +540,7 @@ async function openFiles(files) {
       try {
         const project = projectFromJson(await f.text());
         if (!(await dropUnsent('Opening'))) return;
-        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly, held: project.held, base: project.base, whole: true }, f.name);
+        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly, held: project.held, base: project.base, tracks: project.tracks, whole: true }, f.name);
         return status(`Opened ${f.name}`);
       } catch (e) {
         return status(`${f.name}: ${e.message}`, true);
@@ -739,7 +754,7 @@ async function getController(id) {
     if (id === 'bcr32') {
       status('Reading the BCR32…');
       sawBcr32(await readImage(c.device));
-      if (hasTracks(c.info)) state.bcr32.tracks = parseTracks(Uint8Array.from([...await c.device.read(0, 256, TRACKS_SPACE), ...await c.device.read(256, 16, TRACKS_SPACE)]));
+      if (hasTracks(c.info)) await readTracks(c.device);
       return bcr32Unstored() ? 'BCR32: Night Shift’s knobs not stored' : 'BCR32 read';
     }
     status(`Reading EC4 setup ${SETUP + 1}…`);
@@ -1758,20 +1773,50 @@ function bcr32Unstored() {
 
 const bcrCc14 = new Cc14();
 
+// The BCR32's tracks (Rotary Club 0.29 on), read: { version, counter, tracks, bytes }.
+async function readTracks(device) {
+  const bytes = Uint8Array.from([...await device.read(0, 256, TRACKS_SPACE), ...await device.read(256, TRACKS_LEN - 256, TRACKS_SPACE)]);
+  state.bcr32.tracks = { ...parseTracks(bytes), bytes };
+}
+
+// `35 counter`: a track changed at the unit; read them again once it settles (it says so at most once a second).
+let tracksTimer = null;
+function onBcr32Sysex(bytes) {
+  if (unframe(bytes)?.cmd !== TRACKS_CHANGED) return;
+  clearTimeout(tracksTimer);
+  tracksTimer = setTimeout(async () => {
+    const link = state.bcr32.link;
+    if (!link || state.busy) return;
+    try {
+      await readTracks(link.device);
+      status('BCR32 tracks read again');
+      update();
+    } catch (e) {
+      status(`BCR32 tracks: ${e.message}`, true);
+    }
+  }, 300);
+}
+
 async function linkBcr32() {
   if (state.bcr32.link || state.bcr32.linking || !hasController(state.hardware, 'bcr32')) return;
   state.bcr32.linking = true;
   try {
     const pair = await bcr32Port();
     if (!pair) return;
-    const { device, info } = await openBcr32(pair, onBcr32Midi);
+    const { device, info } = await openBcr32(pair, onBcr32Midi, undefined, onBcr32Sysex);
     const link = new Bcr32Link(device, info);
     link.addEventListener('state', (e) => onBcr32State(e.detail));
     link.addEventListener('touch', (e) => onBcr32Touch(e.detail));
     state.bcr32.link = link;
     state.bcr32.note = `Rotary Club ${info.fwMajor}.${info.fwMinor}`;
     await link.start();
-    if (!state.busy) sawBcr32(await readImage(device));
+    if (!state.busy) {
+      sawBcr32(await readImage(device));
+      if (hasTracks(info)) {
+        await readTracks(device);
+        update();
+      }
+    }
   } catch (e) {
     state.bcr32.note = refused(e) ? '' : `BCR32: ${e.message}`;
     state.bcr32.link?.close();
@@ -2224,7 +2269,7 @@ document.addEventListener('keydown', (e) => {
 const kept = stored();
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');
 else if (kept) {
-  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly, held: kept.held, base: kept.base, whole: true }, 'browser');
+  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly, held: kept.held, base: kept.base, tracks: kept.tracks, whole: true }, 'browser');
   state.status = 'Last patch restored';
 }
 render();

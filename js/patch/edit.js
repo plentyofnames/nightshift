@@ -498,7 +498,7 @@ export const INPUT_USES = ['modulation', 'triggers', 'notes', 'scenes', 'afterto
 export const inputUse = (p) => (p ? INPUT_USES[p.typeIndex] ?? 'other' : 'off');
 
 // A channel nothing sends on, listens to or maps, from 16 down (the EC4's pages take theirs from 2 up).
-const quietChannel = (view) => [...Array(16).keys()].reverse().find((ch) => !view.channels[ch].senders.length && !view.channels[ch].listeners.length) ?? 15;
+const quietChannel = (view) => [...Array(16).keys()].reverse().find((ch) => !view.channels[ch].senders.length && !view.channels[ch].listeners.length && !view.channels[ch].tracks?.length) ?? 15;
 
 // The changes that make input `i` (0 X, 1 Y) do `use` ('off' or one of INPUT_USES), sending inside
 // the FH-2. Modulation gets a quiet channel and a CC there from 64 up (below 32 the FH-2 would wait

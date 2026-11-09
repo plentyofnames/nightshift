@@ -441,9 +441,9 @@ test('the tracks as Rotary Club 0.29 tells them: read, in words, and what change
   eq(first.tracks[0].m303, { slide: 0, accent: 2 });
   img.set([7, 3, 0, 1, 30, 4, 0, 0, 20, 0xfe, 128, 0], 16 + 16 * 2);
   const second = parseTracks(img);
-  eq(trackLine(second.tracks[2]), 'TR3 ch 8 Plaits → USB · α CC 30 · β PB');
+  eq(trackLine(second.tracks[2]), 'TR3 ch 8 Plaits Chords → USB · α CC 30 · β PB');
   eq(second.tracks[2].plaits, { chordCc: 20, chordTrim: -2, timbreCc: null, timbreTrim: 0 });
-  eq(trackChanges(first, second), ['TR3 ch 3 M303 → USB · α CC 74 · β CC 71  →  ch 8 Plaits → USB · α CC 30 · β PB']);
+  eq(trackChanges(first, second), ['TR3 ch 3 M303 → USB · α CC 74 · β CC 71  →  ch 8 Plaits Chords → USB · α CC 30 · β PB']);
 });
 
 test('B15: a track changed at the unit comes as 35 and reads back', async () => {

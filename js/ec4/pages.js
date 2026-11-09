@@ -209,7 +209,7 @@ function ownLayers(view, out, obj) {
     const d = o.ports.find((p) => !p.layer && !p.standby);
     const s = d && view.sources.find((x) => x.id === d.source);
     const owner = d ? out.find((x) => x.id === d.source) ?? (d.source === 'clocks' ? out.find((x) => x.id === 'clock') : null) : null;
-    const noOffset = s && replacesLevel(s, d.name);
+    const noOffset = s && (replacesLevel(s, d.name) || d.knob); // a BCR32 track's CC → CV output: its level is the track's CC
     const target = owner ?? freeObj();
     if (!target) continue; // no channel left for a CC: nothing to offer
     const digits = jackDigits(o.jack);
@@ -320,6 +320,9 @@ export function toLivePage(names, fromId, i, toId) {
 
 // The pages channel: ch 2, unless a voice, a trigger or one of the FH-2's players uses it;
 // then the first channel nothing but CC mappings uses.
+// A BCR32 track may send on one of them: a new knob never gets one of its CCs there (CcPool), and
+// derive warns about a mapping that has one. (The channel itself stays: a fresh BCR32 has a track on
+// every channel, and moving the pages would move every knob.)
 export function pagesChannels(view) {
   const ok = (c) => !c.senders.length && !c.listeners.some((l) => l.source);
   const free = view.channels.filter(ok).map((c) => c.channel);
@@ -444,6 +447,7 @@ class CcPool {
   constructor(view, channel) {
     this.channel = channel;
     this.used = new Set(view.mappings.filter((m) => m.channel === channel).map((m) => m.cc));
+    for (const t of view.channels[channel]?.tracks ?? []) t.ccs.forEach((cc) => this.used.add(cc)); // a BCR32 track sends them here
   }
   free(cc) {
     return !NEVER.has(cc) && !this.used.has(cc) && !(cc >= 32 && cc < 64 && this.used.has(cc - 32)) && !(cc < 32 && this.used.has(cc + 32));

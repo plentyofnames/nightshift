@@ -6,7 +6,7 @@
 export const TRACKS_SPACE = 3;
 export const TRACKS_LEN = 272; // two READs: 0 +256, 256 +16
 export const TRACKS_CHANGED = 0x35; // the event: 35 counter
-export const MACHINES = ['M303', 'TD-3', 'Generic', 'Plaits']; // as the setup stores them
+export const MACHINES = ['M303', 'TD-3', 'Generic', 'Plaits Chords']; // by the setup's numbers; Rotary Club calls the last Plaits (Night Shift: Plaits Chords, your call)
 export const OUTPUTS = ['USB', 'DIN A', 'DIN B'];
 export const SENDERS = ['off', 'CC', 'PC', 'AT', 'PB']; // CTRL α / β: off, a CC, program change, aftertouch, pitch bend
 
@@ -34,7 +34,7 @@ export function parseTracks(img) {
 }
 
 const sender = (s) => (s.type === 'CC' ? `CC ${s.cc}` : s.type);
-// "TR3 ch 8 Plaits → USB · α CC 30 · β PB"
+// "TR3 ch 8 Plaits Chords → USB · α CC 30 · β PB"
 export const trackLine = (t) => `TR${t.index + 1} ch ${t.channel + 1} ${t.machine} → ${t.output}${t.muted ? ' (muted)' : ''} · α ${sender(t.a)} · β ${sender(t.b)}`;
 
 // What differs between two readings, track by track, in words.

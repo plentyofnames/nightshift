@@ -4,6 +4,7 @@
 
 import { buildDump, parseDump } from '../fh2/sysex.js';
 import { validHardware } from './hardware.js';
+import { parseTracks } from '../rotary/tracks.js';
 
 export const PROJECT_VERSION = 1;
 export const PROJECT_EXTENSION = '.nightshift.json';
@@ -17,7 +18,9 @@ const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0))
 // EC4, as fingerprints (patch/gig.js), for the pre-gig checklist; `base` what the FH-2 held when Night
 // Shift last read or sent it ({ config, preset values, scene }), so Get and Send can tell its changes
 // from yours (docs/build-plan.md, "One Get and one Send").
-export function projectToJson({ config, scenes, scene, names, hardware, slots = null, scenesOnly = false, held = {}, base = null }) {
+// `tracks`: the BCR32's sequencer tracks as last read (their 272 bytes, rotary/tracks.js), so its
+// tracks show as sources without the unit.
+export function projectToJson({ config, scenes, scene, names, hardware, slots = null, scenesOnly = false, held = {}, base = null, tracks = null }) {
   return JSON.stringify({
     nightshift: PROJECT_VERSION,
     saved: new Date().toISOString(),
@@ -30,6 +33,7 @@ export function projectToJson({ config, scenes, scene, names, hardware, slots = 
     slots,
     scenesOnly,
     held,
+    tracks: tracks ? toBase64(tracks) : null,
     base: base && scenes.length ? { config: toBase64(buildDump(config, base.config)), preset: base.preset ? toBase64(buildDump(scenes[0], base.preset)) : null, scene: base.scene } : null,
   }, null, 2);
 }
@@ -64,7 +68,19 @@ export function projectFromJson(text) {
     scenesOnly: j.scenesOnly === true,
     held: heldFrom(j.held),
     base: baseFrom(j.base),
+    tracks: tracksFrom(j.tracks),
   };
+}
+
+// The BCR32's tracks as kept, or null if they aren't there or don't parse.
+function tracksFrom(b) {
+  if (typeof b !== 'string') return null;
+  try {
+    const bytes = fromBase64(b);
+    return { ...parseTracks(bytes), bytes };
+  } catch {
+    return null;
+  }
 }
 
 // What the FH-2 held as last read or sent, or null if it isn't there or doesn't parse.
