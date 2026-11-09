@@ -392,3 +392,89 @@ test('the BCR32 tab names what a control sends as Rotary Club 0.28 does, not in 
   eq(pushSummary(push(R.PT.MAX), true), 'off', 'a key takes no Max');
   eq([modeShort('Div8'), modeFull('Acc1'), modeFull('LSp6')], ['÷8', 'Acceleration low', 'Steps of 6']);
 });
+
+// ---- the checks page's B9 and B15 (rotary/checks.js), against a stand-in unit
+
+const { parseTracks, trackLine, trackChanges } = await import('../js/rotary/tracks.js');
+const { rcStored, rcTracks } = await import('../js/rotary/checks.js');
+const P = await import('../vendor/eyeofprovidence/js/proto.js');
+
+function tracksImage() {
+  const img = new Uint8Array(272).fill(0xff);
+  img.set([1, 16, 16, 0], 0);
+  for (let t = 0; t < 16; t++) img.set([t, 0, 0, 1, 74, 1, 71, 0, 20, 0, 21, 0, 0, 2, 0xff, 0xff], 16 + 16 * t);
+  return img;
+}
+// answers IDENTIFY and READ from `spaces`; `answers` play the person at the unit, in turn
+function standIn(spaces, answers) {
+  const listeners = new Set();
+  const out = (bytes) => setTimeout(() => [...listeners].forEach((f) => f(bytes)), 0);
+  const rig = {
+    log: () => {}, wait: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
+    ask: async (text, options) => (answers.length ? answers.shift()(rig) : options[0]),
+    send(bytes) {
+      const c = P.decodeCommand(Uint8Array.from(bytes));
+      if (c.cmd === P.CMD.IDENTIFY) out(P.device.identify(1, 0, 29, [0x52, 0x43]));
+      if (c.cmd === P.CMD.READ) out(P.device.readReply(c.space, c.addr, spaces[c.space].slice(c.addr, c.addr + c.len)));
+    },
+    listen: (fn) => (listeners.add(fn), () => listeners.delete(fn)),
+    next: (filter, ms) => new Promise((resolve) => {
+      const f = (m) => {
+        const r = filter(m);
+        if (r == null) return;
+        clearTimeout(t);
+        listeners.delete(f);
+        resolve(r);
+      };
+      const t = setTimeout(() => (listeners.delete(f), resolve(null)), ms);
+      listeners.add(f);
+    }),
+    emit: out,
+  };
+  return rig;
+}
+
+test('the tracks as Rotary Club 0.29 tells them: read, in words, and what changed', () => {
+  const img = tracksImage();
+  const first = parseTracks(img);
+  eq([first.version, first.tracks.length, trackLine(first.tracks[0])], [1, 16, 'TR1 ch 1 M303 → USB · α CC 74 · β CC 71']);
+  eq(first.tracks[0].m303, { slide: 0, accent: 2 });
+  img.set([7, 3, 0, 1, 30, 4, 0, 0, 20, 0xfe, 128, 0], 16 + 16 * 2);
+  const second = parseTracks(img);
+  eq(trackLine(second.tracks[2]), 'TR3 ch 8 Plaits → USB · α CC 30 · β PB');
+  eq(second.tracks[2].plaits, { chordCc: 20, chordTrim: -2, timbreCc: null, timbreTrim: 0 });
+  eq(trackChanges(first, second), ['TR3 ch 3 M303 → USB · α CC 74 · β CC 71  →  ch 8 Plaits → USB · α CC 30 · β PB']);
+});
+
+test('B15: a track changed at the unit comes as 35 and reads back', async () => {
+  const spaces = { 3: tracksImage() };
+  const rig = standIn(spaces, [(r) => {
+    spaces[3].set([7, 3], 16 + 16 * 2);
+    spaces[3][3] = 1;
+    r.emit(P.frame(0x35, [1]));
+    return 'Changed it';
+  }]);
+  const res = await rcTracks(rig);
+  eq(res.summary, '16 tracks read; the change came as 35 1, 1 track differ');
+});
+
+test('B9: only Night Shift’s bytes change with its Send, and they are kept through a power cycle', async () => {
+  const p = fresh();
+  put(p, 'lfo:4', 0, 0);
+  const before = othersImage();
+  const spaces = { 2: Uint8Array.from(before) };
+  let held = emptyHeld();
+  const send = (also) => () => {
+    const pl = plan(spaces[2], wanted(bcrOf(p), viewOf(p), sync(p)), held);
+    spaces[2] = pl.next;
+    if (also) spaces[2][R.cellAddr(0, 4) + 8] = 0x41; // another app's knob renamed too: not Night Shift's
+    held = pl.held;
+    return 'Sent';
+  };
+  let res = await rcStored(standIn(spaces, [send(false), () => 'Done']), { heldNow: () => held });
+  eq(res.summary, 'Only Night Shift’s bytes changed; 15/15 knobs; stored: all of it after the power cycle');
+  spaces[2] = Uint8Array.from(before);
+  held = emptyHeld();
+  res = await rcStored(standIn(spaces, [send(true), () => 'Skip']), { heldNow: () => held });
+  eq(res.summary.startsWith('Something else changed'), true, res.summary);
+});

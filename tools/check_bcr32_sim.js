@@ -19,7 +19,8 @@ import { wanted, plan, writePlan, readImage, emptyHeld, editsFor, knobBytes } fr
 import { Bcr32Link } from '../js/rotary/link.js';
 import * as R from '../vendor/eyeofprovidence/js/model.js';
 import { Device } from '../vendor/eyeofprovidence/js/device.js';
-import { host } from '../vendor/eyeofprovidence/js/proto.js';
+import { host, unframe } from '../vendor/eyeofprovidence/js/proto.js';
+import { parseTracks, trackLine, hasTracks, TRACKS_SPACE } from '../js/rotary/tracks.js';
 
 const simPath = Deno.args[0];
 if (!simPath) {
@@ -217,6 +218,26 @@ link.addEventListener('state', (e) => state.push(e.detail));
 await transport.panel('MODE 0');
 await dev.getState();
 check(!link.controller && state.some((s) => s.mode === 0), 'MODE 0: the sequencer shows', state);
+
+// ---- the tracks (Rotary Club 0.29 on): read as Night Shift reads them; a change sends 35
+if (hasTracks(info)) {
+  const read = async () => parseTracks(Uint8Array.from([...await dev.read(0, 256, TRACKS_SPACE), ...await dev.read(256, 16, TRACKS_SPACE)]));
+  const first = await read();
+  check(first.tracks.length === 16 && trackLine(first.tracks[0]) === 'TR1 ch 1 M303 → USB · α CC 74 · β CC 71', 'space 3: 16 tracks, a fresh unit’s', trackLine(first.tracks[0]));
+  const events = [];
+  const was = transport.onmessage;
+  transport.onmessage = (b) => {
+    const fr = unframe(b);
+    if (fr?.cmd === 0x35) events.push(fr.body[0]);
+    was(b);
+  };
+  await transport.panel('TRACK 2 7 3 0 1 30 4 0 0 0 128 0');
+  for (let k = 0; k < 5 && !events.length; k++) await transport.panel('SCREEN');
+  const second = await read();
+  transport.onmessage = was;
+  check(events.length === 1 && second.counter === first.counter + 1, 'a track changed: one 35, the counter up', [events, second.counter]);
+  check(trackLine(second.tracks[2]) === 'TR3 ch 8 Plaits → USB · α CC 30 · β PB' && second.tracks[2].plaits.timbreCc === null, 'it reads back: Plaits on ch 8, no TIMBRE CC', trackLine(second.tracks[2]));
+}
 
 await writer.close();
 await sim.status;

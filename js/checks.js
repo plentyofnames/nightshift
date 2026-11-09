@@ -7,6 +7,7 @@
 import { h, $, replace } from '../vendor/lilypad/js/dom.js';
 import { midiTransport, midiAccess } from '../vendor/lilypad/js/midi.js';
 import { bcrIdentify, bcr14bit, bcrRelative, bcrRings, bcr14Rings, bcrPreset } from './bcr32/checks.js';
+import { rcStored, rcTracks } from './rotary/checks.js';
 import { Fh2 } from './fh2/client.js';
 import { fh2Ports, looksLikeFh2 } from './ui/connect.js';
 import { check17, check18, check19, check23, sceneReload, checkSteps, checkBanks, checkNoteBank, checkDrumBank, checkPlay, checkOrders, checkTuning, checkTuningSlots, CHECKS_BUSY_KEY as BUSY_KEY } from './fh2/checks.js';
@@ -66,7 +67,7 @@ const CHECKS = [
   { id: 'T2', tuning: true, title: 'Scala slots', question: 'With ordinary scale files, which slot does each .scl / .kbm number reach, and did T1’s kind of map cause its Scala Error?',
     before: ['Replaces .scl and .kbm slots 1, 2 and 32: the FH-2 can’t say what’s there now.', 'A voice outside your rack plays a note per number; leave the FH-2 on its overview.'],
     run: checkTuningSlots },
-  // the BCR32 on its first day (build plan, M4): nothing is written to it
+  // the BCR32 on its first day, on the stock firmware (build plan, M4): nothing is written to it
   { id: 'B1', bcr: true, title: 'Firmware and ports', question: 'Which firmware does it run, and which MIDI ports does it show?',
     before: ['BCR32 on the Mac over USB.'], run: bcrIdentify },
   { id: 'B2', bcr: true, title: '14-bit order', question: 'With a knob on absolute 14-bit, which half of the CC pair comes first?',
@@ -83,6 +84,22 @@ const CHECKS = [
     before: ['Give a knob the channel and CC of a knob on an EC4 page: the FH-2 maps that one.'], manual: ['Reacts', 'Nothing'] },
   { id: 'B8', bcr: true, title: '14-bit rings', question: 'When a 14-bit knob’s pair comes in, does its ring move, and does turning go on from there?',
     before: ['A knob on absolute 14-bit on a CC below 32, its LED ring on.', 'Not on the sequencer’s remote channel.'], run: bcr14Rings },
+  // the BCR32 with Rotary Club and Night Shift's BCR32 tab (build plan: B9–B14, and the tracks of 0.29)
+  { id: 'B9', rc: true, title: 'Send beside other knobs', question: 'Does Send to BCR32 change only Night Shift’s knobs, ask before writing over another’s, and keep them after a power cycle?',
+    before: ['BCR32 on the Mac; Night Shift open in another tab, the BCR32 linked there; Eye of Providence closed.', 'Another app’s knobs and a key on the unit, and a Night Shift setting on one of those knobs (Send should ask).', 'Reads only: Night Shift’s tab does the writing.'],
+    run: rcStored },
+  { id: 'B10', rc: true, title: 'The live link', question: 'Does the BCR32’s page follow what you select and back, a touched knob select its setting, the values show in FH-2 units, the knobs start where the FH-2 is?',
+    before: ['FH-2 and BCR32 on the Mac, Night Shift’s knobs stored on the BCR32, the controller showing.'], manual: ['All of it', 'Some of it', 'None'] },
+  { id: 'B11', rc: true, title: 'Thru', question: 'With Thru on in the BCR32 tab, do Night Shift’s knobs reach the FH-2, and nothing else (other knobs, keys, the tracks’ notes)?',
+    before: ['A track playing; Logic not passing the BCR32 on.'], manual: ['Only its knobs', 'Other MIDI too', 'Nothing'] },
+  { id: 'B12', rc: true, title: 'Knob feel', question: 'Does a knob turn as far per setting as on the EC4 (a slow, a stepped and a 14-bit one)?',
+    before: ['The same settings on both controllers.'], manual: ['Same', 'Different'] },
+  { id: 'B13', rc: true, title: 'Without the computer', question: 'On the FH-2’s USB A, does the BCR32 take the FH-2’s values by itself (within 10 s, and after a scene’s program change) and show them in FH-2 units?',
+    before: ['Night Shift’s knobs stored on the BCR32, then the BCR32 on the FH-2’s USB A.'], manual: ['Yes', 'Only some', 'No'] },
+  { id: 'B14', rc: true, title: 'A page without USB', question: 'With a page’s outputs on DIN only (Eye of Providence), does the BCR32 tab warn, and do Night Shift’s knobs there stay away from the FH-2?',
+    before: ['Night Shift’s knobs on that page.'], manual: ['Warns, nothing arrives', 'Something else'] },
+  { id: 'B15', rc: true, title: 'The tracks', question: 'Does Rotary Club tell its 16 tracks, and does a change at the unit come through?',
+    before: ['BCR32 on the Mac, Rotary Club 0.29 or later.', 'Reads only: nothing is written.'], run: rcTracks },
 ];
 
 const state = { running: null, log: [], results: load(RESULTS_KEY) ?? {}, failed: {}, port: '', error: '', asking: null }; // failed: a check's last stop, with its log, until it runs again
@@ -177,7 +194,7 @@ async function runCheck(c) {
   state.running = c.id;
   state.log = [];
   state.error = '';
-  if (c.bcr) return runBcrCheck(c);
+  if (c.bcr || c.rc) return runBcrCheck(c);
   const busy = setInterval(() => markBusy(true), 1000);
   markBusy(true);
   render();
@@ -299,11 +316,12 @@ function render() {
       state.error && h('span', { class: 'status' }, state.error),
       h('button', { type: 'button', class: 'btn', onclick: copy }, 'Copy results'),
       h('a', { class: 'btn', href: 'index.html' }, 'Night Shift')),
-    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig && !c.bcr && !c.steps && !c.tuning).map(card),
+    h('main', { class: 'checks' }, CHECKS.filter((c) => !c.gig && !c.bcr && !c.rc && !c.steps && !c.tuning).map(card),
       h('h2', { class: 'checks-head' }, 'For the step editor'), CHECKS.filter((c) => c.steps).map(card),
       h('h2', { class: 'checks-head' }, 'For tunings'), CHECKS.filter((c) => c.tuning).map(card),
       h('h2', { class: 'checks-head' }, 'Before a gig'), CHECKS.filter((c) => c.gig).map(card),
-      h('h2', { class: 'checks-head' }, 'BCR32, day one'), CHECKS.filter((c) => c.bcr).map(card),
+      h('h2', { class: 'checks-head' }, 'BCR32 with Rotary Club'), CHECKS.filter((c) => c.rc).map(card),
+      h('h2', { class: 'checks-head' }, 'BCR32, day one (stock firmware)'), CHECKS.filter((c) => c.bcr).map(card),
       h('section', { class: 'check-card' }, h('h2', {}, 'Results'), h('pre', { class: 'log' }, resultsText()))));
 }
 
