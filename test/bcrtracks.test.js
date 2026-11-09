@@ -10,6 +10,7 @@ import { reachesFh2, trackValues, firstValues, trackPlan, trackEdits, trackLayou
 import { mappingsOf } from '../js/patch/mappings.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { pagesOf, ccsFor } from '../js/ec4/pages.js';
+import { parseTracks, trackLine } from '../js/rotary/tracks.js';
 
 const track = (index, machine, { channel = index, output = 'USB', a = { type: 'CC', cc: 74 }, b = { type: 'CC', cc: 71 } } = {}) => ({
   index, channel, machine, output, a, b, muted: false,
@@ -28,6 +29,17 @@ test('only M303, Plaits Chords and Generic tracks on USB reach the FH-2 (your ca
   assert(reachesFh2(track(2, 'Generic')));
   assert(!reachesFh2(track(3, 'TD-3')), 'TD-3');
   assert(!reachesFh2(track(4, 'Generic', { output: 'DIN A' })), 'a TX81Z on DIN');
+  assert(!reachesFh2(track(5, 'Off')), 'off (Rotary Club 0.30, a fresh unit’s tracks)');
+});
+
+test('a track whose machine is off (4, Rotary Club 0.30) reads as Off, and neither shows nor counts on the FH-2', () => {
+  const bytes = new Uint8Array(272);
+  bytes.set([1, 16, 16, 1]);
+  for (let t = 0; t < 16; t++) bytes.set([t, 4, 0, 1, 74, 1, 71, 0, 20, 0, 21, 0, 0, 2], 16 + 16 * t);
+  const tracks = parseTracks(bytes).tracks;
+  eq(trackLine(tracks[1]), 'TR2 ch 2 Off → USB · α CC 74 · β CC 71');
+  const v = view(blank(), tracks);
+  eq(v.channels.map((c) => c.tracks.length), Array(16).fill(0), 'no channel has a track');
 });
 
 test('each machine offers its values, and starts with yours', () => {

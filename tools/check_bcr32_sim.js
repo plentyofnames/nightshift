@@ -223,7 +223,8 @@ check(!link.controller && state.some((s) => s.mode === 0), 'MODE 0: the sequence
 if (hasTracks(info)) {
   const read = async () => parseTracks(Uint8Array.from([...await dev.read(0, 256, TRACKS_SPACE), ...await dev.read(256, 16, TRACKS_SPACE)]));
   const first = await read();
-  check(first.tracks.length === 16 && trackLine(first.tracks[0]) === 'TR1 ch 1 M303 → USB · α CC 74 · β CC 71', 'space 3: 16 tracks, a fresh unit’s', trackLine(first.tracks[0]));
+  const fresh = info.fwMajor > 0 || info.fwMinor >= 30 ? 'Off' : 'M303'; // 0.30 on: a fresh unit's tracks are off
+  check(first.tracks.length === 16 && trackLine(first.tracks[0]) === `TR1 ch 1 ${fresh} → USB · α CC 74 · β CC 71`, `space 3: 16 tracks, a fresh unit’s (${fresh})`, trackLine(first.tracks[0]));
   const events = [];
   const was = transport.onmessage;
   transport.onmessage = (b) => {

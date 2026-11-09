@@ -6,7 +6,8 @@
 export const TRACKS_SPACE = 3;
 export const TRACKS_LEN = 272; // two READs: 0 +256, 256 +16
 export const TRACKS_CHANGED = 0x35; // the event: 35 counter
-export const MACHINES = ['M303', 'TD-3', 'Generic', 'Plaits Chords']; // by the setup's numbers; Rotary Club calls the last Plaits (Night Shift: Plaits Chords, your call)
+// By the setup's numbers. Off (0.30 on: sends nothing, the fresh unit's) never reaches the FH-2, nor the TD-3 (patch/bcrtracks.js).
+export const MACHINES = ['M303', 'TD-3', 'Generic', 'Plaits Chords', 'Off'];
 export const OUTPUTS = ['USB', 'DIN A', 'DIN B'];
 export const SENDERS = ['off', 'CC', 'PC', 'AT', 'PB']; // CTRL α / β: off, a CC, program change, aftertouch, pitch bend
 
