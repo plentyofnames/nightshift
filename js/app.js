@@ -17,8 +17,8 @@ import { renderInspector } from './ui/inspector.js';
 import { renderMidiMap } from './ui/midimap.js';
 import { addToJack } from './ui/add.js';
 import { setUpPlayerDialog } from './ui/players.js';
-import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, loadFh2Calibration, setFh2StartupCalibration, withFh2Client, ec4Port, withEc4,
-  openEc4, watchEc4, fh2Output, pullPresetFromFh2, bcr32Port, withBcr32, openBcr32, watchBcr32 } from './ui/connect.js';
+import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToFlash, watchFh2, readFh2Settings, readFh2Calibrations, loadFh2Calibration, setFh2StartupCalibration, withFh2Client, ec4Port,
+  openEc4, watchEc4, fh2Output, pullPresetFromFh2, bcr32Port, openBcr32, watchBcr32 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
 import { renderGig } from './ui/gig.js';
@@ -31,6 +31,8 @@ import { bcrPagesOf, putObject, switchOn as bcrOn, switchOff as bcrOff, placeKno
   choicesFor as bcrChoices, halfChoices, freeHalf, pageOfObject, pageNameKey as bcrNameKey, knobOf, halfOf, KNOBS as BCR_KNOBS } from './rotary/pages.js';
 import { wanted, plan, writePlan, storeImage, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, pageOnBcr32, editsFor, wantedFingerprint } from './rotary/image.js';
 import { midiPermission } from '../vendor/lilypad/js/midi.js';
+import { mergeFromModule, changedOutside, placesText } from './patch/sync.js';
+import { parseTracks, hasTracks, TRACKS_SPACE } from './rotary/tracks.js';
 import { Bcr32Link } from './rotary/link.js';
 import { renderBcr32 } from './ui/bcr32.js';
 import { readRecord } from '../vendor/eyeofprovidence/js/model.js';
@@ -96,7 +98,8 @@ const state = {
   from: '',
   hardware: loadHardware(),
   history: new History(),
-  module: null, // the values the FH-2 holds, as last read or sent: { config, preset, scene (yours it came from) }, or null
+  module: null, // the values the FH-2 holds, as last read (also in the background) or sent: { config, preset }, or null
+  base: null, // what the FH-2 held when Get or Send last read or sent it: { config, preset, scene }; kept with the patch
   link: 'unknown', // 'connecting', 'connected', 'offline' (no FH-2 port), 'silent' (a port, no answer), 'blocked' (MIDI denied) or 'no-midi' (no Web MIDI)
   port: '',
   fh2Settings: storedSettings(), // { at, port, pages } as last read from the module's menus, or null
@@ -112,7 +115,7 @@ const state = {
   ec4: { sel: null, note: '', link: null, thru: loadThru(), stored: false }, // the EC4 tab's knob in view ({ page, knob }), a line on
   // the EC4, the live link (ec4/link.js) while the EC4 is connected, and Night Shift's thru (EC4 → FH-2)
   ec4Model: null, // the EC4 pages (ec4/pages.js pagesOf), recomputed with the view
-  bcr32: { sel: { page: 0, knob: null }, note: '', link: null, linking: false, thru: loadThru(BCR_THRU_KEY), image: null, held: loadHeld() }, // the BCR32
+  bcr32: { sel: { page: 0, knob: null }, note: '', link: null, linking: false, thru: loadThru(BCR_THRU_KEY), image: null, held: loadHeld(), tracks: null }, // the BCR32
   // tab's place in view, a line on it, the live link (rotary/link.js), the thru, its image as last read and what Night Shift holds on it
   bcrModel: null, // the BCR32's pages (rotary/pages.js bcrPagesOf), recomputed with the view
   bcrDevice: null, // what the BCR32 holds besides: { foreign (other apps' knobs), pages (names, keys) }, from its image
@@ -171,7 +174,7 @@ function syncOf() {
 
 // ---- the patch kept in this browser (not the example, which would replace yours)
 
-const project = () => ({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware,
+const project = () => ({ config: state.config, scenes: state.scenes, scene: state.scene, names: state.names, hardware: state.hardware, base: state.base,
   slots: state.slots, scenesOnly: state.scenesOnly, held: state.held });
 const fp = (dump) => fingerprint(buildDump(dump));
 
@@ -220,8 +223,9 @@ function update() {
 // `presets` become the scenes (`scene` the one in view); a single `preset` is one scene. A
 // project (`whole`) brings its scenes even when it has none. What the FH-2 holds stays as it is:
 // the mark compares the new patch with it.
-function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly, held, whole = false }, from) {
+function load({ config, preset, presets, scene = 0, names, hardware, slots, scenesOnly, held, whole = false, base = null }, from) {
   if (config) state.config = config;
+  if (config) state.base = base; // what the FH-2 held for this patch, if it says
   state.held = held ?? (config ? {} : state.held);
   const scenes = whole ? presets ?? [] : presets?.length ? presets : preset ? [preset] : null;
   if (scenes) {
@@ -521,7 +525,7 @@ async function openFiles(files) {
       try {
         const project = projectFromJson(await f.text());
         if (!(await dropUnsent('Opening'))) return;
-        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly, held: project.held, whole: true }, f.name);
+        load({ config: project.config, presets: project.scenes, scene: project.scene, names: project.names, hardware: project.hardware, slots: project.slots, scenesOnly: project.scenesOnly, held: project.held, base: project.base, whole: true }, f.name);
         return status(`Opened ${f.name}`);
       } catch (e) {
         return status(`${f.name}: ${e.message}`, true);
@@ -626,37 +630,299 @@ async function withFh2(work) {
   }
 }
 
-// Get from FH-2: the module's config and preset become what you see, in the scene in view.
-// It's an edit of the fields that differ, so undo takes you back.
+// ---- one Get and one Send, for the FH-2 and the controllers switched on (docs/build-plan.md, "One
+// Get and one Send", your design 2026-11-09). Every device there is read first; Send then asks what
+// needs asking, and only then writes. A device that isn't there is skipped, and the status says so.
 
-function get() {
-  return withFh2(async (pair) => {
-    status(`Reading ${pair.name}…`);
-    const r = await pullFromFh2(pair);
-    readModule(r);
-    Object.assign(state, { link: 'connected', port: pair.name });
-    const odd = r.config.versionOk ? '' : ' · unexpected config version';
-    if (!state.config || !state.preset) {
-      load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
-      return status(`Got the patch from ${pair.name}${odd}`, !!odd);
+const controllerOn = (id) => hasController(state.hardware, id);
+const layoutOf = (d) => DUMPS[d.cmd].layout;
+
+// The FH-2 for Get and Send: a port named like it, or the one you picked once; no question here.
+async function fh2ForAll() {
+  const pairs = await fh2Ports();
+  return pairs.find(looksLikeFh2) ?? pairs.find((p) => p.name === storedPort()) ?? null;
+}
+
+// A controller for the length of a Get or Send: its live link's device, else its port opened now.
+async function openController(id) {
+  const link = id === 'ec4' ? state.ec4.link : state.bcr32.link;
+  if (link) return { device: link.device, info: link.info, link, close: () => {} };
+  const pair = await (id === 'ec4' ? ec4Port() : bcr32Port());
+  if (!pair) return null;
+  const { device, info } = await (id === 'ec4' ? openEc4(pair, () => {}) : openBcr32(pair, () => {}));
+  return { device, info, link: null, close: () => device.close() };
+}
+const controllerName = (id) => (id === 'ec4' ? 'EC4' : 'BCR32');
+
+// Get: the FH-2's patch into what you see (your unsent edits stay), and the controllers' state.
+async function get() {
+  if (state.busy) return status('Busy…', true);
+  state.busy = true;
+  const said = [];
+  let warn = false;
+  try {
+    const pair = await fh2ForAll();
+    said.push(pair ? await getFh2(pair) : 'FH-2 not connected');
+    for (const id of ['bcr32', 'ec4']) {
+      if (!controllerOn(id)) continue;
+      try {
+        said.push(await getController(id));
+      } catch (e) {
+        warn = true;
+        said.push(`${controllerName(id)}: ${midiProblem(e) ?? e.message}`);
+      }
     }
-    if (state.from === 'example') state.from = `${pair.name}, ${r.version}`; // the module's patch in the example's place: yours now, so kept
-    // the FH-2 holds another of your scenes: show it, rather than copy it into this one
-    const same = (d, v) => diff(DUMPS[d.cmd].layout, d.values, v).length === 0;
-    const other = same(state.config, r.config.values) && !same(state.preset, r.preset.values) ? state.scenes.findIndex((x) => same(x, r.preset.values)) : -1;
-    if (other >= 0) {
-      state.scene = other;
-      state.preset = state.scenes[other];
-      update();
-      return status(`Scene ${sceneName(other)} is on ${pair.name}`);
+  } catch (e) {
+    warn = true;
+    said.push(midiProblem(e) ?? `The FH-2 didn’t answer: ${e.message}`);
+  } finally {
+    state.busy = false;
+  }
+  status(said.filter(Boolean).join(' · '), warn);
+  showOnEc4();
+  showOnBcr32();
+}
+
+// The FH-2's changes since Night Shift last read or sent it come in as one undoable step; edits made
+// here and not sent stay, also where the module changed the same field (named in the status).
+async function getFh2(pair) {
+  status(`Reading ${pair.name}…`);
+  const r = await pullFromFh2(pair);
+  readModule(r);
+  Object.assign(state, { link: 'connected', port: pair.name });
+  const theirs = { config: r.config.values, preset: r.preset.values };
+  const odd = r.config.versionOk ? '' : ' (unexpected config version)';
+  if (!state.config || !state.preset) {
+    load({ config: r.config, preset: r.preset }, `${pair.name}, ${r.version}`);
+    state.base = { ...structuredClone(theirs), scene: 0 };
+    store();
+    return `Got the patch from the FH-2${odd}`;
+  }
+  if (state.from === 'example') state.from = `${pair.name}, ${r.version}`; // the module's patch in the example's place: yours now, so kept
+  // the FH-2 holds another of your scenes: show it, rather than copy it into this one
+  const same = (d, v) => diff(layoutOf(d), d.values, v).length === 0;
+  const other = same(state.config, theirs.config) && !same(state.preset, theirs.preset) ? state.scenes.findIndex((x) => same(x, theirs.preset)) : -1;
+  if (other >= 0) {
+    state.scene = other;
+    state.preset = state.scenes[other];
+    state.base = { ...structuredClone(theirs), scene: other };
+    update();
+    return `Scene ${sceneName(other)} is on the FH-2`;
+  }
+  // with no record of what the FH-2 held (a file, another browser), the module's patch is taken whole
+  const merge = (d, base, v) => (base ? mergeFromModule(layoutOf(d), base, d.values, v)
+    : { take: diff(layoutOf(d), d.values, v).map((x) => ({ path: x.path, value: x.to })), kept: [] });
+  const c = merge(state.config, state.base?.config, theirs.config);
+  const p = merge(state.preset, state.base?.scene === state.scene ? state.base.preset : null, theirs.preset);
+  state.base = { ...structuredClone(theirs), scene: state.scene };
+  const changes = [...c.take.map((x) => ({ dump: 'config', ...x })), ...p.take.map((x) => ({ dump: 'preset', ...x }))];
+  const kept = [...c.kept, ...p.kept];
+  const keptText = kept.length ? ` · yours kept: ${placesText(kept)}` : '';
+  if (!changes.length) {
+    update();
+    return `FH-2: nothing new${keptText}`;
+  }
+  edit(`Got from the FH-2${state.scenes.length > 1 ? ` into scene ${sceneName(state.scene)}` : ''}`, changes, { force: true });
+  return `Got from the FH-2${odd}${keptText}`;
+}
+
+// A controller's state read: the BCR32's image (other apps' knobs, the pages' names and outputs)
+// and its tracks; whether EC4 setup 15 holds Night Shift's pages. Nothing changes on either.
+async function getController(id) {
+  const c = await openController(id);
+  if (!c) return `${controllerName(id)} not connected`;
+  try {
+    if (id === 'bcr32') {
+      status('Reading the BCR32…');
+      sawBcr32(await readImage(c.device));
+      if (hasTracks(c.info)) state.bcr32.tracks = parseTracks(Uint8Array.from([...await c.device.read(0, 256, TRACKS_SPACE), ...await c.device.read(256, 16, TRACKS_SPACE)]));
+      return bcr32Unstored() ? 'BCR32: Night Shift’s knobs not stored' : 'BCR32 read';
     }
-    const changes = [...changesTowards('config', state.config, r.config.values), ...changesTowards('preset', state.preset, r.preset.values)];
-    if (!changes.length) {
-      update();
-      return status(`Already the same as ${pair.name}`);
+    status(`Reading EC4 setup ${SETUP + 1}…`);
+    const model = state.ec4Model;
+    const base = await readSetup(c.device);
+    const sync = syncFor(c.info);
+    const stored = !writesFor(setupImage(base, model.pages, state.view, model.channel, sync), base).length;
+    if (stored) heldOnEc4(model, sync, c.info);
+    const now = setupState(base);
+    return stored ? 'EC4 read' : now.ours || now.free ? 'EC4: pages not stored' : `EC4 setup ${SETUP + 1} holds “${now.name.trim()}”`;
+  } finally {
+    c.close();
+  }
+}
+
+function heldOnEc4(model, sync, info) {
+  state.held = { ...state.held, ec4: { at: new Date().toISOString(), fp: pagesFingerprint(model.pages, state.view, model.channel, sync), fw: [info.fwMajor, info.fwMinor] } };
+  state.ec4.stored = true; // the EC4's EEPROM is known from here on
+  store();
+}
+
+// Send: every device read first; asked where the FH-2's config changed outside since Night Shift last
+// read or sent it (its preset is overwritten silently), where another app's knob is in the BCR32's way,
+// and where EC4 setup 15 holds someone else's; then what you see to the FH-2's RAM and Night Shift's
+// knobs to the controllers (only its own; never their other knobs, keys or sequencer).
+async function send() {
+  if (state.busy) return status('Busy…', true);
+  state.busy = true;
+  const opened = [];
+  const said = [];
+  let warn = false;
+  try {
+    const pair = state.config ? await fh2ForAll() : null;
+    let module = null;
+    if (pair) {
+      status(`Reading ${pair.name}…`);
+      module = await pullFromFh2(pair);
+      readModule(module);
+      Object.assign(state, { link: 'connected', port: pair.name });
+    } else if (state.config) said.push('FH-2 not connected');
+    const bcr = controllerOn('bcr32') ? await readBcr32ForSend(opened, said) : null;
+    const ec4 = controllerOn('ec4') ? await readEc4ForSend(opened, said) : null;
+    // what needs asking, before anything is written
+    if (module && state.base) {
+      const outside = changedOutside(layoutOf(state.config), state.base.config, state.config.values, module.config.values);
+      if (outside.length && !await modal($('dialog'), {
+        title: 'The FH-2’s config changed',
+        body: h('p', { class: 'note' }, `Since Night Shift last read or sent it: ${placesText(outside.map((d) => d.path))}. Send replaces it.`),
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Send anyway', value: true, primary: true }],
+      })) return status('Nothing sent');
     }
-    edit(`Got the patch from ${pair.name}${state.scenes.length > 1 ? ` into scene ${sceneName(state.scene)}` : ''}`, changes, { force: true });
+    if (bcr?.pl.conflicts.length) {
+      const answer = await askBcr32(bcr.pl);
+      if (!answer) return status('Nothing sent');
+      if (answer === 'over') bcr.pl = plan(bcr.img, bcr.want, state.bcr32.held, { over: new Set(bcr.pl.conflicts.map((c) => (c.i != null ? `${c.p}:${c.i}` : `name:${c.p}`))) });
+    }
+    if (ec4?.foreign && !await askEc4(ec4)) return status('Nothing sent');
+    // written
+    if (module) {
+      const r = await sendFh2(pair);
+      said.unshift(r.text);
+      warn ||= !!r.warn;
+    }
+    for (const [id, part, write] of [['bcr32', bcr, writeBcr32], ['ec4', ec4, writeEc4]]) {
+      if (!part) continue;
+      try {
+        said.push(await write(part));
+      } catch (e) {
+        warn = true;
+        // Rotary Club 0.24 on: RELOAD answers an error when the BCR32 uses the image but couldn't keep it
+        said.push(id === 'bcr32' && e.cmd === 0x24 && e.code != null ? 'BCR32 plays the knobs but couldn’t keep them: Send again'
+          : `${controllerName(id)}: ${midiProblem(e) ?? e.message}`);
+      }
+    }
+  } catch (e) {
+    warn = true;
+    said.push(midiProblem(e) ?? `Send stopped: ${e.message}`);
+  } finally {
+    opened.forEach((c) => c.close());
+    state.busy = false;
+    render();
+  }
+  status(said.filter(Boolean).join(' · ') || 'Nothing to send', warn);
+  showOnEc4();
+  showOnBcr32();
+}
+
+async function sendFh2(pair) {
+  status(`Sending to ${pair.name}…`);
+  const r = await sendToFh2(pair, patch());
+  const off = offText(r.off);
+  if (off) {
+    state.module = null;
+    update();
+    return { text: off, warn: true };
+  }
+  state.module = { ...r.sent };
+  state.base = { ...structuredClone(r.sent), scene: state.scene }; // what the FH-2 holds now, kept with the patch
+  update();
+  return { text: 'Sent to the FH-2' };
+}
+
+// The BCR32 read for a Send, and Night Shift's knobs planned against it; null when it has nothing of
+// Night Shift's to write or take off, or isn't there (said).
+async function readBcr32ForSend(opened, said) {
+  const model = bcrModel();
+  if (model.unmapped.length) return said.push('BCR32: give every knob a CC first'), null;
+  if (!model.count && !state.bcr32.held.knobs.size) return null;
+  try {
+    const c = await openController('bcr32');
+    if (!c) return said.push('BCR32 not connected'), null;
+    opened.push(c);
+    status('Reading the BCR32…');
+    const img = await readImage(c.device);
+    sawBcr32(img);
+    const want = wanted(model, state.view, bcrSync());
+    return { c, img, want, pl: plan(img, want, state.bcr32.held) };
+  } catch (e) {
+    return said.push(`BCR32: ${midiProblem(e) ?? e.message}`), null;
+  }
+}
+
+function askBcr32(pl) {
+  const n = pl.conflicts.length;
+  const list = pl.conflicts.map((c) => (c.i != null ? `page ${c.p + 1} knob ${c.i + 1}: ${c.now.name || '····'} (${c.now.sends})` : `page ${c.p + 1}’s name ${c.name}`));
+  return modal($('dialog'), {
+    title: `${n} place${n === 1 ? '' : 's'} on the BCR32 hold knobs not written from this browser`,
+    body: h('p', { class: 'note' }, `${list.slice(0, 8).join('; ')}${list.length > 8 ? ` and ${list.length - 8} more` : ''}.`),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Leave them', value: 'keep' }, { label: 'Write over', value: 'over', primary: true }],
   });
+}
+
+// Night Shift's knobs to the BCR32, then RELOAD: it uses and stores them, and only then does Night Shift hold them.
+async function writeBcr32({ c, pl, want }) {
+  const left = pl.conflicts.length;
+  const leftText = left ? ` · ${left} left as they were` : '';
+  if (!pl.writes.length && sameHeld(pl.held, state.bcr32.held)) return `BCR32 has these knobs${leftText}`;
+  if (pl.writes.length) await writePlan(c.device, pl, (k, n) => status(`Writing the BCR32… ${k}/${n}`));
+  else await storeImage(c.device); // the image has them already: stored
+  state.bcr32.held = pl.held;
+  saveHeld();
+  state.held = { ...state.held, bcr32: { at: new Date().toISOString(), fp: wantedFingerprint(want) } }; // for the Gig tab
+  store();
+  sawBcr32(pl.next);
+  state.bcr32.link?.forget();
+  return `BCR32 stored${leftText}`;
+}
+
+// EC4 setup 15 read for a Send; null when Night Shift has no pages there and never had, or it isn't there (said).
+async function readEc4ForSend(opened, said) {
+  const model = ec4Model();
+  if (model.unmapped.length) return said.push('EC4: give every knob and push a CC first'), null;
+  if (!model.pages.length && !state.held.ec4) return null;
+  try {
+    const c = await openController('ec4');
+    if (!c) return said.push('EC4 not connected'), null;
+    opened.push(c);
+    status(`Reading EC4 setup ${SETUP + 1}…`);
+    const base = await readSetup(c.device, (k, n) => status(`Reading EC4 setup ${SETUP + 1}… ${Math.round((100 * k) / n)} %`));
+    const sync = syncFor(c.info);
+    const img = setupImage(base, model.pages, state.view, model.channel, sync);
+    const writes = writesFor(img, base);
+    const now = setupState(base);
+    return { c, model, base, img, sync, writes, now, foreign: writes.length > 0 && !now.ours && !now.free };
+  } catch (e) {
+    return said.push(`EC4: ${midiProblem(e) ?? e.message}`), null;
+  }
+}
+
+function askEc4({ now }) {
+  return modal($('dialog'), {
+    title: `EC4 setup ${SETUP + 1} holds “${now.name.trim()}”`,
+    body: h('p', { class: 'note' }, `Its pages: ${now.groups.slice(0, 4).map((g) => g.trim()).filter(Boolean).join(', ') || 'none named'}. Send puts Night Shift’s pages there instead; the other setups stay as they are.`),
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Write', value: true, primary: true }],
+  });
+}
+
+async function writeEc4({ c, model, base, img, sync, writes }) {
+  const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((x) => syncEntry(x, sync)).length, 0);
+  const capped = sync.format > 1 && synced > SYNC_MAX ? ` · only ${SYNC_MAX} of its knobs follow the FH-2` : '';
+  if (!writes.length) {
+    heldOnEc4(model, sync, c.info);
+    return `EC4 has these pages${capped}`;
+  }
+  await writeSetup(c.device, img, base, (k, n) => status(`Writing the EC4… ${k}/${n}`), c.link?.ours ? c.link.group : 0);
+  heldOnEc4(model, sync, c.info);
+  return `EC4 setup ${SETUP + 1} written${capped}`;
 }
 
 // Reading the FH-2 in the background, on opening and when it's plugged in: nothing you see
@@ -718,24 +984,6 @@ function offText(off) {
   const list = Object.entries(off).filter(([, d]) => d.length)
     .map(([k, d]) => `${k}: ${d.slice(0, 3).map((x) => x.path.join('.')).join(', ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`);
   return list.length ? `Sent, but the FH-2 holds something else for ${list.join('; ')}` : '';
-}
-
-function send() {
-  return withFh2(async (pair) => {
-    status(`Sending to ${pair.name}…`);
-    const scene = state.scene;
-    const r = await sendToFh2(pair, patch());
-    const off = offText(r.off);
-    if (off) {
-      state.module = null;
-      update();
-      return status(off, true);
-    }
-    state.module = { ...r.sent };
-    Object.assign(state, { link: 'connected', port: pair.name });
-    update();
-    status(`Sent to ${pair.name}`);
-  });
 }
 
 // The FH-2's own settings (its Settings menu), read by walking the menus: it moves the display
@@ -1196,55 +1444,6 @@ function bcr32Gig() {
   return { knobs: bcr.count, fp: bcr.count ? wantedFingerprint(wanted(bcr, state.view, bcrSync())) : null, noUsb };
 }
 
-async function sendEc4() {
-  const model = ec4Model();
-  if (state.busy) return status('Busy with the FH-2…', true);
-  if (model.unmapped.length) return status('Give every knob and push a CC first', true);
-  state.busy = true;
-  try {
-    const link = state.ec4.link;
-    const pair = link ? null : await ec4Port();
-    if (!link && !pair) return status('No EC4 found', true);
-    status(`Reading EC4 setup ${SETUP + 1}…`);
-    const withDevice = (work) => (link ? work(link.device, link.info) : withEc4(pair, work));
-    await withDevice(async (device, info) => {
-      if (!link) state.ec4.note = `controlfrog ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
-      const base = await readSetup(device, (k, n) => status(`Reading EC4 setup ${SETUP + 1}… ${Math.round((100 * k) / n)} %`));
-      const sync = syncFor(info);
-      const img = setupImage(base, model.pages, state.view, model.channel, sync);
-      const writes = writesFor(img, base);
-      const synced = model.pages.reduce((n, pg) => n + pg.cells.filter((c) => syncEntry(c, sync)).length, 0);
-      const sent = () => {
-        state.held = { ...state.held, ec4: { at: new Date().toISOString(), fp: pagesFingerprint(model.pages, state.view, model.channel, sync), fw: [info.fwMajor, info.fwMinor] } };
-        state.ec4.stored = true; // this session put the pages on the unit: its EEPROM is known from here on
-        store();
-      };
-      if (!writes.length) {
-        sent();
-        return status('The EC4 has these pages already');
-      }
-      const now = setupState(base);
-      const holds = now.ours ? 'Night Shift’s pages' : now.free ? 'nothing of yours' : `“${now.name.trim()}” (${now.groups.slice(0, 4).map((g) => g.trim()).join(', ')}…)`;
-      const ok = await modal($('dialog'), {
-        title: `Write the pages to EC4 setup ${SETUP + 1}?`,
-        body: h('p', { class: 'note' }, `Setup ${SETUP + 1} holds ${holds}; it is replaced. The other setups stay as they are. `
-          + `With it goes the table that lets the EC4 ask the FH-2 for its ${sync.format > 1 ? '' : '14-bit '}values (controlfrog ${sync.display ? '0.13, with their FH-2 units' : sync.format > 1 ? '0.12' : '0.11'}${synced ? `, ${synced} knob${synced === 1 ? '' : 's'}` : ', none on the pages yet'}).`
-          + (sync.format > 1 && synced > SYNC_MAX ? ` The EC4 keeps only the first ${SYNC_MAX} in step.` : '')),
-        buttons: [{ label: 'Cancel', value: false }, { label: 'Write', value: true, primary: true }],
-      });
-      if (!ok) return status('');
-      await writeSetup(device, img, base, (k, n) => status(`Writing the EC4… ${k}/${n}`), link?.ours ? link.group : 0);
-      sent();
-      status(`Pages on the EC4, setup ${SETUP + 1}`);
-    });
-  } catch (e) {
-    status(midiProblem(e) ?? `The EC4 didn’t answer: ${e.message}`, true);
-  } finally {
-    state.busy = false;
-    render();
-  }
-}
-
 // ---- the live link (ec4/link.js): the EC4 and Night Shift follow each other's page, the
 // EC4 shows values in FH-2 units, a touched knob shows its setting, and Night Shift's thru
 // passes the knobs on to the FH-2 (off while Logic does that).
@@ -1525,60 +1724,6 @@ function bcr32Unstored() {
   return unstoredFor[3];
 }
 
-// Reads the BCR32's image and writes Night Shift's knobs into it: only its own, and another app's
-// only after a yes. Then RELOAD: the BCR32 uses and stores it, and only then does Night Shift hold them.
-async function sendBcr32() {
-  if (state.busy) return status('Busy with the FH-2…', true);
-  const model = bcrModel();
-  if (model.unmapped.length) return status('Give every knob and push a CC first', true);
-  state.busy = true;
-  try {
-    const link = state.bcr32.link;
-    const pair = link ? null : await bcr32Port();
-    if (!link && !pair) return status('No BCR32 found', true);
-    status('Reading the BCR32…');
-    const withDevice = (work) => (link ? work(link.device, link.info) : withBcr32(pair, work));
-    await withDevice(async (device, info) => {
-      if (!link) state.bcr32.note = `Rotary Club ${info.fwMajor}.${info.fwMinor} on “${pair.name}”`;
-      const img = await readImage(device, (k, n) => status(`Reading the BCR32… ${Math.round((100 * k) / n)} %`));
-      sawBcr32(img);
-      const want = wanted(model, state.view, bcrSync());
-      let pl = plan(img, want, state.bcr32.held);
-      const asked = pl.conflicts.length;
-      if (asked) {
-        const list = pl.conflicts.map((c) => (c.i != null ? `page ${c.p + 1} knob ${c.i + 1}: ${c.now.name || '····'} (${c.now.sends})` : `page ${c.p + 1}’s name ${c.name}`));
-        const answer = await modal($('dialog'), {
-          title: `${asked} place${asked === 1 ? '' : 's'} hold knobs not written from this browser`,
-          body: h('p', { class: 'note' }, `${list.slice(0, 8).join('; ')}${list.length > 8 ? ` and ${list.length - 8} more` : ''}.`),
-          buttons: [{ label: 'Cancel', value: false }, { label: 'Leave them', value: 'keep' }, { label: 'Write over', value: 'over', primary: true }],
-        });
-        if (!answer) return status('');
-        if (answer === 'over') pl = plan(img, want, state.bcr32.held, { over: new Set(pl.conflicts.map((c) => (c.i != null ? `${c.p}:${c.i}` : `name:${c.p}`))) });
-      }
-      const left = pl.conflicts.length;
-      if (!pl.writes.length && sameHeld(pl.held, state.bcr32.held)) return status(left ? `Nothing to write · ${left} left as they were` : 'The BCR32 has these knobs already');
-      if (pl.writes.length) await writePlan(device, pl, (k, n) => status(`Writing the BCR32… ${k}/${n}`));
-      else await storeImage(device); // the image has them already: stored
-      state.bcr32.held = pl.held;
-      saveHeld();
-      state.held = { ...state.held, bcr32: { at: new Date().toISOString(), fp: wantedFingerprint(want) } }; // for the Gig tab
-      store();
-      sawBcr32(pl.next);
-      state.bcr32.link?.forget();
-      status(`Knobs on the BCR32${left ? ` · ${left} left as they were` : ''}`);
-    });
-  } catch (e) {
-    // Rotary Club 0.24 on: RELOAD answers an error when the BCR32 uses the image but couldn't keep it
-    const unkept = e.cmd === 0x24 && e.code != null;
-    status(midiProblem(e) ?? (unkept ? 'The BCR32 uses the knobs but couldn’t keep them (its store failed): try Send again'
-      : `The BCR32 didn’t answer: ${e.message}`), true);
-  } finally {
-    state.busy = false;
-    render();
-    showOnBcr32();
-  }
-}
-
 // ---- its live link (rotary/link.js): the BCR32 and Night Shift follow each other's page, the BCR32
 // shows values in FH-2 units and starts its knobs where the FH-2 is, a touched knob shows its setting,
 // and Night Shift's thru passes its knobs (only those) on to the FH-2.
@@ -1678,18 +1823,23 @@ function onBcr32Touch({ kind, index, page }) {
 
 // What the page in view should show: Night Shift's knobs' values as texts and as the CCs that put
 // them there, and its knobs in the BCR32's RAM until stored (EDIT). Never another app's knob.
-let bcrImageRead = null; // the read of its image after a link-up Night Shift was too busy for
+let bcrImageRead = null; // a read of its image in flight
+// The BCR32's image read again (other apps' knobs, the pages' outputs and names), when Night Shift
+// isn't busy: after a link-up it was too busy for, and whenever its tab opens, so what Eye of
+// Providence changed since shows (hardware check B14, 2026-11-09).
+function readBcr32Again() {
+  const link = state.bcr32.link;
+  if (!link || state.busy || state.bcr32.linking || bcrImageRead) return;
+  bcrImageRead = readImage(link.device).then((i) => {
+    sawBcr32(i);
+    render();
+    showOnBcr32();
+  }).catch(() => {}).finally(() => { bcrImageRead = null; });
+}
 function showOnBcr32() {
   const link = state.bcr32.link;
   const img = state.bcr32.image;
-  if (link && !img && !state.busy && !state.bcr32.linking && !bcrImageRead) {
-    bcrImageRead = readImage(link.device).then((i) => {
-      sawBcr32(i);
-      render();
-      showOnBcr32();
-    }).catch(() => {}).finally(() => { bcrImageRead = null; });
-    return;
-  }
+  if (link && !img) return readBcr32Again();
   if (!link || link.page == null || !img || !state.preset || !state.bcrModel) return;
   const p = link.page;
   const page = state.bcrModel.pages[p];
@@ -1814,6 +1964,7 @@ function select(sel) {
 // A tab; a controller's tab makes it the one the Patch tab's names act on.
 function openTab(id) {
   state.tab = id;
+  if (id === 'bcr32') readBcr32Again();
   if (id === 'ec4' || id === 'bcr32') {
     state.controller = id;
     try {
@@ -1867,8 +2018,8 @@ function bar() {
     fileMenu(v),
     h('div', { class: 'fh2-group', role: 'group', 'aria-label': 'FH-2' }, h('span', { class: 'lbl' }, 'FH-2'),
       v && state.link === 'ask' && h('button', { type: 'button', class: 'btn primary', 'data-key': 'connect', onclick: start, title: 'The browser asks to allow MIDI, then Night Shift reads the FH-2' }, 'Connect'),
-      h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, 'data-key': 'get', title: 'Get from the FH-2: its config and preset become what you see (undoable)' }, 'Get'),
-      v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send, 'data-key': 'send', title: 'Send to the FH-2: what you see goes into its memory' }, 'Send'),
+      h('button', { type: 'button', class: 'btn' + (v ? '' : ' primary'), disabled: state.busy, onclick: get, 'data-key': 'get', title: 'Get: the FH-2’s changes into what you see (yours not sent stay; undoable), and the controllers’ state' }, 'Get'),
+      v && h('button', { type: 'button', class: 'btn' + (state.unsent ? ' primary' : ''), disabled: state.busy, onclick: send, 'data-key': 'send', title: 'Send: what you see to the FH-2’s memory, Night Shift’s knobs to the controllers; asks first if something changed there' }, 'Send'),
       v && h('button', { type: 'button', class: 'btn', disabled: state.busy || state.unsent, onclick: saveFlash,
         title: state.unsent ? 'Send to the FH-2 first: saving stores what the module holds' : 'Save to flash: store what the FH-2 holds' }, 'Save')));
 }
@@ -1958,7 +2109,7 @@ function render() {
   else if (state.tab === 'midi') content = renderMidiMap(v, state.colors);
   else if (state.tab === 'ec4') content = renderEc4(v, state.ec4Model, state.colors, state.ec4.sel, {
     select: (page, knob) => { state.ec4.sel = { page, knob }; render(); followOnEc4(); },
-    pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, send: sendEc4, live: liveEc4,
+    pick: pickEc4, takeOff: takeOffEc4, off: offEc4, addPage: wholeEc4, whole: wholeEc4, map: mapEc4, live: liveEc4,
     addLive: addLiveEc4, removeLive: removeLiveEc4, move: moveEc4, toLive: toLiveEc4,
     movePage: (id, d) => edit('Page moved', movePage(state.names, ec4Model(), id, d)),
     speed: speedOf(state.names), setSpeed: (v) => edit(`Knob speed ${v}`, [speedChange(v)]),
@@ -1974,7 +2125,7 @@ function render() {
   else if (state.tab === 'bcr32') content = renderBcr32(v, state.bcrModel, state.colors, state.bcr32.sel, {
     select: (page, knob) => { state.bcr32.sel = { page, knob }; render(); state.bcr32.link?.select(page).catch(() => {}); },
     pick: pickBcr32, takeOff: takeOffBcr32, move: moveBcr32, toPage: toPageBcr32, putHalf: putHalfBcr32, halves: halfChoices(state.ec4Model),
-    clear: (p) => edit(`Night Shift’s knobs off page ${p + 1}`, bcrClear(state.names, ec4Model(), p)), rename: renameBcr32Page, map: mapBcr32, send: sendBcr32,
+    clear: (p) => edit(`Night Shift’s knobs off page ${p + 1}`, bcrClear(state.names, ec4Model(), p)), rename: renameBcr32Page, map: mapBcr32,
     busy: state.busy, note: state.bcr32.note, link: state.bcr32.link && { page: state.bcr32.link.page, controller: state.bcr32.link.controller },
     unstored: !!state.bcr32.link && bcr32Unstored(), thru: state.bcr32.thru, toggleThru: toggleBcr32Thru, held: state.bcr32.held.knobs.size > 0,
     speed: speedOf(state.names), setSpeed: (s) => edit(`Knob speed ${s}`, [speedChange(s)]),
@@ -1985,7 +2136,7 @@ function render() {
   else if (state.tab === 'settings') content = renderSettings(v, state.config.values, state.preset?.values ?? null, sceneName(state.scene),
     { edit, fh2: state.fh2Settings, readFh2: readModuleSettings, cal: state.fh2Calibrations, readCal: readModuleCalibrations, busy: state.busy, ec4: labels(), removeMapping: removeMappingOf,
       names: state.names, scala: { install: installScala, resend: resendScala, forget: forgetScala } });
-  else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, sendEc4, sendBcr32,
+  else if (state.tab === 'gig') content = renderGig(gigList(), { readFh2: readModuleSettings, saveAll, send,
     scenes: () => { state.tab = 'scenes'; render(); }, checks: () => open('checks.html', '_blank'), busy: state.busy });
   else if (state.tab === 'scenes') content = renderScenes(scenesModel(v), { setScene, setSlot, saveAll, toggleScenesOnly,
     setProgramChannel: (ch) => edit(ch ? `Scenes switch by program change on ch ${ch}` : 'No scene switching by program change', [{ dump: 'config', path: ['presetProgramChannel'], value: ch }], { force: true }) });
@@ -2045,7 +2196,7 @@ document.addEventListener('keydown', (e) => {
 const kept = stored();
 if (new URLSearchParams(location.search).has('example')) load(examplePatch(), 'example');
 else if (kept) {
-  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly, held: kept.held, whole: true }, 'browser');
+  load({ config: kept.config, presets: kept.scenes, scene: kept.scene, names: kept.names, hardware: kept.hardware, slots: kept.slots, scenesOnly: kept.scenesOnly, held: kept.held, base: kept.base, whole: true }, 'browser');
   state.status = 'Last patch restored';
 }
 render();

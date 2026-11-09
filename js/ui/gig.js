@@ -3,9 +3,9 @@
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 
-const ACTIONS = { readFh2: 'Read FH-2 settings', saveAll: 'Save all', sendEc4: 'Send to EC4', sendBcr32: 'Send to BCR32', scenes: 'Scenes tab' };
+const ACTIONS = { readFh2: 'Read FH-2 settings', saveAll: 'Save all', send: 'Send', scenes: 'Scenes tab' };
 
-// `groups`: checklist(); `act`: { readFh2(), saveAll(), sendEc4(), sendBcr32(), scenes(), checks(), busy }
+// `groups`: checklist(); `act`: { readFh2(), saveAll(), send(), scenes(), checks(), busy }
 export function renderGig(groups, act) {
   const all = groups.flatMap((g) => g.items);
   const open = all.filter((i) => i.level === 'warn' || i.level === 'todo').length;

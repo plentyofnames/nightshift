@@ -18,7 +18,7 @@ const dragged = (e) => {
 // `model`: pagesOf(); `sel`: { page, knob } or null. `act`: { select(page, knob), pick(page,
 // knob) (a free knob), takeOff(page, knob), off(key), live(key, livePage or null for a new one),
 // addLive(), removeLive(pageId), move(page, from, to), toLive(fromPage, knob, livePage),
-// addPage(pageId), whole(pageId), map(), send(), rename(pageId), stray (mappings on no page),
+// addPage(pageId), whole(pageId), map(), rename(pageId), stray (mappings on no page),
 // tidy(), busy, note (the EC4's state, one line), link ({ ours, setup, group } while linked,
 // else null), thru, toggleThru() }. Knobs are dragged to another place (they swap) or onto a
 // LIVE page in the list. A place holds a knob, a push, or both; a push alone is selected like a knob
@@ -39,10 +39,8 @@ export function renderEc4(view, model, colors, sel, act) {
   const head = h('div', { class: 'ec4-head' },
     unmapped.length > 0 && h('button', { type: 'button', class: 'btn primary', disabled: act.busy, onclick: act.map,
       title: `Adds a CC mapping on ch ${channel + 1} for each that has none (undoable)` }, `Give ${what} a CC`),
-    // with controlfrog 0.13 the EC4 shows your edits from its RAM already: this stores them
-    h('button', { type: 'button', class: 'btn' + (unmapped.length ? '' : ' primary'), disabled: act.busy || unmapped.length > 0 || !pages.length, onclick: act.send,
-      title: unmapped.length ? 'Give every knob and push a CC first' : `Writes the pages to EC4 setup ${SETUP + 1}; other setups stay as they are` }, act.link?.edits ? 'Store on EC4' : 'Send to EC4'),
-    act.unstored && h('span', { class: 'note warn-note', title: 'The EC4 shows them from its RAM; stored, they stay after power-off' }, 'Not stored'),
+    // with controlfrog 0.13 the EC4 shows your edits from its RAM already; Send in the bar stores them
+    act.unstored && h('span', { class: 'note warn-note', title: 'The EC4 shows them from its RAM; Send stores them' }, 'Not stored'),
     h('span', { class: 'note' }, `Setup ${SETUP + 1} · ${pages.length} page${pages.length === 1 ? "" : "s"} · CCs on ch ${channel + 1}`),
     h('span', { class: 'note', title: act.note || '' }, !act.link ? 'EC4 not linked'
       : act.link.ours ? `Linked · EC4 on page ${act.link.group + 1}` : `EC4 on setup ${act.link.setup + 1}`),
@@ -56,7 +54,7 @@ export function renderEc4(view, model, colors, sel, act) {
     // knobs mapped before they were relative by default; the 14-bit ones stay in step through the
     // live link or the EC4's FH-2 sync, so Soft takeover would only make them wait (your call, 2026-11-04)
     act.relative.keys.length > 0 && h('span', { class: 'note' }, `${act.relative.keys.length} relative knob${act.relative.keys.length === 1 ? '' : 's'}`,
-      ' ', h('button', { type: 'button', class: 'btn small', onclick: () => act.makeAbsolute(act.relative), title: 'The EC4 can show their values then (controlfrog 0.12 keeps them in step); Send to EC4 afterwards' }, 'Make absolute')),
+      ' ', h('button', { type: 'button', class: 'btn small', onclick: () => act.makeAbsolute(act.relative), title: 'The EC4 can show their values then (controlfrog 0.12 keeps them in step); Send afterwards' }, 'Make absolute')),
     act.softTakeover && pages.some((pg) => pg.cells.some((c) => c?.map?.bits === 14)) && h('span', { class: 'note warn-note' }, 'Soft takeover on: not needed with the FH-2 sync',
       ' ', h('button', { type: 'button', class: 'btn small', onclick: act.turnOffSoftTakeover, title: 'With it, a knob waits until it passes the FH-2’s value' }, 'Turn off')));
 

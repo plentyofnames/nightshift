@@ -471,10 +471,11 @@ test('B9: only Night Shift’s bytes change with its Send, and they are kept thr
     held = pl.held;
     return 'Sent';
   };
-  let res = await rcStored(standIn(spaces, [send(false), () => 'Done']), { heldNow: () => held });
+  let res = await rcStored(standIn(spaces, [() => 'Done', send(false), () => 'Done']), { heldNow: () => held });
   eq(res.summary, 'Only Night Shift’s bytes changed; 15/15 knobs; stored: all of it after the power cycle');
   spaces[2] = Uint8Array.from(before);
   held = emptyHeld();
-  res = await rcStored(standIn(spaces, [send(true), () => 'Skip']), { heldNow: () => held });
+  res = await rcStored(standIn(spaces, [() => 'Done', send(true), () => 'Skip']), { heldNow: () => held });
   eq(res.summary.startsWith('Something else changed'), true, res.summary);
+  eq(res.lines[1], 'Changed, not Night Shift’s: page 1 knob 5', 'named as a place');
 });

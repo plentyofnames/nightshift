@@ -134,3 +134,33 @@ test('the Euclid accent rate: a note value in the editor, OFF or its clocks on a
   eq([opts[0], opts.find(([n]) => n === 24)?.[1]], [[0, 'Off: no accents'], '1/4']);
   eq(divisionOptions(37, [[0, 'Off']]).at(-1), [37, '37 pulses'], 'an off-list value stays');
 });
+
+test('Get takes the FH-2’s changes and keeps yours; Send names what changed on the module', async () => {
+  const { mergeFromModule, changedOutside, placesText } = await import('../js/patch/sync.js');
+  const { DUMPS } = await import('../js/fh2/sysex.js');
+  const { config } = examplePatch();
+  const L = DUMPS[config.cmd].layout;
+  const base = structuredClone(config.values);
+  const mine = structuredClone(base);
+  const theirs = structuredClone(base);
+  mine.converter[0].channel = 5; // yours, not sent
+  theirs.converter[1].channel = 6; // changed on the module
+  theirs.converter[0].channel = 7; // both changed: yours stays
+  theirs.mapping[3].cc = 99;
+  const m = mergeFromModule(L, base, mine, theirs);
+  eq(m.take.map((t) => [t.path.join('.'), t.value]), [['converter.1.channel', 6], ['mapping.3.cc', 99]]);
+  eq(m.kept.map((p) => p.join('.')), ['converter.0.channel']);
+  eq(placesText(changedOutside(L, base, mine, theirs).map((d) => d.path)), 'voice 1, voice 2, CC mapping 4');
+  mine.mapping[3].cc = 99; // the module changed it to what you have: nothing to warn about
+  eq(placesText(changedOutside(L, base, mine, theirs).map((d) => d.path)), 'voice 1, voice 2');
+});
+
+test('what the FH-2 held when last read or sent goes with the project', async () => {
+  const { projectToJson, projectFromJson } = await import('../js/patch/project.js');
+  const { config, preset } = examplePatch();
+  const base = { config: structuredClone(config.values), preset: structuredClone(preset.values), scene: 0 };
+  base.config.converter[0].channel = 9;
+  const back = projectFromJson(projectToJson({ config, scenes: [preset], scene: 0, names: {}, hardware: null, base }));
+  eq([back.base.config.converter[0].channel, back.base.scene, back.base.preset.name], [9, 0, preset.values.name]);
+  eq(projectFromJson(projectToJson({ config, scenes: [preset], scene: 0, names: {}, hardware: null })).base, null, 'none: null');
+});

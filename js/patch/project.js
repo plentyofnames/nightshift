@@ -14,8 +14,10 @@ const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0))
 // `scenes` are parsed preset dumps; `scene` the one in view. `slots` are the flash slots
 // (1–30) for the config and for each scene, null where none is chosen; `scenesOnly` the switch
 // that keeps the config as it is; `held` what Night Shift last wrote to the FH-2's flash and the
-// EC4, as fingerprints (patch/gig.js), for the pre-gig checklist.
-export function projectToJson({ config, scenes, scene, names, hardware, slots = null, scenesOnly = false, held = {} }) {
+// EC4, as fingerprints (patch/gig.js), for the pre-gig checklist; `base` what the FH-2 held when Night
+// Shift last read or sent it ({ config, preset values, scene }), so Get and Send can tell its changes
+// from yours (docs/build-plan.md, "One Get and one Send").
+export function projectToJson({ config, scenes, scene, names, hardware, slots = null, scenesOnly = false, held = {}, base = null }) {
   return JSON.stringify({
     nightshift: PROJECT_VERSION,
     saved: new Date().toISOString(),
@@ -28,6 +30,7 @@ export function projectToJson({ config, scenes, scene, names, hardware, slots = 
     slots,
     scenesOnly,
     held,
+    base: base && scenes.length ? { config: toBase64(buildDump(config, base.config)), preset: base.preset ? toBase64(buildDump(scenes[0], base.preset)) : null, scene: base.scene } : null,
   }, null, 2);
 }
 
@@ -60,7 +63,21 @@ export function projectFromJson(text) {
     slots: { config: slot(j.slots?.config), scenes: scenes.map((_, i) => slot(j.slots?.scenes?.[i])) },
     scenesOnly: j.scenesOnly === true,
     held: heldFrom(j.held),
+    base: baseFrom(j.base),
   };
+}
+
+// What the FH-2 held as last read or sent, or null if it isn't there or doesn't parse.
+function baseFrom(b) {
+  try {
+    if (!b || typeof b.config !== 'string') return null;
+    const config = parseDump(fromBase64(b.config));
+    const preset = typeof b.preset === 'string' ? parseDump(fromBase64(b.preset)) : null;
+    if (config.kind !== 'config' || (preset && preset.kind !== 'preset')) return null;
+    return { config: config.values, preset: preset?.values ?? null, scene: Number.isInteger(b.scene) && b.scene >= 0 ? b.scene : 0 };
+  } catch {
+    return null;
+  }
 }
 
 // `held` as stored, keeping only well-formed parts: { flash: { at, configs: { slot: fp },

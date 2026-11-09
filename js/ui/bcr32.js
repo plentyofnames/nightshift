@@ -16,7 +16,7 @@ const dragged = (e) => {
 
 // `bcr`: rotary/pages.js bcrPagesOf; `sel`: { page, knob }; `act`: { select(page, knob), pick(page, knob),
 // takeOff(page, knob, push), move(from, to), putHalf(objPage), halves ([{ page, name }]), clear(page),
-// rename(page), map(), send(), busy, note, link ({ page, controller } or null), unstored, thru,
+// rename(page), map(), busy, note, link ({ page, controller } or null), unstored, thru,
 // toggleThru(), speed, setSpeed(v), setFeel(key, mode), held (Night Shift has knobs on the unit), device ({ foreign: Map 'p:i' → { name, sends },
 // pages: [{ name, keys, usb }] } or null: the image as last read) }.
 export function renderBcr32(view, bcr, colors, sel, act) {
@@ -33,10 +33,7 @@ export function renderBcr32(view, bcr, colors, sel, act) {
   const head = h('div', { class: 'ec4-head' },
     unmapped.length > 0 && h('button', { type: 'button', class: 'btn primary', disabled: act.busy, onclick: act.map,
       title: `Adds a CC mapping on ch ${bcr.channel + 1} for each that has none (undoable)` }, `Give ${unmapped.length} a CC`),
-    h('button', { type: 'button', class: 'btn' + (unmapped.length ? '' : ' primary'), disabled: act.busy || unmapped.length > 0 || (!bcr.count && !act.held), onclick: act.send,
-      title: unmapped.length ? 'Give every knob and push a CC first' : !bcr.count ? 'Takes Night Shift’s knobs off the BCR32'
-        : 'Writes Night Shift’s knobs; other knobs and the keys stay as they are' }, act.link ? 'Store on BCR32' : 'Send to BCR32'),
-    act.unstored && h('span', { class: 'note warn-note', title: 'Stored, they stay after power-off' }, 'Not stored'),
+    act.unstored && h('span', { class: 'note warn-note', title: 'Send stores them; other knobs and the keys stay as they are' }, 'Not stored'),
     h('span', { class: 'note' }, `${bcr.count} knob${bcr.count === 1 ? '' : 's'} · CCs on ch ${bcr.channel + 1}`),
     h('span', { class: 'note', title: act.note || '' }, !act.link ? 'BCR32 not linked' : act.link.controller ? `Linked · BCR32 on page ${act.link.page + 1}` : 'Linked · sequencer showing'),
     h('span', { class: 'ec4-speed', title: 'How far you turn for a whole setting, the same for all (EC4 too)' }, 'Knob speed ',

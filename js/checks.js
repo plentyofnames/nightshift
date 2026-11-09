@@ -85,8 +85,8 @@ const CHECKS = [
   { id: 'B8', bcr: true, title: '14-bit rings', question: 'When a 14-bit knob’s pair comes in, does its ring move, and does turning go on from there?',
     before: ['A knob on absolute 14-bit on a CC below 32, its LED ring on.', 'Not on the sequencer’s remote channel.'], run: bcr14Rings },
   // the BCR32 with Rotary Club and Night Shift's BCR32 tab (build plan: B9–B14, and the tracks of 0.29)
-  { id: 'B9', rc: true, title: 'Send beside other knobs', question: 'Does Send to BCR32 change only Night Shift’s knobs, ask before writing over another’s, and keep them after a power cycle?',
-    before: ['BCR32 on the Mac; Night Shift open in another tab, the BCR32 linked there; Eye of Providence closed.', 'Another app’s knobs and a key on the unit, and a Night Shift setting on one of those knobs (Send should ask).', 'Reads only: Night Shift’s tab does the writing.'],
+  { id: 'B9', rc: true, title: 'Send beside other knobs', question: 'Does Send change only Night Shift’s knobs on the BCR32, ask before writing over another’s, and keep them after a power cycle?',
+    before: ['BCR32 on the Mac; Night Shift open in another tab with the BCR32 linked; Eye of Providence at hand.', 'Run, then follow its three steps. It only reads: the apps do the writing.'],
     run: rcStored },
   { id: 'B10', rc: true, title: 'The live link', question: 'Does the BCR32’s page follow what you select and back, a touched knob select its setting, the values show in FH-2 units, the knobs start where the FH-2 is?',
     before: ['FH-2 and BCR32 on the Mac, Night Shift’s knobs stored on the BCR32, the controller showing.'], manual: ['All of it', 'Some of it', 'None'] },

@@ -39,7 +39,7 @@ test('the checklist: a new patch, nothing done yet', () => {
   eq(item(g, 'slots'), { id: 'slots', level: 'warn', action: 'scenes', text: 'No flash slot for the config, Verse' });
   eq(item(g, 'saved'), undefined, 'no saving question before the slots are there');
   eq(item(g, 'read'), { id: 'read', level: 'todo', action: 'readFh2', text: 'Not read from the FH-2 yet' });
-  eq([item(g, 'pages').level, item(g, 'pages').action], ['todo', 'sendEc4']);
+  eq([item(g, 'pages').level, item(g, 'pages').action], ['todo', 'send']);
   eq(item(g, 'fw'), undefined, 'the firmware is known only from a send');
 });
 

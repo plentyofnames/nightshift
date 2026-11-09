@@ -1,7 +1,7 @@
 // The pre-gig checklist (the Gig tab): what has to be right before playing without a computer,
 // each line { id, level, text, action }. level: 'ok', 'warn' (change something), 'todo' (not
 // known yet, or not done), 'note'. action: what Night Shift can do about it ('readFh2', 'saveAll',
-// 'sendEc4', 'scenes'), or none where only the module's panel can change it. No DOM here.
+// 'send', 'scenes'), or none where only the module's panel can change it. No DOM here.
 //
 // Night Shift can't read the FH-2's flash slots or the EC4 without loading or reading them, so
 // `held` is what it wrote there itself: { flash: { at, configs: { slot: fp }, presets: { slot: fp } },
@@ -35,8 +35,8 @@ export function checklist({ config, scenes, view, fh2, held = {}, ec4, bcr32 }) 
 function bcr32Items(b, sent) {
   if (!b.knobs) return [{ id: 'knobs', level: 'note', text: 'No BCR32 knobs in this patch' }];
   const out = [];
-  if (!sent) out.push({ id: 'knobs', level: 'todo', action: 'sendBcr32', text: 'Knobs not sent to the BCR32 from this patch yet' });
-  else if (sent.fp !== b.fp) out.push({ id: 'knobs', level: 'warn', action: 'sendBcr32', text: `Knobs changed since Send to BCR32 (${date(sent.at)})` });
+  if (!sent) out.push({ id: 'knobs', level: 'todo', action: 'send', text: 'Knobs not sent to the BCR32 from this patch yet' });
+  else if (sent.fp !== b.fp) out.push({ id: 'knobs', level: 'warn', action: 'send', text: `Knobs changed since sent to the BCR32 (${date(sent.at)})` });
   else out.push({ id: 'knobs', level: 'ok', text: `Knobs and sync table on the BCR32 (${date(sent.at)})` });
   for (const p of b.noUsb ?? []) out.push({ id: `usb${p}`, level: 'warn', text: `Page ${p + 1} doesn’t send on USB: its knobs don’t reach the FH-2` });
   return out;
@@ -106,8 +106,8 @@ function fh2Items(config, scenes, view, fh2) {
 function ec4Items(ec4, sent) {
   if (!ec4.pages) return [{ id: 'pages', level: 'note', text: 'No EC4 pages in this patch' }];
   const out = [];
-  if (!sent) out.push({ id: 'pages', level: 'todo', action: 'sendEc4', text: 'Pages not sent to the EC4 from this patch yet' });
-  else if (sent.fp !== ec4.fp) out.push({ id: 'pages', level: 'warn', action: 'sendEc4', text: `Pages changed since Send to EC4 (${date(sent.at)})` });
+  if (!sent) out.push({ id: 'pages', level: 'todo', action: 'send', text: 'Pages not sent to the EC4 from this patch yet' });
+  else if (sent.fp !== ec4.fp) out.push({ id: 'pages', level: 'warn', action: 'send', text: `Pages changed since sent to the EC4 (${date(sent.at)})` });
   else out.push({ id: 'pages', level: 'ok', text: `Pages and sync table on the EC4 (${date(sent.at)})` });
   if (sent?.fw) {
     out.push(fwAtLeast(sent.fw, 0, 12)

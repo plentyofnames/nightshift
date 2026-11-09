@@ -5,7 +5,7 @@
 // next, log, ask, wait).
 
 import { host, decodeReply, unframe } from '../../vendor/eyeofprovidence/js/proto.js';
-import { SIZE, A as ADDR, pageNameAddr } from '../../vendor/eyeofprovidence/js/model.js';
+import { SIZE, A as ADDR, pageNameAddr, locate } from '../../vendor/eyeofprovidence/js/model.js';
 import { heldFromJson, knobAddrs, foreignKnobs, pageOnBcr32 } from './image.js';
 import { parseTracks, trackLine, trackChanges, hasTracks, TRACKS_SPACE, TRACKS_LEN, TRACKS_CHANGED } from './tracks.js';
 
@@ -57,6 +57,19 @@ function ownAddresses(...helds) {
 }
 
 const fwOf = (id) => `${id.fwMajor}.${id.fwMinor}`;
+
+// Changed addresses as the places they belong to: "page 1 knob 5", "page 2 key 3", "page 1's name".
+function places(addrs) {
+  const out = new Set();
+  for (const a of addrs) {
+    const l = locate(a);
+    if (l.cell != null) out.add(`page ${l.page + 1} ${l.cell < 32 ? `knob ${l.cell + 1}` : `key ${l.cell - 31}`}${l.sync ? ' (its sync entry)' : ''}`);
+    else if (l.name) out.add(`page ${l.page + 1}’s name`);
+    else if (l.outputs) out.add(`page ${l.page + 1}’s outputs`);
+    else out.add(`0x${a.toString(16)}`);
+  }
+  return [...out];
+}
 const keysUsed = (img) => [0, 1, 2, 3].reduce((n, p) => n + pageOnBcr32(img, p).keys.filter((k) => k.sends).length, 0);
 
 // B9: Send beside another app's knobs. The unit before and after a Send from Night Shift's BCR32 tab:
@@ -65,11 +78,16 @@ const keysUsed = (img) => [0, 1, 2, 3].reduce((n, p) => n + pageOnBcr32(img, p).
 export async function rcStored(rig, { heldNow = storedHeld } = {}) { // heldNow: what Night Shift holds (its tab's, else a test's)
   const id = await identify(rig);
   rig.log(`Rotary Club ${fwOf(id)}`);
+  // step by step, so nothing changes on the unit between the two readings but Night Shift's Send
+  if (await rig.ask('1. In Eye of Providence, give a knob or two and a key some MIDI (another app’s), Send there, and close it. Then:', ['Done', 'Stop']) === 'Stop') {
+    return { summary: 'Stopped before the first reading', lines: [] };
+  }
   const before = await readImage(rig);
   const heldBefore = heldNow();
   const others = foreignKnobs(before, heldBefore);
-  rig.log(`Before: ${others.size} knobs of another app, ${keysUsed(before)} keys in use, ${heldBefore.knobs.size} of Night Shift’s`);
-  if (await rig.ask('Now Send to BCR32 in Night Shift (answer its question, if it asks). Then:', ['Sent', 'Stop']) === 'Stop') {
+  rig.log(`Before: ${others.size} knobs of another app (${[...others.keys()].slice(0, 4).map((k) => { const [p, i] = k.split(':').map(Number); return `page ${p + 1} knob ${i + 1}`; }).join(', ')}), ${keysUsed(before)} keys in use, ${heldBefore.knobs.size} of Night Shift’s`);
+  if (!others.size) throw new Error('no other app’s knob on the BCR32: step 1 first');
+  if (await rig.ask('2. In Night Shift’s BCR32 tab, put a setting on one of those knobs (shown dimmed) and one on a free knob, then Send in its bar: it asks about the first, answer Write over. Then:', ['Sent', 'Stop']) === 'Stop') {
     return { summary: 'Stopped before the Send', lines: [] };
   }
   const after = await readImage(rig);
@@ -82,10 +100,10 @@ export async function rcStored(rig, { heldNow = storedHeld } = {}) { // heldNow:
     return knobAddrs(p, i).every((a, k) => after[a] === b[k]);
   }).length;
   const lines = [`Night Shift’s knobs as it wrote them: ${mine} of ${held.knobs.size}`,
-    moved.length ? `Changed outside Night Shift’s bytes: ${moved.length} (${moved.slice(0, 6).map((a) => `0x${a.toString(16)}`).join(', ')}${moved.length > 6 ? '…' : ''})` : 'Every other byte as it was (other knobs, keys, page outputs)'];
+    moved.length ? `Changed, not Night Shift’s: ${places(moved).join(', ')}` : 'Every other byte as it was (other knobs, keys, page outputs)'];
   lines.forEach((l) => rig.log(l));
   let stored = 'not checked';
-  if (await rig.ask('Power the BCR32 off and on, wait until it shows its screen, then:', ['Done', 'Skip']) === 'Done') {
+  if (await rig.ask('3. Power the BCR32 off and on, wait until it shows its screen, then:', ['Done', 'Skip']) === 'Done') {
     await rig.wait(1500);
     try {
       await identify(rig);
