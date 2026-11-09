@@ -9,7 +9,7 @@ import { apply } from '../js/patch/edit.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { pagesOf, switchOn as ec4On, switchOff as ec4Off, settingKey, strayMappings, dropMapping, leftBehind } from '../js/ec4/pages.js';
 import { bcrPagesOf, putObject, switchOn, switchOff, placeKnob, takeOff, movePlace, clearPage, freeHalf, knobOf, knobKeys, halfChoices, pageOfObject } from '../js/rotary/pages.js';
-import { wanted, plan, writePlan, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, knobBytes, editsFor, emptyKnob, KNOB_BYTES } from '../js/rotary/image.js';
+import { wanted, plan, writePlan, storeImage, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, knobBytes, editsFor, emptyKnob, KNOB_BYTES } from '../js/rotary/image.js';
 import { Bcr32Link } from '../js/rotary/link.js';
 import * as R from '../vendor/eyeofprovidence/js/model.js';
 import { MockBcr32 } from '../vendor/eyeofprovidence/js/mock.js';
@@ -339,4 +339,56 @@ test('the rack says which controllers are on; a rack kept from before has both',
   eq([hasController(ec4Only, 'ec4'), hasController(ec4Only, 'bcr32')], [true, false]);
   eq(validHardware({ ...old, controllers: [] }) != null, true, 'none is fine');
   eq(validHardware({ ...old, controllers: ['mpk'] }), null, 'an unknown one isn’t');
+});
+
+test('RELOAD that couldn’t keep the image counts as not stored, also when a T key’s STATE answered first', async () => {
+  const p = fresh();
+  put(p, 'lfo:4', 0, 0);
+  const want = wanted(bcrOf(p), viewOf(p), sync(p));
+  // answered directly: 7F 24 04
+  let mock = new MockBcr32(othersImage(), { speed: 'fast' });
+  let dev = new Device(mock.transport());
+  mock.faults.reloadStatus = 4;
+  let err = null;
+  await writePlan(dev, plan(await readImage(dev), want, emptyHeld())).catch((e) => (err = e));
+  eq([err?.cmd, err?.code], [0x24, 4], 'thrown, so nothing is held');
+  dev.close();
+  // a page change on the unit while it stores: its STATE answers RELOAD, the 7F 24 04 comes later
+  mock = new MockBcr32(othersImage(), { speed: 'usb', timeScale: 1 });
+  dev = new Device(mock.transport());
+  const pl = plan(await readImage(dev), want, emptyHeld());
+  for (const w of pl.writes) await dev.write(w.addr, w.data);
+  mock.faults.reloadStatus = 4;
+  err = null;
+  const storing = storeImage(dev).catch((e) => (err = e));
+  setTimeout(() => mock.setPage(1), 5);
+  await storing;
+  eq([err?.cmd, err?.code], [0x24, 4], 'the late error is seen');
+  dev.close();
+});
+
+test('the BCR32 tab names what a control sends as Rotary Club 0.28 does, not in the EC4’s four letters', async () => {
+  const { turnSummary, pushSummary, modeFull, modeShort } = await import('../js/rotary/names.js');
+  const cell = (fn) => {
+    const img = R.blankImage();
+    fn(img);
+    return R.readRecord(img, 0, 0);
+  };
+  const turn = (type, set = {}) => cell((img) => {
+    R.setEncoder(img, 0, 0, 'type', type);
+    R.setEncoder(img, 0, 0, 'channel', 15);
+    for (const [k, v] of Object.entries(set)) R.setEncoder(img, 0, 0, k, v);
+  });
+  eq([turnSummary(turn(R.T.CCAB, { number: 20 })), turnSummary(turn(R.T.CCAH, { number: 1 })), turnSummary(turn(R.T.CCR1, { number: 20 })),
+    turnSummary(turn(R.T.PRGC)), turnSummary(turn(R.T.PBND)), turnSummary(turn(R.T.AFTT)), turnSummary(turn(R.T.NOTE, { number: 60 })),
+    turnSummary(turn(R.T.NRPN, { number: 20, numberHigh: 1 }))],
+  ['CC 20 ch16', 'CC 14-bit 1 ch16', 'CC rel 20 ch16', 'Prog change ch16', 'Pitch bend ch16', 'Aftertouch ch16', 'Note C3 ch16', 'NRPN 1:20 ch16']);
+  const push = (type, set = {}, c = 0) => cell((img) => {
+    R.setPush(img, 0, c, 'type', type);
+    for (const [k, v] of Object.entries(set)) R.setPush(img, 0, c, k, v);
+  });
+  eq([pushSummary(push(R.PT.CC, { number: 64, mode: 1 })), pushSummary(push(R.PT.GRP, { channel: 1 })), pushSummary(push(R.PT.ACC3)), pushSummary(push(R.PT.MIN))],
+    ['CC 64 ch1 toggle', 'Page 2', 'max accel held', 'to lower']);
+  eq(pushSummary(push(R.PT.MAX), true), 'off', 'a key takes no Max');
+  eq([modeShort('Div8'), modeFull('Acc1'), modeFull('LSp6')], ['÷8', 'Acceleration low', 'Steps of 6']);
 });

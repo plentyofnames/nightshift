@@ -125,3 +125,12 @@ test('a page name of nothing showable falls back to its own', () => {
   p.names['bcr:page:2'] = 'ÄÖÜ';
   eq(bcrPagesOf(m, p.names).pages[1].name, null, 'the BCR32 keeps its own');
 });
+
+test('the Euclid accent rate: a note value in the editor, OFF or its clocks on a knob (as table C shows it alone)', async () => {
+  const { valueText } = await import('../js/ec4/values.js');
+  const { divisionOptions } = await import('../js/ui/controls.js');
+  eq([valueText('euclid:0:accent', 0), valueText('euclid:0:accent', 24)], ['OFF', '24']);
+  const opts = divisionOptions(24, [[0, 'Off: no accents']]);
+  eq([opts[0], opts.find(([n]) => n === 24)?.[1]], [[0, 'Off: no accents'], '1/4']);
+  eq(divisionOptions(37, [[0, 'Off']]).at(-1), [37, '37 pulses'], 'an off-list value stays');
+});

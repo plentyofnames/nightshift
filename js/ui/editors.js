@@ -188,7 +188,8 @@ export function euclidEditor(s, act, color) {
       num('Rotation', 'rotation', 0, 32),
       sfield(L('Step rate', 'rate'), selectInput(`Step rate of ${s.name}`, p.ratePulses, divisionOptions(p.ratePulses, [[0, 'External clock']]), (v) => set('Step rate', { rate: v }))),
       num('Gate length', 'gate', 0, 127, p.gate ? null : ' · 0: the trigger length'),
-      num('Accent rate', 'accent', 0, 127),
+      // the accent rate in 24 ppqn clocks, 0 off (your note, 2026-11-09): a note value, as the step rate
+      sfield(L('Accent rate', 'accent'), selectInput(`Accent rate of ${s.name}`, p.accent, divisionOptions(p.accent, [[0, 'Off: no accents']]), (v) => set('Accent rate', { accent: v }))),
       sfield(L('Reset', 'reset'), numberInput(`Reset of ${s.name}`, p.reset, { min: 0, max: 32 }, (v) => set('Reset', { reset: v })), ' beats (0 = never)')),
   ];
 }

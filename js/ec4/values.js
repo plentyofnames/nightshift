@@ -178,6 +178,8 @@ export function valueText(key, v, ctx = {}) {
     case 'swingType': return SWING[v] ?? four(v);
     case 'swingAmount': return four(v ? String(v) : 'OFF');
     case 'rate': return four(division(v));
+    // the accent rate is in 24 ppqn clocks, 0 off: shown as the clocks, as table C can (its note
+    // value shows 0 as EXT), so a knob reads the same with Night Shift linked or not
     case 'reset': case 'accent': return four(v ? String(v) : 'OFF');
     default: return four(v);
   }

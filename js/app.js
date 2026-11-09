@@ -29,7 +29,7 @@ import { pagesOf, mapPages, toggleLive, liveKeys, choicesFor, pageNameKey, place
   wholePage, strayMappings, removeMappings, dropMapping, settingKey, objectKeys, leftBehind, toAbsolute, movePage, hidePage, sharePage, splitPage, SETUP, ccsFor } from './ec4/pages.js';
 import { bcrPagesOf, putObject, switchOn as bcrOn, switchOff as bcrOff, placeKnob as bcrPlace, takeOff as bcrTakeOff, movePlace as bcrMove, clearPage as bcrClear,
   choicesFor as bcrChoices, halfChoices, freeHalf, pageOfObject, pageNameKey as bcrNameKey, knobOf, halfOf, KNOBS as BCR_KNOBS } from './rotary/pages.js';
-import { wanted, plan, writePlan, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, pageOnBcr32, editsFor, wantedFingerprint } from './rotary/image.js';
+import { wanted, plan, writePlan, storeImage, readImage, emptyHeld, heldToJson, heldFromJson, foreignKnobs, pageOnBcr32, editsFor, wantedFingerprint } from './rotary/image.js';
 import { midiPermission } from '../vendor/lilypad/js/midi.js';
 import { Bcr32Link } from './rotary/link.js';
 import { renderBcr32 } from './ui/bcr32.js';
@@ -1558,7 +1558,7 @@ async function sendBcr32() {
       const left = pl.conflicts.length;
       if (!pl.writes.length && sameHeld(pl.held, state.bcr32.held)) return status(left ? `Nothing to write · ${left} left as they were` : 'The BCR32 has these knobs already');
       if (pl.writes.length) await writePlan(device, pl, (k, n) => status(`Writing the BCR32… ${k}/${n}`));
-      else await device.reload(); // the image has them already: stored
+      else await storeImage(device); // the image has them already: stored
       state.bcr32.held = pl.held;
       saveHeld();
       state.held = { ...state.held, bcr32: { at: new Date().toISOString(), fp: wantedFingerprint(want) } }; // for the Gig tab

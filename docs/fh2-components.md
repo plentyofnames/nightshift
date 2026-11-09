@@ -139,7 +139,7 @@ all correct i think -- to get nicer separate euclidean accents one could just us
   - steps (up to 32), pulses (0 = off) and rotation;
   - rate (24 ppqn; 0 = external clock);
   - gate length (0 = fixed trigger);
-  - accent rate (non-accented pulses are scaled down by the global "Euclidean accent");
+  - accent rate, in 24 ppqn clocks, 0 = off (no accents) (your note, 2026-11-09); non-accented pulses are scaled down by the global "Euclidean accent";
   - reset after N quarter notes.
 - [ ] **U2** [manual] Outputs (config): a pulse output and an off-step output, each optional.
 - [ ] **U3** [manual] A pattern can clock arpeggiators, note sequencers and shift registers (when their rate is 0) and restart LFOs, without coming out of a jack.

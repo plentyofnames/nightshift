@@ -5,6 +5,7 @@
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { MODE_NAMES, SPEEDS, sweepOf } from '../ec4/feel.js';
+import { modeFull } from '../rotary/names.js';
 import { PAGES, KNOBS, ROW, freeHalf } from '../rotary/pages.js';
 
 const DRAG = 'text/x-bcr32-knob'; // 'page|index'
@@ -131,8 +132,9 @@ export function renderBcr32(view, bcr, colors, sel, act) {
         row('Sends', address(c)),
         row('Resolution', !c.map ? '—' : c.map.relative ? 'relative (up/down)' : c.map.bits === 14 ? '14-bit' : '7-bit'),
         c.feel && row('Feel', h('select', { 'aria-label': `Feel of knob ${knob + 1}`, onchange: (e) => act.setFeel(c.key, e.target.value || null) },
-          h('option', { value: '', selected: c.feel === c.feelDefault && !c.feelMine }, `Default: ${c.feelDefault}`),
-          MODE_NAMES.map((m) => h('option', { value: m, selected: c.feelMine && c.feel === m }, `${m}${sweepOf(m) && c.map.bits === 7 ? ` · ${sweepOf(m)} steps` : ''}`)))),
+          // the BCR32's names for the modes (Rotary Club 0.28); a whole 7-bit sweep in notches (3 events each)
+          h('option', { value: '', selected: c.feel === c.feelDefault && !c.feelMine }, `Default: ${modeFull(c.feelDefault)}`),
+          MODE_NAMES.map((m) => h('option', { value: m, selected: c.feelMine && c.feel === m }, `${modeFull(m)}${sweepOf(m) && c.map.bits === 7 ? ` · ${Math.ceil(sweepOf(m) / 3)} notches` : ''}`)))),
         row('Push', push ? [`${push.gone ? 'gone from the patch' : push.label} · ${address(push)} `,
           h('button', { type: 'button', class: 'btn small', onclick: () => act.takeOff(p, knob, true) }, 'Take off')] : '—'),
         placeRow, pageRow, clash),

@@ -16,6 +16,7 @@ import { pageRecords, syncEntry } from '../ec4/setup.js';
 import { displayCode } from '../ec4/values.js';
 import { DUMPS, CMD } from '../fh2/sysex.js';
 import { fingerprint } from '../hash.js';
+import { turnSummary, pushSummary } from './names.js';
 import { PAGES, KNOBS } from './pages.js';
 
 export const KNOB_BYTES = 20; // the record (15), table A (2), B (2), C (1)
@@ -50,9 +51,9 @@ export function emptyKnob(bytes) {
 // What the BCR32 has at a place, in a few words: { name, sends }.
 export function knobSummary(bytes) {
   const rec = bytes.subarray(0, R.REC);
-  const e = R.decodeEncoder(rec);
-  const p = R.decodePush(rec);
-  return { name: R.readName(rec, 8).trim(), sends: [!e.off && R.encoderSummary(e), !p.off && `push ${R.pushSummary(p)}`].filter(Boolean).join(' · ') || 'nothing' };
+  const turn = turnSummary(rec);
+  const push = pushSummary(rec);
+  return { name: R.readName(rec, 8).trim(), sends: [turn !== 'off' && turn, push !== 'off' && `push ${push}`].filter(Boolean).join(' · ') || 'nothing' };
 }
 
 // ---- what Night Shift wants on the BCR32
@@ -136,8 +137,8 @@ export function pageOnBcr32(img, p) {
   if (!img) return null;
   const keys = Array.from({ length: R.KEYS }, (_, j) => {
     const rec = R.readRecord(img, p, R.keyCell(j));
-    const s = R.decodePush(rec, true); // a key: the push types it ignores read as off
-    return { name: R.readName(rec, 8).trim(), sends: s.off ? '' : R.pushSummary(s) };
+    const sends = pushSummary(rec, true); // a key: the push types it ignores read as off
+    return { name: R.readName(rec, 8).trim(), sends: sends === 'off' ? '' : sends };
   });
   return { name: R.pageName(img, p), keys, usb: (R.readOutputs(img, p) & 1) === 1 };
 }
@@ -245,7 +246,25 @@ export async function writePlan(device, pl, onStep = () => {}) {
     await device.write(w.addr, w.data);
     onStep(k + 1, pl.writes.length);
   }
-  await device.reload();
+  await storeImage(device);
+}
+
+const ERR_STORE = 4; // 7F 24 04 (Rotary Club 0.24 on): the image is in use but couldn't be kept
+
+// RELOAD, and its real outcome. A page change on the unit (a T key) sends a STATE that can answer
+// RELOAD before its own reply does; one GET_STATE more comes back only after that, so a late
+// 7F 24 04 is seen here (as Eye of Providence does since 7f4936c). Throws the store error then.
+export async function storeImage(device) {
+  let unkept = null;
+  const late = (e) => e.detail.cmd === 0x24 && e.detail.code === ERR_STORE && (unkept = e.detail);
+  device.addEventListener('deviceerror', late);
+  try {
+    await device.reload();
+    await device.getState().catch(() => {});
+  } finally {
+    device.removeEventListener('deviceerror', late);
+  }
+  if (unkept) throw Object.assign(new Error('the BCR32 could not keep the image'), { cmd: 0x24, code: ERR_STORE });
 }
 
 // The page in view as Night Shift wants it in the BCR32's RAM (EDIT): Map place index → 15-byte
