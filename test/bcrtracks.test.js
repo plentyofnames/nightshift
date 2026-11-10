@@ -92,6 +92,15 @@ test('a track added from a jack is one source: its voice, CC → CV outputs and 
   eq(plain.sources.map((x) => x.kind).sort(), ['knobs', 'triggers', 'voice']);
 });
 
+test('a Plaits Chords track’s Chord follows the chord CC it sends (Rotary Club 0.31: set on EDIT knob 22)', () => {
+  const p = blank();
+  const plaits = { ...track(0, 'Plaits Chords'), plaits: { chordCc: 25, chordTrim: 0, timbreCc: 21, timbreTrim: 0 } };
+  apply(p, trackEdits(vals(p), view(p, [plaits]), plaits, null, { on: firstValues(plaits), start: 0 }));
+  eq(mappingsOf(p.config.values).map((m) => m.cc), [25, 21]);
+  const s = sourceOf(view(p, [plaits]), plaits);
+  eq(s.ports.map((x) => `${x.name}@${x.output}`), ['Pitch@0', 'Trigger@1', 'Chord@2', 'Inversion@3']);
+});
+
 test('switching outputs on and off lays the row out again; nothing on takes the track off the FH-2', () => {
   const p = blank();
   const plaits = track(0, 'Plaits Chords');
