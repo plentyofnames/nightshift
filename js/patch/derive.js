@@ -6,7 +6,7 @@
 // change. Where the manual leaves the output order open, the choice is marked "assumed".
 
 import { mappingsOf } from './mappings.js';
-import { claimsOf, reachesFh2, trackName, trackValues, trackCcs, movesText } from './bcrtracks.js';
+import { claimsOf, reachesFh2, trackName, trackValues, trackCcs, movesText, TRACK_GATES } from './bcrtracks.js';
 import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
   CVMIDI_TYPES, LEVEL_TRIGGER_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID, SRR_STOP } from './tables.js';
@@ -384,7 +384,7 @@ function gateFriendly(sources, p) {
   if (s.kind === 'triggers') return p.typeIndex == null || !LEVEL_TRIGGER_TYPES.has(p.typeIndex); // a velocity or envelope trigger is a level
   if (s.kind === 'clock' || s.kind === 'euclid' || s.kind === 'hid') return true;
   if (s.kind === 'random') return p.name !== 'CV';
-  if (s.kind === 'voice' && s.track) return /^(Gate|Trigger|Accent|Slide)$/.test(p.name);
+  if (s.kind === 'voice' && s.track) return TRACK_GATES.has(p.name);
   if (s.kind === 'voice') return /^(Gate|Trigger|Para gate)( \d+)?$/.test(p.name); // not Velocity gate: gate outputs are always 10 V
   return false;
 }
@@ -398,7 +398,7 @@ const nameOf = (sources, id) => sources.find((s) => s.id === id)?.name ?? id;
 export function replacesLevel(s, port) {
   if (['clock', 'triggers', 'euclid', 'hid'].includes(s.kind)) return true;
   if (s.kind === 'random') return port !== 'CV';
-  if (s.kind === 'voice' && s.track) return /^(Pitch|Gate|Trigger|Accent|Slide)$/.test(port); // a track's CC → CV outputs are their jack's level
+  if (s.kind === 'voice' && s.track) return port === 'Pitch' || port === 'Velocity gate' || TRACK_GATES.has(port); // a track's CC → CV outputs are their jack's level
   if (s.kind === 'voice') return /^(Pitch|Gate|Trigger|Velocity gate|Para gate)( \d+)?$/.test(port);
   return false;
 }

@@ -6,8 +6,10 @@
 export const TRACKS_SPACE = 3;
 export const TRACKS_LEN = 272; // two READs: 0 +256, 256 +16
 export const TRACKS_CHANGED = 0x35; // the event: 35 counter
-// By the setup's numbers. Off (0.30 on: sends nothing, the fresh unit's) never reaches the FH-2, nor the TD-3 (patch/bcrtracks.js).
-export const MACHINES = ['M303', 'TD-3', 'Generic', 'Plaits Chords', 'Off'];
+// By the setup's numbers. Off (0.30 on: sends nothing, the fresh unit's) never reaches the FH-2, nor the TD-3,
+// nor the MIDI gear (0.32 on: TX81Z, Proteus 2000; they play like Generic) (patch/bcrtracks.js). The Knights
+// Sampler (0.33 on) plays a Typhoon channel in its RAM machine mode through the FH-2.
+export const MACHINES = ['M303', 'TD-3', 'Generic', 'Plaits Chords', 'Off', 'TX81Z', 'Proteus 2000', 'Knights Sampler'];
 export const OUTPUTS = ['USB', 'DIN A', 'DIN B'];
 export const SENDERS = ['off', 'CC', 'PC', 'AT', 'PB']; // CTRL α / β: off, a CC, program change, aftertouch, pitch bend
 
@@ -16,7 +18,7 @@ const signed = (b) => (b > 127 ? b - 256 : b);
 
 // The tracks from the 272 bytes: { version, counter, tracks: [{ index, channel (0–15), machine,
 // machineId, output, a, b ({ type, cc }), muted, plaits ({ chordCc, chordTrim, timbreCc or null,
-// timbreTrim }) or null, m303 ({ slide, accent } notes) or null }] }.
+// timbreTrim }) or null, m303 ({ slide, accent } notes) or null, knights ({ record } note) or null }] }.
 export function parseTracks(img) {
   if (img.length < 16) throw new Error('the tracks: too short');
   if (img[0] !== 1) throw new Error(`the tracks’ version ${img[0]}: Night Shift knows 1`);
@@ -29,6 +31,7 @@ export function parseTracks(img) {
       a: { type: SENDERS[r[3]] ?? `sender ${r[3]}`, cc: r[4] }, b: { type: SENDERS[r[5]] ?? `sender ${r[5]}`, cc: r[6] }, muted: r[7] === 1,
       plaits: r[1] === 3 ? { chordCc: r[8], chordTrim: signed(r[9]), timbreCc: r[10] === 128 ? null : r[10], timbreTrim: signed(r[11]) } : null,
       m303: r[1] === 0 ? { slide: r[12], accent: r[13] } : null,
+      knights: r[1] === 7 ? { record: r[12] } : null, // byte 13 is FF
     };
   });
   return { version: img[0], counter: img[3], tracks };

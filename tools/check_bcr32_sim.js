@@ -238,6 +238,19 @@ if (hasTracks(info)) {
   transport.onmessage = was;
   check(events.length === 1 && second.counter === first.counter + 1, 'a track changed: one 35, the counter up', [events, second.counter]);
   check(trackLine(second.tracks[2]) === 'TR3 ch 8 Plaits Chords → USB · α CC 30 · β PB' && second.tracks[2].plaits.timbreCc === null, 'it reads back: Plaits on ch 8, no TIMBRE CC', trackLine(second.tracks[2]));
+  if (info.fwMajor > 0 || info.fwMinor >= 32) { // 0.32 on: the MIDI gear, 5 TX81Z and 6 Proteus 2000
+    await transport.panel('TRACK 3 4 5 0 1 2 0 0');
+    await transport.panel('TRACK 4 5 6 1 1 21 4 0');
+    const third = await read();
+    check(trackLine(third.tracks[3]) === 'TR4 ch 5 TX81Z → USB · α CC 2 · β off' && trackLine(third.tracks[4]) === 'TR5 ch 6 Proteus 2000 → DIN A · α CC 21 · β PB',
+      'the MIDI gear reads by name: TX81Z, Proteus 2000', [trackLine(third.tracks[3]), trackLine(third.tracks[4])]);
+  }
+  if (info.fwMajor > 0 || info.fwMinor >= 33) { // 0.33 on: 7 Knights Sampler, its record note in byte 12
+    await transport.panel('TRACK 5 6 7 0 1 16 1 17');
+    const ks = (await read()).tracks[5];
+    check(trackLine(ks) === 'TR6 ch 7 Knights Sampler → USB · α CC 16 · β CC 17' && ks.knights?.record === 0,
+      'a Knights Sampler reads back, its record note C-2', [trackLine(ks), ks.knights]);
+  }
 }
 
 await writer.close();

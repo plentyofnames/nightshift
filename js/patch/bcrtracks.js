@@ -1,7 +1,8 @@
 // A BCR32 track on the FH-2 (docs/build-plan.md, "How a track shows up", your design 2026-11-09):
 // one mono voice on the track's channel (Pitch, Gate, Velocity, Trigger; α or β when the track
 // sends them as aftertouch or bend), CC → CV outputs (α and β as CCs, the Plaits Chords' Chord and
-// Inversion) and, for the M303, its Accent and Slide as gate triggers on its gate notes. derive()
+// Inversion) and, for the M303, its Accent and Slide as gate triggers on its gate notes (a Knights
+// Sampler's Record on its record note; its play gate is the voice's Velocity gate). derive()
 // shows them as one source; trackEdits lays them out in a row from a start jack. The tracks
 // themselves come from the BCR32 (rotary/tracks.js parseTracks). No DOM, no MIDI.
 
@@ -15,14 +16,19 @@ export const MACHINE_VALUES = {
   M303: { on: ['Pitch', 'Gate', 'Accent', 'Slide'], more: ['α', 'β'] },
   'Plaits Chords': { on: ['Pitch', 'Trigger', 'Chord', 'Inversion'], more: ['Velocity', 'Gate', 'α', 'β'] },
   Generic: { on: ['Pitch', 'Gate'], more: ['Velocity', 'Trigger', 'α', 'β'] },
+  // the Typhoon's RAM machine (Rotary Club 0.33): Pitch to V/OCT, the play gate with its level to WET,
+  // α (Start) and β (Decay) stepped, Record to TRIG (firmware brief, 2026-11-12)
+  'Knights Sampler': { on: ['Pitch', 'Velocity gate', 'α', 'Record'], more: ['β'] },
 };
-const ORDER = ['Pitch', 'Gate', 'Velocity', 'Trigger', 'α', 'β', 'Chord', 'Inversion', 'Accent', 'Slide'];
-const VOICE = { Pitch: 'cvOut', Gate: 'gateOut', Velocity: 'velocityOut', Trigger: 'triggerOut' };
+const ORDER = ['Pitch', 'Gate', 'Velocity gate', 'Velocity', 'Trigger', 'α', 'β', 'Chord', 'Inversion', 'Accent', 'Slide', 'Record'];
+const VOICE = { Pitch: 'cvOut', Gate: 'gateOut', 'Velocity gate': 'velGateOut', Velocity: 'velocityOut', Trigger: 'triggerOut' };
+// The values that are gates: they can go to a gate expander (a velocity gate is a level on a CV jack).
+export const TRACK_GATES = new Set(['Gate', 'Trigger', 'Accent', 'Slide', 'Record']);
 const GATE_TYPE = 2; // a trigger of type Gate (tables.js TRIGGER_TYPES)
 const ZERO_TO_FIVE = 3; // RANGES: the Plaits Chords' CCs assume 0–5 V (Rotary Club's chord zones)
 
-// Only the tracks that reach the FH-2 show up: an M303, Plaits Chords or Generic track sending on
-// USB (your call: the TD-3 and the MIDI gear are played by the BCR32 directly).
+// Only the tracks that reach the FH-2 show up: an M303, Plaits Chords, Generic or Knights Sampler
+// track sending on USB (your call: the TD-3 and the MIDI gear are played by the BCR32 directly).
 export const reachesFh2 = (t) => t.output === 'USB' && !!MACHINE_VALUES[t.machine];
 export const trackName = (t) => `TR${t.index + 1} · ${t.machine}`;
 export const trackId = (t) => `track:${t.index}`;
@@ -42,6 +48,7 @@ export function valueHow(t, v) {
   if (v === 'Chord') return t.plaits ? { how: 'knob', cc: t.plaits.chordCc, range: ZERO_TO_FIVE } : { how: null, why: '' };
   if (v === 'Inversion') return t.plaits?.timbreCc != null ? { how: 'knob', cc: t.plaits.timbreCc, range: ZERO_TO_FIVE } : { how: null, why: 'no CC on the BCR32' };
   if (v === 'Accent' || v === 'Slide') return t.m303 ? { how: 'trigger', note: v === 'Accent' ? t.m303.accent : t.m303.slide } : { how: null, why: '' };
+  if (v === 'Record') return t.knights ? { how: 'trigger', note: t.knights.record } : { how: null, why: '' };
   return { how: null, why: '' };
 }
 
@@ -115,8 +122,7 @@ export function trackPlan(view, t, { on, start, gatesFrom = 0 }, own = null) {
     p.jack = o?.jack ?? '—';
     p.present = !!o?.present;
     p.taken = o ? [...new Set(o.ports.filter((x) => !x.standby && x.source !== own).map((x) => view.sources.find((s) => s.id === x.source)?.name ?? x.source))] : [];
-    const gateType = /^(Gate|Trigger|Accent|Slide)$/.test(p.value);
-    if (!o || (!gateType && p.output >= 64)) problems.push({ output: p.output, message: `${p.value} would land past the last CV output` });
+    if (!o || (!TRACK_GATES.has(p.value) && p.output >= 64)) problems.push({ output: p.output, message: `${p.value} would land past the last CV output` });
     else if (!p.present) problems.push({ output: p.output, message: `${p.value} would land on ${p.jack}, which isn’t in your rack` });
     else if (p.taken.length) problems.push({ output: p.output, message: `${p.value} would land on ${p.jack}, which ${p.taken.join(' and ')} already uses` });
   }
@@ -164,8 +170,8 @@ export function trackEdits(values, view, t, s, layout) {
     if (i < 0) throw new Error('all the FH-2’s 16 MIDI/CV converters are in use');
     const obj = { enable: 1, channel: t.channel, ...plan.cv };
     if (!s) Object.assign(obj, { minNote: 0, maxNote: 127, arpClock: 0 });
-    // an M303's gate notes (slide C-2, accent D-2) aren't pitches
-    const low = t.m303 ? Math.max(t.m303.slide, t.m303.accent) : null;
+    // an M303's gate notes (slide C-2, accent D-2) and a Knights Sampler's record note (C-2) aren't pitches
+    const low = t.m303 ? Math.max(t.m303.slide, t.m303.accent) : t.knights ? t.knights.record : null;
     if (low != null && low < 12) obj.minNote = Math.max(s ? s.raw.minNote : 0, low + 1);
     changes.push(...setConverter(i, obj));
   } else if (s) changes.push(...setConverter(s.index, { enable: 0, arpClock: 0 }));

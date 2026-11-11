@@ -8,7 +8,7 @@ import { RANGE_VOLTS, DIVISIONS, CLOCK_TYPES, TRIGGER_TYPES, voltsToLevel, noteN
 import { freeCcs, suggestCc, suggestChannel, suggestBaseGate, suggestStart, voicePlan, suggestTriggerChannel, suggestNote, jacksInTheWay } from '../patch/alloc.js';
 import { pagesChannels } from '../ec4/pages.js';
 import { addFixedVoltage, addKnob, addLfo, addClock, addEuclid, addVoice, addTrigger, addRandom, VOICE_OUTPUTS, SHARED_OUTPUTS, LEVEL_TRIGGER_TYPES, isAccentType } from '../patch/edit.js';
-import { reachesFh2, trackName, trackValues, firstValues, trackPlan, trackEdits, trackStart, trackGateStart } from '../patch/bcrtracks.js';
+import { reachesFh2, trackName, trackValues, firstValues, trackPlan, trackEdits, trackStart, trackGateStart, TRACK_GATES } from '../patch/bcrtracks.js';
 import { hasController } from '../patch/hardware.js';
 
 const KINDS = [
@@ -99,8 +99,7 @@ function gateStart(f, o, view) {
 
 // ---- a BCR32 track: its outputs in a row from the jack, its gates on CV jacks or a gate expander
 
-const GATE_VALUES = new Set(['Gate', 'Trigger', 'Accent', 'Slide']);
-const trackGates = (f) => [...f.trackOn].filter((v) => GATE_VALUES.has(v)).length;
+const trackGates = (f) => [...f.trackOn].filter((v) => TRACK_GATES.has(v)).length;
 const trackLayoutOf = (f, view) => ({ on: f.trackOn, start: f.start, gatesFrom: f.gatesOnExpander ? trackGateStart(view, trackGates(f)) ?? 0 : 0 });
 const trackFits = (f, view) => !!f.track && f.trackOn.size > 0 && !trackPlan(view, f.track, trackLayoutOf(f, view)).problems.length;
 

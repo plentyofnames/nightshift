@@ -16,6 +16,7 @@ const track = (index, machine, { channel = index, output = 'USB', a = { type: 'C
   index, channel, machine, output, a, b, muted: false,
   plaits: machine === 'Plaits Chords' ? { chordCc: 20, chordTrim: 0, timbreCc: 21, timbreTrim: 0 } : null,
   m303: machine === 'M303' ? { slide: 0, accent: 2 } : null,
+  knights: machine === 'Knights Sampler' ? { record: 0 } : null,
 });
 const blank = () => ({ config: blankConfig(), preset: blankPreset(), names: {} });
 const vals = (p) => ({ config: p.config.values, preset: p.preset.values });
@@ -23,13 +24,28 @@ const view = (p, tracks) => derive(p.config.values, p.preset.values, undefined, 
 const rowOf = (plan) => plan.ports.map((x) => `${x.value}@${x.output}`).join(' ');
 const sourceOf = (v, t) => v.sources.find((s) => s.track?.index === t.index);
 
-test('only M303, Plaits Chords and Generic tracks on USB reach the FH-2 (your call: not the TD-3, not the MIDI gear)', () => {
+test('only M303, Plaits Chords, Generic and Knights Sampler tracks on USB reach the FH-2 (your call: not the TD-3, not the MIDI gear)', () => {
   assert(reachesFh2(track(0, 'M303')));
   assert(reachesFh2(track(1, 'Plaits Chords')));
   assert(reachesFh2(track(2, 'Generic')));
+  assert(reachesFh2(track(8, 'Knights Sampler')));
+  assert(!reachesFh2(track(9, 'Knights Sampler', { output: 'DIN A' })), 'a Knights Sampler on DIN');
   assert(!reachesFh2(track(3, 'TD-3')), 'TD-3');
   assert(!reachesFh2(track(4, 'Generic', { output: 'DIN A' })), 'a TX81Z on DIN');
   assert(!reachesFh2(track(5, 'Off')), 'off (Rotary Club 0.30, a fresh unit’s tracks)');
+  assert(!reachesFh2(track(6, 'TX81Z')), 'a TX81Z, even on USB (Rotary Club 0.32)');
+  assert(!reachesFh2(track(7, 'Proteus 2000')), 'a Proteus 2000, even on USB');
+});
+
+test('TX81Z (5) and Proteus 2000 (6, Rotary Club 0.32) read by name, and neither shows nor counts on the FH-2', () => {
+  const bytes = new Uint8Array(272);
+  bytes.set([1, 16, 16, 1]);
+  for (let t = 0; t < 16; t++) bytes.set([t, t % 2 ? 6 : 5, 0, 1, 2, 1, 21, 0, 20, 0, 21, 0, 0, 2], 16 + 16 * t);
+  const tracks = parseTracks(bytes).tracks;
+  eq([trackLine(tracks[0]), trackLine(tracks[1])], ['TR1 ch 1 TX81Z → USB · α CC 2 · β CC 21', 'TR2 ch 2 Proteus 2000 → USB · α CC 2 · β CC 21']);
+  eq([tracks[0].plaits, tracks[0].m303], [null, null], 'bytes 8–13 are Plaits Chords’ and the M303’s only');
+  const v = view(blank(), tracks);
+  eq(v.channels.map((c) => c.tracks.length), Array(16).fill(0), 'no channel has a track');
 });
 
 test('a track whose machine is off (4, Rotary Club 0.30) reads as Off, and neither shows nor counts on the FH-2', () => {
@@ -99,6 +115,33 @@ test('a Plaits Chords track’s Chord follows the chord CC it sends (Rotary Club
   eq(mappingsOf(p.config.values).map((m) => m.cc), [25, 21]);
   const s = sourceOf(view(p, [plaits]), plaits);
   eq(s.ports.map((x) => `${x.name}@${x.output}`), ['Pitch@0', 'Trigger@1', 'Chord@2', 'Inversion@3']);
+});
+
+test('a Knights Sampler (7, Rotary Club 0.33) reads its record note from byte 12', () => {
+  const bytes = new Uint8Array(272);
+  bytes.set([1, 16, 16, 1]);
+  for (let t = 0; t < 16; t++) bytes.set([t, 4, 0, 1, 74, 1, 71, 0, 20, 0, 21, 0, 0, 2], 16 + 16 * t);
+  bytes.set([3, 7, 0, 1, 16, 1, 17, 0, 0, 0, 0, 0, 0, 0xff], 16 + 16 * 3);
+  const t = parseTracks(bytes).tracks[3];
+  eq(trackLine(t), 'TR4 ch 4 Knights Sampler → USB · α CC 16 · β CC 17');
+  eq([t.knights, t.m303, t.plaits], [{ record: 0 }, null, null]);
+});
+
+test('a Knights Sampler is a voice with its velocity gate, Start and Decay as CC → CV, and Record as a gate on its note', () => {
+  const ks = track(3, 'Knights Sampler', { a: { type: 'CC', cc: 16 }, b: { type: 'CC', cc: 17 } });
+  eq(trackValues(ks).map((v) => v.value), ['Pitch', 'Velocity gate', 'α', 'β', 'Record']);
+  eq([...firstValues(ks)], ['Pitch', 'Velocity gate', 'α', 'Record']);
+  const v0 = view(blank(), null);
+  eq(rowOf(trackPlan(v0, ks, { on: firstValues(ks), start: 0, gatesFrom: 64 })), 'Pitch@0 Velocity gate@1 α@2 Record@64', 'Record goes to the gate expander, the velocity gate stays a level');
+  const p = blank();
+  apply(p, trackEdits(vals(p), view(p, [ks]), ks, null, { on: new Set([...firstValues(ks), 'β']), start: 0 }));
+  const cv = p.config.values.converter.find((c) => c.enable);
+  eq([cv.channel, cv.cvOut, cv.gateOut, cv.velGateOut, cv.minNote], [3, 1, 0, 1, 1], 'the record note C-2 isn’t a pitch');
+  eq(mappingsOf(p.config.values).map((m) => [m.cc, m.target.index]), [[16, 2], [17, 3]]);
+  eq(p.config.values.trigger.filter((x) => x.type).map((x) => [x.type, x.channel, x.note, x.output]), [[2, 3, 0, 4]], 'Record as a gate on note 0');
+  const v = view(p, [ks]);
+  eq(sourceOf(v, ks).ports.map((x) => `${x.name}@${x.output}`), ['Pitch@0', 'Velocity gate@1', 'α@2', 'β@3', 'Record@4']);
+  eq(v.problems, []);
 });
 
 test('switching outputs on and off lays the row out again; nothing on takes the track off the FH-2', () => {
