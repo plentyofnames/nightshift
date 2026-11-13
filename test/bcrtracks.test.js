@@ -3,10 +3,10 @@
 // showing a track's voice, CC → CV outputs and gate triggers as one source.
 
 import { test, assert, eq } from './harness.js';
-import { apply, setConverter } from '../js/patch/edit.js';
+import { apply, setConverter, setRange } from '../js/patch/edit.js';
 import { derive } from '../js/patch/derive.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
-import { reachesFh2, trackValues, firstValues, trackPlan, trackEdits, trackLayout, trackStart, claimsOf } from '../js/patch/bcrtracks.js';
+import { reachesFh2, trackValues, firstValues, trackPlan, trackEdits, trackLayout, trackStart, claimsOf, rangesOff, rangeEdits } from '../js/patch/bcrtracks.js';
 import { mappingsOf } from '../js/patch/mappings.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { pagesOf, ccsFor } from '../js/ec4/pages.js';
@@ -141,7 +141,20 @@ test('a Knights Sampler is a voice with its velocity gate, Start and Decay as CC
   eq(p.config.values.trigger.filter((x) => x.type).map((x) => [x.type, x.channel, x.note, x.output]), [[2, 3, 0, 4]], 'Record as a gate on note 0');
   const v = view(p, [ks]);
   eq(sourceOf(v, ks).ports.map((x) => `${x.name}@${x.output}`), ['Pitch@0', 'Velocity gate@1', 'α@2', 'β@3', 'Record@4']);
+  eq([0, 1, 2, 3, 4].map((o) => v.outputs[o].range), ['±5 V', '0–5 V', '0–5 V', '0–5 V', '0–10 V'], 'pitch ±5 V, the velocity gate, Start and Decay 0–5 V (your ranges, 2026-11-13); Record’s untouched');
   eq(v.problems, []);
+});
+
+test('a track’s jack at another range than it needs is a problem, and its panel sets the ranges', () => {
+  const ks = track(3, 'Knights Sampler', { a: { type: 'CC', cc: 16 }, b: { type: 'CC', cc: 17 } });
+  const p = blank();
+  apply(p, trackEdits(vals(p), view(p, [ks]), ks, null, { on: firstValues(ks), start: 0 }));
+  apply(p, [...setRange(0, 0), ...setRange(1, 1)]); // as a track added before Night Shift set ranges
+  const v = view(p, [ks]);
+  eq(v.problems.map((x) => x.message), ['TR4 · Knights Sampler: Pitch on 1 is 0–10 V, needs ±5 V', 'TR4 · Knights Sampler: Velocity gate on 2 is ±5 V, needs 0–5 V']);
+  const off = rangesOff(v, sourceOf(v, ks));
+  apply(p, rangeEdits(off));
+  eq(view(p, [ks]).problems, []);
 });
 
 test('switching outputs on and off lays the row out again; nothing on takes the track off the FH-2', () => {
@@ -150,7 +163,7 @@ test('switching outputs on and off lays the row out again; nothing on takes the 
   apply(p, trackEdits(vals(p), view(p, [plaits]), plaits, null, { on: firstValues(plaits), start: 0 }));
   let s = sourceOf(view(p, [plaits]), plaits);
   eq(s.ports.map((x) => `${x.name}@${x.output}`), ['Pitch@0', 'Trigger@1', 'Chord@2', 'Inversion@3']);
-  eq([2, 3].map((o) => p.config.values.outputRange[o].value), [3, 3], 'Chord and Inversion at 0–5 V');
+  eq([0, 1, 2, 3].map((o) => p.config.values.outputRange[o].value), [1, 0, 3, 3], 'Pitch at ±5 V (your call, 2026-11-13), Chord and Inversion at 0–5 V; the Trigger’s untouched');
   // Velocity on: everything after it moves up one
   let v = view(p, [plaits]);
   apply(p, trackEdits(vals(p), v, plaits, s, { ...trackLayout(s), on: new Set([...trackLayout(s).on, 'Velocity']) }));

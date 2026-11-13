@@ -11,21 +11,29 @@ import { isUsed } from './mappings.js';
 import { setConverter, setTrigger, setRange, setSmoothing, setDirectLevel, cvPerVoice, VOICE_OUTPUTS, SHARED_OUTPUTS } from './edit.js';
 import { freeConverter } from './alloc.js';
 
-// What each machine offers, and what is on to start with (your call, 2026-11-09).
+const PLUS_MINUS_FIVE = 1; // RANGES
+const ZERO_TO_FIVE = 3;
+
+// What each machine offers, what is on to start with (your call, 2026-11-09), and the ranges its
+// jacks need (set with the track; another range there is a problem).
 export const MACHINE_VALUES = {
   M303: { on: ['Pitch', 'Gate', 'Accent', 'Slide'], more: ['α', 'β'] },
-  'Plaits Chords': { on: ['Pitch', 'Trigger', 'Chord', 'Inversion'], more: ['Velocity', 'Gate', 'α', 'β'] },
+  // Pitch ±5 V, as the Knights Sampler's (your call, 2026-11-13); Chord and Inversion: Rotary Club's
+  // chord zones assume 0–5 V
+  'Plaits Chords': { on: ['Pitch', 'Trigger', 'Chord', 'Inversion'], more: ['Velocity', 'Gate', 'α', 'β'],
+    ranges: { Pitch: PLUS_MINUS_FIVE, Chord: ZERO_TO_FIVE, Inversion: ZERO_TO_FIVE } },
   Generic: { on: ['Pitch', 'Gate'], more: ['Velocity', 'Trigger', 'α', 'β'] },
-  // the Typhoon's RAM machine (Rotary Club 0.33): Pitch to V/OCT, the play gate with its level to WET,
-  // α (Start) and β (Decay) stepped, Record to TRIG (firmware brief, 2026-11-12)
-  'Knights Sampler': { on: ['Pitch', 'Velocity gate', 'α', 'Record'], more: ['β'] },
+  // the Typhoon's RAM machine (Rotary Club 0.33): Pitch to V/OCT (C4 = 0 V), the play gate with its
+  // level to WET (velocity 26–127: at least 1 V), α (Start) and β (Decay) stepped, Record to TRIG
+  // (firmware brief, 2026-11-12; your ranges, 2026-11-13)
+  'Knights Sampler': { on: ['Pitch', 'Velocity gate', 'α', 'Record'], more: ['β'],
+    ranges: { Pitch: PLUS_MINUS_FIVE, 'Velocity gate': ZERO_TO_FIVE, α: ZERO_TO_FIVE, β: ZERO_TO_FIVE } },
 };
 const ORDER = ['Pitch', 'Gate', 'Velocity gate', 'Velocity', 'Trigger', 'α', 'β', 'Chord', 'Inversion', 'Accent', 'Slide', 'Record'];
 const VOICE = { Pitch: 'cvOut', Gate: 'gateOut', 'Velocity gate': 'velGateOut', Velocity: 'velocityOut', Trigger: 'triggerOut' };
 // The values that are gates: they can go to a gate expander (a velocity gate is a level on a CV jack).
 export const TRACK_GATES = new Set(['Gate', 'Trigger', 'Accent', 'Slide', 'Record']);
 const GATE_TYPE = 2; // a trigger of type Gate (tables.js TRIGGER_TYPES)
-const ZERO_TO_FIVE = 3; // RANGES: the Plaits Chords' CCs assume 0–5 V (Rotary Club's chord zones)
 
 // Only the tracks that reach the FH-2 show up: an M303, Plaits Chords, Generic or Knights Sampler
 // track sending on USB (your call: the TD-3 and the MIDI gear are played by the BCR32 directly).
@@ -34,7 +42,7 @@ export const trackName = (t) => `TR${t.index + 1} · ${t.machine}`;
 export const trackId = (t) => `track:${t.index}`;
 
 // How value `v` of track `t` is made on the FH-2: { how: 'voice', key } (a voice output switch),
-// { how: 'knob', cc, range? } (a CC → CV output), { how: 'trigger', note } (a gate trigger), or
+// { how: 'knob', cc } (a CC → CV output), { how: 'trigger', note } (a gate trigger), or
 // { how: null, why } when the track doesn't send it.
 export function valueHow(t, v) {
   if (VOICE[v]) return { how: 'voice', key: VOICE[v] };
@@ -45,19 +53,29 @@ export function valueHow(t, v) {
     if (s.type === 'PB') return { how: 'voice', key: 'bendOut' };
     return { how: null, why: s.type === 'PC' ? 'a program change: no CV' : 'off on the BCR32' };
   }
-  if (v === 'Chord') return t.plaits ? { how: 'knob', cc: t.plaits.chordCc, range: ZERO_TO_FIVE } : { how: null, why: '' };
-  if (v === 'Inversion') return t.plaits?.timbreCc != null ? { how: 'knob', cc: t.plaits.timbreCc, range: ZERO_TO_FIVE } : { how: null, why: 'no CC on the BCR32' };
+  if (v === 'Chord') return t.plaits ? { how: 'knob', cc: t.plaits.chordCc } : { how: null, why: '' };
+  if (v === 'Inversion') return t.plaits?.timbreCc != null ? { how: 'knob', cc: t.plaits.timbreCc } : { how: null, why: 'no CC on the BCR32' };
   if (v === 'Accent' || v === 'Slide') return t.m303 ? { how: 'trigger', note: v === 'Accent' ? t.m303.accent : t.m303.slide } : { how: null, why: '' };
   if (v === 'Record') return t.knights ? { how: 'trigger', note: t.knights.record } : { how: null, why: '' };
   return { how: null, why: '' };
 }
 
-// The values track `t` offers, in the row's order: [{ value, how, …, first (on to start with) }].
+// The values track `t` offers, in the row's order: [{ value, how, …, first (on to start with),
+// range (the RANGES index its jack needs, or null) }].
 export function trackValues(t) {
   const m = MACHINE_VALUES[t.machine];
   if (!m) return [];
-  return ORDER.filter((v) => m.on.includes(v) || m.more.includes(v)).map((v) => ({ value: v, ...valueHow(t, v), first: m.on.includes(v) }));
+  return ORDER.filter((v) => m.on.includes(v) || m.more.includes(v)).map((v) => ({ value: v, ...valueHow(t, v), first: m.on.includes(v), range: m.ranges?.[v] ?? null }));
 }
+
+// The jacks of track source `s` (derive's voice with `track`) whose range isn't the one its value
+// needs: [{ value, output, jack, now, want }] (RANGES indexes).
+export function rangesOff(view, s) {
+  const want = new Map(trackValues(s.track.data).filter((v) => v.range != null).map((v) => [v.value, v.range]));
+  return s.ports.filter((p) => want.has(p.value) && p.output >= 0 && p.output < 64 && view.outputs[p.output].rangeIndex !== want.get(p.value))
+    .map((p) => ({ value: p.value, output: p.output, jack: view.outputs[p.output].jack, now: view.outputs[p.output].rangeIndex, want: want.get(p.value) }));
+}
+export const rangeEdits = (off) => off.flatMap((x) => setRange(x.output, x.want));
 
 // The values a new track starts with: the machine's, as far as the track sends them.
 export const firstValues = (t) => new Set(trackValues(t).filter((v) => v.first && v.how).map((v) => v.value));
@@ -190,7 +208,6 @@ export function trackEdits(values, view, t, s, layout) {
       const slot = old?.slot ?? freeSlots.shift();
       if (slot == null) throw new Error('all the FH-2’s 384 CC mappings are in use');
       changes.push(c(['mapping', slot, 'status'], 0x30 | t.channel), c(['mapping', slot, 'cc'], v.cc), c(['mapping', slot, 'target'], 0), c(['mapping', slot, 'index'], o));
-      if (v.range != null) changes.push(...setRange(o, v.range));
       if (old?.output !== o) {
         if (values.preset) changes.push(...setSmoothing(o, 0));
         if (old) changes.push(...levelOff(old.output));
@@ -205,6 +222,9 @@ export function trackEdits(values, view, t, s, layout) {
       changes.push(...setTrigger(k, { type: GATE_TYPE, channel: t.channel, note: v.note, anyNote: 0, output: o }));
     }
   }
+  // each jack at the range its value needs (the Knights Sampler's pitch ±5 V, say)
+  const ranges = new Map(trackValues(t).filter((v) => v.range != null).map((v) => [v.value, v.range]));
+  for (const p of plan.ports) if (ranges.has(p.value) && p.output < 64) changes.push(...setRange(p.output, ranges.get(p.value)));
   // a part of a value the track no longer sends (its α turned from a CC to bend, say) goes too
   for (const [v, p] of had) {
     if (trackValues(t).some((x) => x.value === v && x.how && (x.how === 'knob') === (p.slot != null) && (x.how === 'trigger') === (p.trigger != null))) continue;

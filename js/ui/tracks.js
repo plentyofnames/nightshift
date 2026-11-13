@@ -4,7 +4,8 @@
 
 import { h } from '../../vendor/lilypad/js/dom.js';
 import { selectInput } from './controls.js';
-import { trackValues, trackLayout, trackPlan, trackEdits, trackStart } from '../patch/bcrtracks.js';
+import { trackValues, trackLayout, trackPlan, trackEdits, trackStart, rangesOff, rangeEdits } from '../patch/bcrtracks.js';
+import { RANGES } from '../patch/tables.js';
 
 const field = (label, ...control) => h('div', { class: 'erow' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, control));
 
@@ -32,6 +33,7 @@ export function trackEditor(view, s, act) {
   const plan = trackPlan(view, t, layout, s.id);
   const fits = plan.problems.length ? trackStart(view, t, layout, s.id) : null;
   const off = trackValues(t).filter((v) => !v.how && v.why);
+  const ranges = rangesOff(view, s);
   return [
     h('p', { class: 'note' }, `ch ${t.channel + 1} · ${t.machine}${t.muted ? ' · muted' : ''} · set on the BCR32`),
     h('h4', {}, 'Outputs'),
@@ -42,6 +44,8 @@ export function trackEditor(view, s, act) {
       field('Gates from', selectInput(`Gates of ${s.name}`, layout.gatesFrom, [[0, 'CV jacks, after the rest'], ...gateJacks],
         (v) => set(v ? `gates from ${view.outputs[v].jack}` : 'gates on CV jacks', { gatesFrom: v })))),
     plan.problems.map((x) => h('p', { class: 'problem' }, x.message)),
+    ranges.map((x) => h('p', { class: 'problem' }, `${x.value} on ${x.jack}: ${RANGES[x.now] ?? '?'}, needs ${RANGES[x.want]}`)),
+    ranges.length ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => act.edit(`${s.name}: ranges`, rangeEdits(ranges)) }, 'Set the ranges')) : null,
     fits != null && fits !== layout.start ? h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => set(`from ${view.outputs[fits].jack}`, { start: fits }) },
       `Start at ${view.outputs[fits].jack}: it fits there`)) : null,
   ];

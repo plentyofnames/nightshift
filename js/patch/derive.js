@@ -6,7 +6,7 @@
 // change. Where the manual leaves the output order open, the choice is marked "assumed".
 
 import { mappingsOf } from './mappings.js';
-import { claimsOf, reachesFh2, trackName, trackValues, trackCcs, movesText, TRACK_GATES } from './bcrtracks.js';
+import { claimsOf, reachesFh2, trackName, trackValues, trackCcs, movesText, TRACK_GATES, rangesOff } from './bcrtracks.js';
 import { jackName, isPresent, isGate, EXAMPLE_HARDWARE } from './hardware.js';
 import { RANGES, CONVERTER_TYPES, ALLOCATIONS, SUSTAIN, CLOCK_TYPES, TRIGGER_TYPES, ACCENT_TRIGGER_TYPES, LFO_RESET_TYPES,
   CVMIDI_TYPES, LEVEL_TRIGGER_TYPES, noteName, durationName, lfoHz, gamepadUsage, keyName, arpModeOf, LFO_RESET_EUCLID, SRR_STOP } from './tables.js';
@@ -264,6 +264,13 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
         if (m.channel !== t.channel || m.cc !== cc || claims.knobs.get(m.slot)?.track === t) continue;
         problems.push({ kind: 'track-cc', message: `${trackName(t)} sends ${value} as CC ${cc} on ch ${t.channel + 1}: it also moves ${movesText(m, { outputs, sources }, names)}` });
       }
+    }
+  }
+  // a BCR32 track's jack at another range than its value needs (the Knights Sampler's pitch at ±5 V)
+  for (const s of sources) {
+    if (!s.track) continue;
+    for (const x of rangesOff({ outputs }, s)) {
+      problems.push({ kind: 'track-range', source: s.id, output: x.output, message: `${s.name}: ${x.value} on ${x.jack} is ${RANGES[x.now] ?? '?'}, needs ${RANGES[x.want]}` });
     }
   }
   for (const p of players) {
