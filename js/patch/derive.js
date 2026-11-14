@@ -266,6 +266,14 @@ export function derive(config, preset = null, hardware = EXAMPLE_HARDWARE, names
       }
     }
   }
+  // BCR32 tracks sending on one channel: the FH-2 can't tell them apart (your call, 2026-11-14)
+  const tracksOn = new Map();
+  for (const t of tracks ?? []) if (reachesFh2(t)) tracksOn.set(t.channel, [...(tracksOn.get(t.channel) ?? []), t]);
+  for (const [ch, list] of tracksOn) {
+    if (list.length < 2) continue;
+    const names = list.map(trackName);
+    problems.push({ kind: 'track-channel', message: `${names.slice(0, -1).join(', ')} and ${names.at(-1)} ${list.length > 2 ? 'all' : 'both'} send on ch ${ch + 1}` });
+  }
   // a BCR32 track's jack at another range than its value needs (the Knights Sampler's pitch at ±5 V)
   for (const s of sources) {
     if (!s.track) continue;

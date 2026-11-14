@@ -108,7 +108,7 @@ aside.inspector { flex: 1 1 300px; min-width: 0; max-width: 440px; background: v
 .anchor { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--src); opacity: 0.35; }
 .anchor.on { opacity: 1; }
 
-.module { position: absolute; height: 707px; background: #0b0b0d; border: 1px solid #2b2e35; border-radius: 4px; color: #e6e7ea; }
+.module { position: absolute; height: 572px; background: #0b0b0d; border: 1px solid #2b2e35; border-radius: 4px; color: #e6e7ea; }
 .module .screw { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #2e3138; }
 .module .m-title { position: absolute; left: 0; right: 0; top: 22px; text-align: center; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
 .module .m-tag { position: absolute; left: 0; right: 0; top: 40px; text-align: center; font-size: 20px; font-weight: 700; }
@@ -120,15 +120,15 @@ aside.inspector { flex: 1 1 300px; min-width: 0; max-width: 440px; background: v
 .panel-text { position: absolute; width: 100px; text-align: center; font-size: 9.5px; color: #9aa0ab; }
 
 .jack-num { position: absolute; width: 14px; text-align: right; font: 500 10px/14px var(--mono); color: #9aa0ab; }
-.jack { position: absolute; width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 2px solid #d3d6db; background: #9ea3ab; box-shadow: 0 0 0 var(--ring-w, 0px) var(--ring, transparent); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.jack::after { content: ''; width: 13px; height: 13px; border-radius: 50%; background: #050506; }
+.jack { position: absolute; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid #d3d6db; background: #9ea3ab; box-shadow: 0 0 0 var(--ring-w, 0px) var(--ring, transparent); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.jack::after { content: ''; width: 11px; height: 11px; border-radius: 50%; background: #050506; }
 .jack.selected { outline: 2px dashed #ffffff; outline-offset: 4px; }
 .jack.clash { --ring: #ff5f56; --ring-w: 3px; }
-.jack-label { position: absolute; width: 104px; text-align: center; font-size: 10.5px; line-height: 12px; color: #8a91a0; pointer-events: none; }
+.jack-label { position: absolute; width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; font-size: 10.5px; line-height: 12px; color: #8a91a0; pointer-events: none; }
 .jack-label.used { color: var(--src); }
 .jack-label.dim { opacity: 0.6; }
 .jack-label.on { font-weight: 600; }
-.jack-extra { position: absolute; width: 104px; text-align: center; font-size: 9.5px; line-height: 11px; color: #a3a9b7; pointer-events: none; }
+.jack-extra { position: absolute; width: 96px; text-align: center; font-size: 9.5px; line-height: 11px; color: #a3a9b7; pointer-events: none; }
 .cables { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 .cables .shadow { fill: none; stroke: #000; stroke-opacity: 0.5; stroke-width: 8; stroke-linecap: round; }
 .cables .cable { fill: none; stroke-width: 4.5; stroke-linecap: round; }
@@ -297,6 +297,8 @@ body.scenes-only .inspector .remove,
 body.scenes-only .inspector .checks :is(input, select) { opacity: 0.4; pointer-events: none; }
 /* a scene's own value inside a setup row (a drum lane's rate) stays editable */
 body.scenes-only .inspector :is(.erow, .row):not(.per-scene) .per-scene :is(input, select, button) { opacity: 1; pointer-events: auto; }
+/* an LFO's × (the scene's) too */
+body.scenes-only .inspector .per-scene .remove { opacity: 1; pointer-events: auto; }
 body.scenes-only .inspector .wave-box, body.scenes-only .inspector .steps { opacity: 1; }
 .scenes-page { flex: 1 1 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 .scenes-page h2 { font-size: 18px; margin: 0; }
@@ -327,7 +329,8 @@ body.scenes-only .inspector .wave-box, body.scenes-only .inspector .steps { opac
 .tag.on-module { margin-left: 8px; font-size: 11px; color: var(--accent-ink); background: var(--accent); }
 
 /* the Settings tab */
-.settings-page { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.settings-page { flex: 1 1 100%; position: relative; min-width: 0; } /* boxes in columns: ui/masonry.js */
+.settings-page > .settings-section { position: absolute; box-sizing: border-box; }
 .settings-section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
 .settings-section h3 { margin: 0; font-size: 15px; }
 .settings-section h4 { margin: 8px 0 0; font-size: 12px; font-weight: 600; color: var(--dim); }

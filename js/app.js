@@ -21,6 +21,7 @@ import { fh2Ports, looksLikeFh2, pullFromFh2, sendToFh2, saveToFlash, saveAllToF
   openEc4, watchEc4, fh2Output, pullPresetFromFh2, bcr32Port, openBcr32, watchBcr32 } from './ui/connect.js';
 import { renderScenes } from './ui/scenes.js';
 import { renderSettings } from './ui/settings.js';
+import { masonry } from './ui/masonry.js';
 import { renderGig } from './ui/gig.js';
 import { checklist } from './patch/gig.js';
 import { sceneDifferences, fitProblems } from './patch/scenes.js';
@@ -2184,6 +2185,11 @@ const drawLines = () => {
 };
 addEventListener('scroll', drawLines, { passive: true });
 addEventListener('resize', drawLines);
+// boxes in columns (the Settings tab): laid out after each render, and again when the width changes
+function layoutBoxes() {
+  document.querySelectorAll('.masonry').forEach((el) => masonry(el));
+}
+addEventListener('resize', layoutBoxes);
 
 function render() {
   const v = state.view;
@@ -2235,6 +2241,7 @@ function render() {
   }
   document.body.classList.toggle('scenes-only', !!(v && state.scenesOnly));
   replace($('#app'), bar(), h('main', {}, content));
+  layoutBoxes();
   // the status for screen readers: one region outside the redrawn app, told only what's new
   const said = document.getElementById('announce');
   if (said && state.status && said.textContent !== state.status) said.textContent = state.status;

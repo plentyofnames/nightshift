@@ -30,10 +30,6 @@ export function renderSettings(view, c, p, sceneName, act) {
   const pre = (label, key) => (v) => act.edit(`${label}: ${v}`, [{ dump: 'preset', path: [key], value: v }]);
 
   const read = act.fh2;
-  const head = h('div', { class: 'settings-head' },
-    h('button', { type: 'button', class: 'btn', disabled: act.busy, onclick: act.readFh2,
-      title: 'Steps through the FH-2’s Settings pages and reads them; changes nothing' }, read ? 'Read FH-2 settings again' : 'Read FH-2 settings'),
-    h('span', { class: 'note' }, read ? `Last read ${new Date(read.at).toLocaleString()}` : 'Not read yet'));
 
   const tuplet = p?.swingType >= 3;
   const L = (text, param) => ec4Label(text, `global:0:${param}`, act.ec4);
@@ -82,10 +78,15 @@ export function renderSettings(view, c, p, sceneName, act) {
       act.removeMapping && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove CC ${m.cc} on ch ${m.channel + 1} for ${PARAM_NAMES[m.target.param] ?? m.target.param}`,
         title: 'Remove this CC mapping (off the EC4 too)', onclick: () => act.removeMapping(m) }, '×')]))) : null;
 
-  // the FH-2's own settings, as last read (read only for now: change them on the module)
-  const module = read && section('FH-2 settings',
-    settingsWarnings(settingsByName(read.pages), view).map((w) => h('p', { class: w.level === 'warn' ? 'problem' : 'note' }, w.text)),
-    read.pages.map((pg) => readPage(pg)));
+  // the FH-2's own settings, as last read (read only for now: change them on the module); read
+  // from here, as its calibrations are
+  const module = section('FH-2 settings',
+    h('div', { class: 'settings-head' },
+      h('button', { type: 'button', class: 'btn', disabled: act.busy, onclick: act.readFh2,
+        title: 'Steps through the FH-2’s Settings pages and reads them; changes nothing' }, read ? 'Read FH-2 settings again' : 'Read FH-2 settings'),
+      h('span', { class: 'note' }, read ? `Read ${new Date(read.at).toLocaleString()}` : 'Not read yet')),
+    read ? [settingsWarnings(settingsByName(read.pages), view).map((w) => h('p', { class: w.level === 'warn' ? 'problem' : 'note' }, w.text)),
+      read.pages.map((pg) => readPage(pg))] : null);
 
   // its calibrations, as last read: each CV jack's startup slot and the slots saved for it
   const cal = act.cal;
@@ -125,7 +126,7 @@ export function renderSettings(view, c, p, sceneName, act) {
     [...scalaRows('scl'), ...scalaRows('kbm')].length ? h('div', { class: 'erows' }, scalaRows('scl'), scalaRows('kbm'))
       : h('p', { class: 'note' }, 'None installed from Night Shift yet. A voice picks its scale in its panel (Tuning).'));
 
-  return h('div', { class: 'settings-page' }, head, scene, config, module, calibrations, scala, controls);
+  return h('div', { class: 'settings-page masonry' }, scene, config, module, calibrations, scala, controls);
 }
 
 // "slot 1 at power-on · saved: 1, 5", from calibrationOf.

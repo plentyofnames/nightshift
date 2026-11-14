@@ -15,8 +15,15 @@ const CARD_STEP = 64; // 56 + 8
 const HEAD = 26;
 const RX = GX + 360;
 const RY = 40;
-const PANEL_H = 707;
-const W = { fh2: 224, cv: 112, gt: 112 };
+// The panels on one grid of jack rows, as on the hardware: an expander's 8 jacks on rows 0–7, the
+// FH-2's outputs on rows 4–7 (two columns), its inputs X and Y and its USB ports on rows 2–3.
+const PANEL_H = 572;
+const W = { fh2: 200, cv: 100, gt: 100 };
+const ROW0 = 108; // the first row, under the module's name
+const PITCH = 56;
+const rowY = (r) => ROW0 + PITCH * r;
+const FH2_COLS = [52, 148];
+const JACK_R = 13; // .jack is 26 px
 
 // A BCR32 track (a voice with its extras, patch/bcrtracks.js) has a group of its own.
 const of = (...kinds) => (s) => !s.track && kinds.includes(s.kind);
@@ -38,8 +45,8 @@ function arpMark(s) {
 }
 
 // FH-2 jack positions inside its panel.
-const FH2_OUT = (i) => ({ x: i < 4 ? 62 : 162, y: 362 + 70 * (i % 4) });
-const EXP_OUT = (j) => ({ x: 56, y: 140 + 68 * j });
+const FH2_OUT = (i) => ({ x: FH2_COLS[i < 4 ? 0 : 1], y: rowY(4 + (i % 4)) });
+const EXP_OUT = (j) => ({ x: 50, y: rowY(j) });
 
 // "plays 2": the voices a shift register's notes play inside the FH-2.
 const playsOfIn = (view) => (s) => {
@@ -161,25 +168,25 @@ export function renderStage(view, colors, selected, onSelect) {
     const clash = gens.length > 1;
     const label = clash ? `${gens.length} sources!` : src ? shortLabel(src, src.ports.find((p) => p.output === out) ?? shown) : 'free';
     const anySelected = selectedSources.length > 0;
-    nodes.push(h('span', { class: 'jack-num', style: `left:${pos.x - 36}px;top:${pos.y - 7}px` }, pos.num));
+    nodes.push(h('span', { class: 'jack-num', style: `left:${pos.x - 34}px;top:${pos.y - 7}px` }, pos.num));
     nodes.push(h('button', {
       type: 'button', class: 'jack' + (clash ? ' clash' : '') + (selected?.output === out ? ' selected' : ''),
       'aria-label': `Jack ${o.jack}: ${src ? label : 'nothing'}`,
-      style: `left:${pos.x - 15}px;top:${pos.y - 15}px` + (color && !clash ? `;--ring:${on ? color : color + '88'};--ring-w:${on ? 4 : 2}px` : ''),
+      style: `left:${pos.x - JACK_R}px;top:${pos.y - JACK_R}px` + (color && !clash ? `;--ring:${on ? color : color + '88'};--ring-w:${on ? 4 : 2}px` : ''),
       onclick: () => onSelect({ output: out, sources: o.ports.map((p) => p.source) }),
     }));
     nodes.push(h('span', {
       class: 'jack-label' + (src ? ' used' : '') + (src && anySelected && !on ? ' dim' : '') + (on ? ' on' : ''),
-      style: `left:${pos.x - 52}px;top:${pos.y + 18}px` + (color ? `;--src:${color}` : ''),
+      style: `left:${pos.x - 48}px;top:${pos.y + JACK_R + 2}px` + (color ? `;--src:${color}` : ''),
     }, label));
-    if (o.lfo && !o.lfo.alone) nodes.push(h('span', { class: 'jack-extra', style: `left:${pos.x - 52}px;top:${pos.y + 31}px` }, '+ LFO'));
+    if (o.lfo && !o.lfo.alone) nodes.push(h('span', { class: 'jack-extra', style: `left:${pos.x - 48}px;top:${pos.y + JACK_R + 14}px` }, '+ LFO'));
   }
 
   // ---- cables for the selected source(s)
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('class', 'cables');
   const stageW = x;
-  const stageH = Math.max(RY + PANEL_H + 110, cardsBottom + 10);
+  const stageH = Math.max(RY + PANEL_H + 84, cardsBottom + 10);
   svg.setAttribute('width', stageW);
   svg.setAttribute('height', stageH);
   for (const id of selectedSources) {
@@ -250,7 +257,7 @@ export function renderStage(view, colors, selected, onSelect) {
   // ---- resources under the rack
   const r = view.resources;
   const pill = (name, v) => v && h('span', { class: 'pill' }, `${name} ${v[0]}/${v[1]}`);
-  nodes.push(h('div', { class: 'stage-foot', style: `left:${RX}px;top:${RY + PANEL_H + 20}px;width:${rackW}px` },
+  nodes.push(h('div', { class: 'stage-foot', style: `left:${RX}px;top:${RY + PANEL_H + 16}px;width:${rackW}px` },
 
     h('div', { class: 'pills', 'aria-label': 'FH-2 resources in use' },
       pill('MIDI→CV', r.converters), pill('Clocks', r.clocks), pill('Triggers', r.triggers), pill('Euclid', r.euclids),
@@ -273,18 +280,17 @@ function modulePanel(m, x, w, view) {
   if (m.kind === 'fh2') {
     const g = view.globals;
     parts.push(
-      h('div', { class: 'fh2-display', style: 'left:37px;top:62px' },
+      h('div', { class: 'fh2-display', style: 'left:25px;top:52px' },
         h('div', {}, h('span', {}, (g.name || 'config').slice(0, 16))),
         h('div', {}, h('span', {}, (g.presetName || '').slice(0, 12)), h('span', {}, g.tempo ? g.tempo.toFixed(1) : ''))),
-      h('span', { class: 'knob', style: 'left:53px;top:141px;width:18px;height:18px;background:#2c2f36;border:2px solid #4a4e57' }),
-      h('span', { class: 'knob', style: 'left:140px;top:128px;width:44px;height:44px;background:#1c1e23;border:3px solid #3a3d44' }),
-      h('span', { class: 'usb', style: 'left:47px;top:212px;width:30px;height:16px;border-radius:2px' }),
-      h('span', { class: 'panel-text', style: 'left:12px;top:232px' }, 'USB A'),
-      h('span', { class: 'usb', style: 'left:52px;top:280px;width:20px;height:10px;border-radius:5px' }),
-      h('span', { class: 'panel-text', style: 'left:12px;top:296px' }, 'USB C'),
+      h('span', { class: 'knob', style: `left:${FH2_COLS[0] - 11}px;top:${rowY(1) - 22}px;width:18px;height:18px;background:#2c2f36;border:2px solid #4a4e57` }),
+      h('span', { class: 'knob', style: `left:${FH2_COLS[1] - 25}px;top:${rowY(1) - 35}px;width:44px;height:44px;background:#1c1e23;border:3px solid #3a3d44` }),
+      // USB A and USB C, standing as on the module, on the rows of inputs X and Y
+      h('span', { class: 'usb', title: 'USB A', style: `left:${FH2_COLS[0] - 10}px;top:${rowY(2) - 17}px;width:16px;height:30px;border-radius:2px` }),
+      h('span', { class: 'usb', title: 'USB C', style: `left:${FH2_COLS[0] - 7}px;top:${rowY(3) - 12}px;width:10px;height:20px;border-radius:5px` }),
     );
   }
-  return h('div', { class: 'module', style: `left:${x}px;top:${RY}px;width:${w}px` }, parts);
+  return h('div', { class: 'module', style: `left:${x}px;top:${RY}px;width:${w}px;height:${PANEL_H}px` }, parts);
 }
 
 // Inputs X and Y: what they turn their CV into, if anything; a click opens the input's panel.
@@ -294,13 +300,13 @@ function fh2Inputs(x, view, colors, selected, onSelect) {
     const p = view.players.find((pl) => pl.id === `cvMidi:${i}`);
     const use = inputUse(p);
     const on = selected?.input === i || selected?.player === `cvMidi:${i}`;
-    const cx = x + 162;
-    const cy = RY + 220 + 65 * i;
-    out.push(h('span', { class: 'jack-num', style: `left:${cx - 36}px;top:${cy - 7}px` }, name));
+    const cx = x + FH2_COLS[1];
+    const cy = RY + rowY(2 + i);
+    out.push(h('span', { class: 'jack-num', style: `left:${cx - 34}px;top:${cy - 7}px` }, name));
     out.push(h('button', { type: 'button', class: 'jack' + (on ? ' selected' : ''), 'aria-pressed': on ? 'true' : 'false',
       'aria-label': `Input ${name}: ${p ? `${use}${use === 'modulation' ? `, moves ${p.targets.length}` : ''}` : 'not turning CV into MIDI'}`, title: `Input ${name}`,
-      style: `left:${cx - 15}px;top:${cy - 15}px;--src:${p ? colors.get(p.id) ?? '#9cc9ff' : '#8a91a0'}`, onclick: () => onSelect({ input: i }) }));
-    out.push(h('span', { class: 'jack-label' + (p ? ' used' : ''), style: `left:${cx - 52}px;top:${cy + 18}px;--src:${p ? colors.get(p.id) ?? '#9cc9ff' : '#8a91a0'}` },
+      style: `left:${cx - JACK_R}px;top:${cy - JACK_R}px;--src:${p ? colors.get(p.id) ?? '#9cc9ff' : '#8a91a0'}`, onclick: () => onSelect({ input: i }) }));
+    out.push(h('span', { class: 'jack-label' + (p ? ' used' : ''), style: `left:${cx - 48}px;top:${cy + JACK_R + 2}px;--src:${p ? colors.get(p.id) ?? '#9cc9ff' : '#8a91a0'}` },
       p ? `in → ${INPUT_SHORT[use] ?? use}` : view.inputs[i].gateFor ? `gate of ${'XY'[1 - i]}` : 'in'));
   });
   return out;

@@ -1,6 +1,7 @@
 // Tests for the open findings of the code review of 2026-11-08 (docs/review-2026-11-08.md), fixed
 // 2026-11-09: what each finding showed, now the other way round.
 
+import { columnsFor } from '../js/ui/masonry.js';
 import { test, assert, eq } from './harness.js';
 import { apply, History, removeSource, voiceChannel, useInput, INPUT_USES, setDirectLevel, setConverter } from '../js/patch/edit.js';
 import { freeCcs, freeEuclid } from '../js/patch/alloc.js';
@@ -163,4 +164,12 @@ test('what the FH-2 held when last read or sent goes with the project', async ()
   const back = projectFromJson(projectToJson({ config, scenes: [preset], scene: 0, names: {}, hardware: null, base }));
   eq([back.base.config.converter[0].channel, back.base.scene, back.base.preset.name], [9, 0, preset.values.name]);
   eq(projectFromJson(projectToJson({ config, scenes: [preset], scene: 0, names: {}, hardware: null })).base, null, 'none: null');
+});
+
+test('the Settings tab’s boxes: the first row in order, then each under the column that keeps the whole lowest', () => {
+  // three columns; boxes 0-2 the first row (heights 300, 100, 200), then 150 and 250
+  eq(columnsFor([300, 100, 200, 150, 250], 3, 16), [0, 1, 2, 2, 1], '150 under the 200 and 250 under the 100: 382 px high, not 548 with both under the 100');
+  eq(columnsFor([100, 100], 3, 16), [0, 1], 'fewer boxes than columns');
+  eq(columnsFor([100, 400, 100, 100, 100], 2, 16), [0, 1, 0, 0, 0], 'two columns: the rest under the short one');
+  eq(columnsFor([50, 50, 60], 1, 16), [0, 0, 0], 'one column');
 });

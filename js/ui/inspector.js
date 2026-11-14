@@ -27,6 +27,18 @@ const yes = (b) => (b ? 'on' : 'off');
 // Sources that can be removed so far (M2a).
 const REMOVABLE = new Set(['voice', 'triggers', 'level', 'knobs', 'lfo', 'clock', 'euclid', 'hid', 'random']);
 
+// How things come off, the same everywhere: an × on a row takes off what that row links (a source
+// from a jack, an LFO, a CC mapping, a player); the button at the bottom of a source's panel removes
+// the whole source. `port`: the source's port on that jack.
+function removeX(s, port, act) {
+  if (!act || !REMOVABLE.has(s.kind) || !port) return null;
+  const x = h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${port.name} from jack ${port.jack}`,
+    title: s.track ? 'Turn this output off; the row closes up' : s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up'
+      : s.kind === 'hid' ? 'Switch this entry off'
+      : ['level', 'knobs', 'lfo'].includes(s.kind) ? 'Clear the jack: level, LFO, smoothing and their CCs' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
+  return s.kind === 'lfo' ? h('span', { class: 'per-scene' }, x) : x; // an LFO is the scene's: it comes off with “Scenes only” on too
+}
+
 // `act` is { edit(label, changes), add(output), remove(source, port?) }; each changes the
 // patch through edit.js and redraws.
 export function renderInspector(view, colors, selected, onSelect, act) {
@@ -86,7 +98,7 @@ function sourceInspector(view, colors, s, onSelect, act) {
   }
   if ((s.kind === 'voice' && !s.track) || s.kind === 'triggers') parts.push(playedBy(view, s, act, onSelect, colors)); // a track is played by the BCR32
 
-  parts.push(section('Comes out of', s.ports.length ? s.ports.map((p) => row(portName(s, p), chip(p.jack ?? '?', color, p.present === false)))
+  parts.push(section('Comes out of', s.ports.length ? s.ports.map((p) => row(portName(s, p), [chip(p.jack ?? '?', color, p.present === false), removeX(s, p, act)]))
     : h('p', { class: 'note' }, s.kind === 'random' ? 'No jack: it plays its notes only.' : 'No jack: it runs as long as it has pulses.')));
   if (s.ports.some((p) => p.present === false)) parts.push(h('p', { class: 'note' }, 'Crossed out: not in your rack.'));
   if (s.standby) parts.push(h('p', { class: 'note' }, `Only with a USB ${s.id === 'gamepad' ? 'gamepad' : 'keyboard'} on USB A.`));
@@ -246,20 +258,19 @@ function jackInspector(view, colors, o, onSelect, act) {
   const portRow = (p) => {
     const s = view.sources.find((x) => x.id === p.source);
     const port = s.ports.find((x) => x.output === o.index && x.name === p.name);
-    const remove = REMOVABLE.has(s.kind) && port
-      && h('button', { type: 'button', class: 'remove', 'aria-label': `Remove ${s.name} ${p.name} from jack ${o.jack}`,
-        title: s.track ? 'Turn this output off; the row closes up' : s.kind === 'voice' ? 'Turn this output off, for every voice; the outputs after it move up'
-          : s.kind === 'hid' ? 'Switch this entry off'
-          : ['level', 'knobs', 'lfo'].includes(s.kind) ? 'Clear the jack: level, LFO, smoothing and their CCs' : 'Remove from this jack', onclick: () => act.remove(s, port) }, '×');
-    return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), [chip(p.name, colors.get(s.id)), remove]);
+    return row(h('button', { type: 'button', class: 'linkish', onclick: () => onSelect({ source: s.id }) }, s.name), [chip(p.name, colors.get(s.id)), removeX(s, port, act)]);
   };
+  // an LFO on top of what drives the jack is listed with it, and comes off the same way (an LFO on
+  // its own is a source of its own, listed above)
+  const lfoRow = o.lfo && !o.lfo.alone && perScene(row('LFO on top', [chip('LFO', '#3DD6C6'), h('button', { type: 'button', class: 'remove',
+    'aria-label': `Remove the LFO on jack ${o.jack}`, title: 'With the CCs on its settings', onclick: () => act.removeLfo(o.index, o.jack) }, '×')]));
   const active = o.ports.filter((p) => !p.standby);
   const standby = o.ports.filter((p) => p.standby);
   // what drives the jack besides its own level, LFO and smoothing (a knob or an LFO on its own uses
   // the level), and whether it replaces the level: a voice's pitch does, gate-type outputs have their gate levels
   const d = active.map((p) => ({ p, s: view.sources.find((x) => x.id === p.source) })).find(({ p, s }) => s && !p.knob && !['level', 'knobs', 'lfo'].includes(s.kind));
   const replaces = !!d && replacesLevel(d.s, d.p.name);
-  parts.push(section('Comes out of', active.length ? active.map(portRow) : h('p', { class: 'note' }, 'Nothing: this jack is free.'),
+  parts.push(section('Comes out of', active.length ? [...active.map(portRow), lfoRow] : h('p', { class: 'note' }, 'Nothing: this jack is free.'),
     !d && o.present && h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn' + (active.length ? '' : ' primary'), onclick: () => act.add(o.index) }, 'Add a source…'))));
   if (standby.length) parts.push(section('With a USB device on USB A', standby.map(portRow)));
   // a MIDI knob on this jack: its channel, CC and relative here too, not only on its channel's source
@@ -275,8 +286,7 @@ function jackInspector(view, colors, o, onSelect, act) {
   else if (knobs) parts.push(h('section', { class: 'section' }, h('h3', {}, 'MIDI knob'), knobEditor(view, knobs, act, o.index)));
   // every CV jack has an LFO: its editor while it's on, else a way to turn it on
   if (o.lfo) {
-    parts.push(h('section', { class: 'section' }, h('h3', {}, o.lfo.alone ? 'LFO' : 'LFO on top'), lfoEditor(view, o, act, o.lfo.alone ? colors.get(`lfo:${o.index}`) ?? '#3DD6C6' : '#3DD6C6'),
-      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn per-scene', title: 'With the CCs on its settings', onclick: () => act.removeLfo(o.index, o.jack) }, 'Remove the LFO'))));
+    parts.push(h('section', { class: 'section' }, h('h3', {}, o.lfo.alone ? 'LFO' : 'LFO on top'), lfoEditor(view, o, act, o.lfo.alone ? colors.get(`lfo:${o.index}`) ?? '#3DD6C6' : '#3DD6C6')));
   } else if (!o.gate && o.lfoRaw) {
     parts.push(h('div', { class: 'actions' }, d
       ? h('button', { type: 'button', class: 'btn per-scene', title: 'Vibrato on a pitch, wobble on a level',

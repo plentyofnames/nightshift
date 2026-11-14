@@ -243,3 +243,13 @@ test('the BCR32 thru passes what the FH-2 listens to: its channels and Night Shi
   eq(pass(0xb5, 30, 1), true, 'Night Shift’s knob, wherever it sends');
   eq([pass(0xf0, 0x00, 0x20, 0xf7), pass(0xf8), pass(0xfa), pass(0xfc)], [false, false, false, false], 'not Rotary Club’s SysEx, not the clock and transport');
 });
+
+test('two BCR32 tracks sending on one channel are a problem (the FH-2 can’t tell them apart)', () => {
+  const p = blank();
+  const a = track(2, 'Knights Sampler', { channel: 15 });
+  const b = track(15, 'Knights Sampler', { channel: 15 });
+  eq(view(p, [a, b]).problems.map((x) => x.message), ['TR3 · Knights Sampler and TR16 · Knights Sampler both send on ch 16']);
+  eq(view(p, [a, b, track(4, 'Generic', { channel: 15 })]).problems.map((x) => x.message), ['TR3 · Knights Sampler, TR16 · Knights Sampler and TR5 · Generic all send on ch 16']);
+  eq(view(p, [a, track(15, 'TD-3', { channel: 15 }), track(6, 'Generic', { channel: 15, output: 'DIN A' })]).problems, [], 'only tracks that reach the FH-2 count');
+  eq(view(p, [a, track(15, 'Knights Sampler', { channel: 14 })]).problems, []);
+});
