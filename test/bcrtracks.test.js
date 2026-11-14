@@ -3,7 +3,7 @@
 // showing a track's voice, CC → CV outputs and gate triggers as one source.
 
 import { test, assert, eq } from './harness.js';
-import { apply, setConverter, setRange } from '../js/patch/edit.js';
+import { apply, setConverter, setRange, addKnob } from '../js/patch/edit.js';
 import { derive } from '../js/patch/derive.js';
 import { blankConfig, blankPreset } from '../js/patch/blank.js';
 import { reachesFh2, trackValues, firstValues, trackPlan, trackEdits, trackLayout, trackStart, claimsOf, rangesOff, rangeEdits } from '../js/patch/bcrtracks.js';
@@ -11,6 +11,7 @@ import { mappingsOf } from '../js/patch/mappings.js';
 import { projectToJson, projectFromJson } from '../js/patch/project.js';
 import { pagesOf, ccsFor } from '../js/ec4/pages.js';
 import { parseTracks, trackLine } from '../js/rotary/tracks.js';
+import { fh2Channels, passes } from '../js/rotary/thru.js';
 
 const track = (index, machine, { channel = index, output = 'USB', a = { type: 'CC', cc: 74 }, b = { type: 'CC', cc: 71 } } = {}) => ({
   index, channel, machine, output, a, b, muted: false,
@@ -225,4 +226,20 @@ test('a project keeps the BCR32’s tracks, so they show without the unit', () =
   eq(back.tracks.tracks[2].machine, 'Plaits Chords');
   eq([...back.tracks.bytes], [...bytes]);
   eq(projectFromJson(projectToJson({ config: p.config, scenes: [p.preset], scene: 0, names: {}, hardware: null })).tracks, null);
+});
+
+test('the BCR32 thru passes what the FH-2 listens to: its channels and Night Shift’s knobs; never SysEx or the clock', () => {
+  const p = blank();
+  const ks = track(3, 'Knights Sampler', { a: { type: 'CC', cc: 16 }, b: { type: 'CC', cc: 17 } });
+  apply(p, trackEdits(vals(p), view(p, [ks]), ks, null, { on: firstValues(ks), start: 0 }));
+  apply(p, addKnob(vals(p), 8, 0, 20)); // a knob on ch 1
+  p.config.values.presetProgramChannel = 10; // scenes by program change on ch 10
+  const channels = fh2Channels(view(p, [ks]), p.config.values);
+  eq([...channels].sort((a, b) => a - b), [0, 3, 9]);
+  const knobs = new Set(['5:30']); // a Night Shift knob on ch 6
+  const pass = (...b) => passes(b, channels, knobs);
+  eq([pass(0x93, 60, 100), pass(0x83, 60, 0), pass(0xb3, 16, 64), pass(0xb0, 20, 1), pass(0xc9, 2)], [true, true, true, true, true], 'notes and CCs of the track, the knob, a scene change');
+  eq([pass(0x94, 60, 100), pass(0xb5, 31, 1), pass(0xc4, 2)], [false, false, false], 'channels the FH-2 doesn’t use');
+  eq(pass(0xb5, 30, 1), true, 'Night Shift’s knob, wherever it sends');
+  eq([pass(0xf0, 0x00, 0x20, 0xf7), pass(0xf8), pass(0xfa), pass(0xfc)], [false, false, false, false], 'not Rotary Club’s SysEx, not the clock and transport');
 });

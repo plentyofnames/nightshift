@@ -39,7 +39,7 @@ export function renderBcr32(view, bcr, colors, sel, act) {
     h('span', { class: 'ec4-speed', title: 'How far you turn for a whole setting, the same for all (EC4 too)' }, 'Knob speed ',
       SPEEDS.map(([v, label]) => h('button', { type: 'button', class: 'btn small', 'aria-pressed': act.speed === v ? 'true' : 'false', onclick: () => act.speed !== v && act.setSpeed(v) }, label))),
     h('button', { type: 'button', class: 'btn small', 'aria-pressed': act.thru ? 'true' : 'false', onclick: act.toggleThru,
-      title: 'Passes Night Shift’s BCR32 knobs on to the FH-2. Off while Logic does that.' }, act.thru ? 'Thru on' : 'Thru off'));
+      title: 'Passes Night Shift’s BCR32 knobs and all the BCR32 sends on the FH-2’s channels on to the FH-2. Off while Logic does that.' }, act.thru ? 'Thru on' : 'Thru off'));
 
   const halfOk = freeHalf(bcr, p, (q, i) => !!foreign(q, i)) >= 0;
   const pages = h('nav', { class: 'ec4-groups', 'aria-label': 'Pages' },

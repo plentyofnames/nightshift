@@ -33,6 +33,7 @@ import { wanted, plan, writePlan, storeImage, readImage, emptyHeld, heldToJson, 
 import { midiPermission } from '../vendor/lilypad/js/midi.js';
 import { mergeFromModule, changedOutside, placesText } from './patch/sync.js';
 import { parseTracks, hasTracks, TRACKS_SPACE, TRACKS_LEN, TRACKS_CHANGED } from './rotary/tracks.js';
+import { fh2Channels, passes } from './rotary/thru.js';
 import { trackEdits, trackLayout } from './patch/bcrtracks.js';
 import { unframe } from '../vendor/eyeofprovidence/js/proto.js';
 import { Bcr32Link } from './rotary/link.js';
@@ -1943,15 +1944,26 @@ function bcrAddresses() {
   return out;
 }
 
-// The BCR32's MIDI (its knobs, keys and sequencer tracks share the port): Night Shift's knobs go on to
-// the FH-2 (thru), their value shows right away, and the FH-2 is read back once they rest.
+// What the BCR32 thru passes, worked out again only when the patch or the BCR32's pages change.
+let thruFor = [];
+function bcrThru() {
+  if (thruFor[0] !== state.view || thruFor[1] !== state.bcrModel) thruFor = [state.view, state.bcrModel, fh2Channels(state.view, state.config?.values), bcrAddresses()];
+  return thruFor;
+}
+
+// The BCR32's MIDI (its knobs, keys and sequencer tracks share the port): with the thru on, what the
+// FH-2 listens to goes on to it (rotary/thru.js: the channels it uses, and Night Shift's knobs); a
+// knob's value shows right away, and the FH-2 is read back once they rest.
 function onBcr32Midi(bytes) {
+  if (state.bcr32.thru) {
+    const [, , channels, knobs] = bcrThru();
+    if (passes(bytes, channels, knobs)) {
+      if (fh2Out?.state === 'connected') fh2Out.send(bytes);
+      else fh2Output().then((o) => { fh2Out = o; o?.send(bytes); }).catch(() => {});
+    }
+  }
   const model = state.bcrModel;
   if (!model) return;
-  if (state.bcr32.thru && (bytes[0] & 0xf0) === 0xb0 && bcrAddresses().has(`${bytes[0] & 15}:${bytes[1]}`)) {
-    if (fh2Out?.state === 'connected') fh2Out.send(bytes);
-    else fh2Output().then((o) => { fh2Out = o; o?.send(bytes); }).catch(() => {});
-  }
   const link = state.bcr32.link;
   const page = link?.page != null && model.pages[link.page];
   if (!page) return;
@@ -1977,7 +1989,7 @@ function toggleBcr32Thru() {
   try {
     localStorage.setItem(BCR_THRU_KEY, state.bcr32.thru ? '1' : '0');
   } catch {}
-  status(state.bcr32.thru ? 'Thru on: Night Shift’s BCR32 knobs go on to the FH-2' : 'Thru off');
+  status(state.bcr32.thru ? 'Thru on: the BCR32’s knobs and tracks go on to the FH-2' : 'Thru off');
 }
 
 // ---- rack setup
